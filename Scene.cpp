@@ -1,6 +1,5 @@
 #include "Scene.h"
 #include "EditorRenderer.h"
-#include <windows.h>
 
 Scene::Scene(EditorRenderer* renderer)
 {
@@ -24,8 +23,8 @@ Scene::Scene(EditorRenderer* renderer)
 
 void Scene::updateThread()
 {
-	float current_time = (float)GetTickCount64() / 1000.0f;
-	
+	static float current_time = 0.0f;
+	current_time += 0.001f;
     int id = 0;
     for (int x = 0; x < 25; x++)
 	{
@@ -33,7 +32,7 @@ void Scene::updateThread()
 		{
 			for (int z = 0; z < 25; z++)
 			{
-                updateInstance(id++, { x * 5.0f, 2.0f*sin(current_time) + y * 5.0f, z * 5.0f });
+                updateInstance(id++, { x * 5.0f, 2.0f*sinf(current_time) + y * 5.0f, z * 5.0f });
 			}
 		}
 	}

@@ -1,14 +1,15 @@
 #include "EditorRenderer.h"
 
+#define WIN32_LEAN_AND_MEAN
 #include <windows.h>
-#include <comdef.h>
 #include <d3d11.h>
 #include <d3dcompiler.h>
 #include <dxgi.h>
-#include "Math.h"
 #include <dxgi1_6.h>
 
-#include <vector>
+#include "ScratchAllocator.h"
+#include "Array.h"
+#include "Math.h"
 
 #pragma comment(lib, "d3d11.lib")
 #pragma comment(lib, "d3dcompiler.lib")
@@ -173,8 +174,10 @@ void load_default_shaders(ID3D11Device* p_device, Model* p_model)
 
 inline void generate_sphere_mesh(ID3D11Device* p_device, Mesh* p_mesh, int latitude_count = 8, int longitude_count = 8)
 {
-    std::vector<float> vertices;
-    std::vector<UINT> indices;
+    ScratchPadAllocator ta;
+    
+    Array<float> vertices(ta);
+    Array<UINT> indices(ta);
     
     // Generate vertices
     for(int lat = 0; lat <= latitude_count; lat++) 

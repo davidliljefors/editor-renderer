@@ -1,6 +1,6 @@
 #pragma once
 
-#include <cstddef>
+#include <string.h>
 
 using u8 = unsigned char;
 using u32 = unsigned int;

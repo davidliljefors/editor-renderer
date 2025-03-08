@@ -30,6 +30,15 @@ if errorlevel 1 (
     exit /b 1
 )
 
+:: Compile ScratchAllocator.cpp
+echo Compiling ScratchAllocator.cpp...
+cl.exe ScratchAllocator.cpp %COMPILER_FLAGS% /Fo:%OUTPUT_DIR%\ScratchAllocator.obj /c
+
+if errorlevel 1 (
+    echo Compilation of ScratchAllocator.cpp failed
+    exit /b 1
+)
+
 :: Compile Scene.cpp
 echo Compiling Scene.cpp...
 cl.exe Scene.cpp %COMPILER_FLAGS% /Fo:%OUTPUT_DIR%\Scene.obj /c
@@ -50,7 +59,7 @@ if errorlevel 1 (
 
 :: Compile main.cpp and link with mh64
 echo Compiling main.cpp and linking...
-cl.exe main.cpp %OUTPUT_DIR%\EditorRenderer.obj %OUTPUT_DIR%\Scene.obj %OUTPUT_DIR%\mh64.obj %COMPILER_FLAGS% /Fe:%OUTPUT_DIR%\main.exe /Fo:%OUTPUT_DIR%\main.obj
+cl.exe main.cpp %OUTPUT_DIR%\EditorRenderer.obj %OUTPUT_DIR%\ScratchAllocator.obj %OUTPUT_DIR%\Scene.obj %OUTPUT_DIR%\mh64.obj %COMPILER_FLAGS% /Fe:%OUTPUT_DIR%\main.exe /Fo:%OUTPUT_DIR%\main.obj
 
 if errorlevel 1 (
     echo Compilation failed

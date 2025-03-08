@@ -1,7 +1,6 @@
 #pragma once
 
-#include <cmath>
-#include <cstdio>
+#include <math.h>
 
 using u64 = unsigned long long;
 using u32 = unsigned int;

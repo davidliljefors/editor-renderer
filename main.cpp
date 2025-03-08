@@ -1,8 +1,13 @@
 #include "Scene.h"
 #include "EditorRenderer.h"
+
+#include "ScratchAllocator.h"
+
+#pragma comment(lib, "user32.lib")
+#define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 
-struct Event
+struct ResizeEvent
 {
     u32 w;
     u32 h;
@@ -15,7 +20,7 @@ struct ThreadData
     bool shouldExit;
 };
 
-Event* wantResize = nullptr;
+ResizeEvent* wantResize = nullptr;
 ThreadData g_threadData;
 HANDLE g_renderThread;
 HANDLE g_updateThread;
@@ -33,9 +38,8 @@ LRESULT CALLBACK EditorWndProc(HWND hwnd, UINT msg, WPARAM w_param, LPARAM l_par
             u32 w = LOWORD(l_param);
             if(h != 0 && w != 0)
             {
-                puts("resizing");
-                Event* newEvent = new Event{w, h};
-                Event* oldEvent = (Event*)InterlockedExchangePointer((PVOID*)&wantResize, newEvent);
+                ResizeEvent* newEvent = new ResizeEvent{w, h};
+                ResizeEvent* oldEvent = (ResizeEvent*)InterlockedExchangePointer((PVOID*)&wantResize, newEvent);
                 delete oldEvent;
             }
         }
@@ -59,7 +63,7 @@ DWORD WINAPI RenderThreadProc(LPVOID lpParameter)
     ThreadData* data = (ThreadData*)lpParameter;
     while (!data->shouldExit)
     {
-        Event* resizeEvent = (Event*)InterlockedExchangePointer((PVOID*)&wantResize, nullptr);
+        ResizeEvent* resizeEvent = (ResizeEvent*)InterlockedExchangePointer((PVOID*)&wantResize, nullptr);
         if(resizeEvent)
         {
             onWindowResize(data->renderer, resizeEvent->w, resizeEvent->h);
@@ -72,6 +76,8 @@ DWORD WINAPI RenderThreadProc(LPVOID lpParameter)
 
 int main()
 {
+    block_memory_init();
+
     WNDCLASSEX wc = {};
     wc.cbSize = sizeof(WNDCLASSEX);
     wc.lpfnWndProc = EditorWndProc;
@@ -148,6 +154,8 @@ int main()
         }
         Sleep(0);
     }
+
+    block_memory_shutdown();
 
     return 0;
 }
