@@ -5,11 +5,11 @@ Scene::Scene(EditorRenderer* renderer)
 {
 	m_renderer = renderer;
 
-	for (int x = 0; x < 25; x++)
+	for (int x = 0; x < 100; x++)
 	{
-		for (int y = 0; y < 25; y++)
+		for (int y = 0; y < 100; y++)
 		{
-			for (int z = 0; z < 25; z++)
+			for (int z = 0; z < 100; z++)
 			{
 				addInstance({ x * 5.0f, y * 5.0f, z * 5.0f });
 			}
@@ -26,16 +26,6 @@ void Scene::updateThread()
 	static float current_time = 0.0f;
 	current_time += 0.001f;
     int id = 0;
-    for (int x = 0; x < 25; x++)
-	{
-		for (int y = 0; y < 25; y++)
-		{
-			for (int z = 0; z < 25; z++)
-			{
-                updateInstance(id++, { x * 5.0f, 2.0f*sinf(current_time) + y * 5.0f, z * 5.0f });
-			}
-		}
-	}
 }
 
 void Scene::renderThread()

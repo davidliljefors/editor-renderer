@@ -78,6 +78,8 @@ int main()
 {
     block_memory_init();
 
+    bool isFullscreen = true;
+
     WNDCLASSEX wc = {};
     wc.cbSize = sizeof(WNDCLASSEX);
     wc.lpfnWndProc = EditorWndProc;
@@ -86,14 +88,23 @@ int main()
     
     RegisterClassEx(&wc);
 
-    int screen_width = 900;
-    int screen_height = 600;
+    int screen_width = 1600;
+    int screen_height = 900;
+
+    DWORD windowStyle = isFullscreen ? WS_VISIBLE|WS_POPUP : (WS_OVERLAPPEDWINDOW | WS_VISIBLE);
+    DWORD windowExStyle = isFullscreen ? WS_EX_APPWINDOW : WS_EX_APPWINDOW;
+
+    if (isFullscreen)
+    {
+        screen_width = GetSystemMetrics(SM_CXSCREEN);
+        screen_height = GetSystemMetrics(SM_CYSCREEN);
+    }
 
     HWND hwnd = CreateWindowExA(
-        WS_EX_APPWINDOW,
+        windowExStyle,
         "EditorRendererClass",
         "Editor Renderer",
-        WS_OVERLAPPEDWINDOW | WS_VISIBLE,
+        windowStyle,
         0, 0,
         screen_width, screen_height,
         nullptr,

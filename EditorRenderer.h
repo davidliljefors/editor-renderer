@@ -19,7 +19,6 @@ struct Instance
 
 struct Constants
 {
-	matrix model;
 	matrix view;
 	matrix projection;
 	float3 lightvector;

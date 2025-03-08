@@ -30,9 +30,12 @@ struct Model
 
 	ID3D11Texture2D* m_p_texture;
 	ID3D11ShaderResourceView* m_p_texture_srv;
+	ID3D11Buffer* m_p_instance_buffer;
 
 	Mesh m_mesh;
 };
+
+static const int MAX_INSTANCES = 512; // 16K instances per batch - good balance between memory and draw call overhead
 
 struct EditorRenderer
 {
@@ -50,7 +53,6 @@ struct EditorRenderer
 	Model m_models[MAX_MODELS];
 	int m_model_count;
 
-	static const int MAX_INSTANCES = 1024;
 	Instance m_instances[MAX_INSTANCES];
 	int m_instance_count;
 
@@ -68,7 +70,6 @@ struct EditorRenderer
 const char* g_shaderSrc = R"(
 cbuffer constants : register(b0)
 {
-    row_major float4x4 model;
     row_major float4x4 view;
     row_major float4x4 projection;
     float3 lightvector;
@@ -82,26 +83,40 @@ struct vertexdesc
     float3 color : COL;
 };
 
+struct instancedesc
+{
+    float4 position : INSTANCE_POS;
+};
+
 struct pixeldesc
 {
     float4 position : SV_POSITION;
     float2 texcoord : TEX;
     float4 color : COL;
+    float3 worldnormal : NORMAL;
 };
 
 Texture2D mytexture : register(t0);
 SamplerState mysampler : register(s0);
 
-pixeldesc vs_main(vertexdesc vertex)
+pixeldesc vs_main(vertexdesc vertex, instancedesc instance)
 {
+    float4x4 model = {
+        1, 0, 0, 0,
+        0, 1, 0, 0,
+        0, 0, 1, 0,
+        instance.position.x, instance.position.y, instance.position.z, 1
+    };
+    
     float4 worldPos = mul(float4(vertex.position, 1.0f), model);
     float3 worldNormal = mul(vertex.normal, (float3x3)model);
-    
-    float light = clamp(dot(normalize(worldNormal), normalize(-lightvector)), 0.0f, 1.0f) * 0.8f + 0.2f;
     
     pixeldesc output;
     output.position = mul(worldPos, mul(view, projection));
     output.texcoord = vertex.texcoord;
+    output.worldnormal = worldNormal;
+    
+    float light = clamp(dot(normalize(worldNormal), normalize(-lightvector)), 0.0f, 1.0f) * 0.8f + 0.2f;
     output.color = float4(vertex.color * light, 1.0f);
 
     return output;
@@ -109,7 +124,8 @@ pixeldesc vs_main(vertexdesc vertex)
 
 float4 ps_main(pixeldesc pixel) : SV_TARGET
 {
-    return mytexture.Sample(mysampler, pixel.texcoord) * pixel.color;
+    float light = clamp(dot(normalize(pixel.worldnormal), normalize(-lightvector)), 0.0f, 1.0f) * 0.8f + 0.2f;
+    return mytexture.Sample(mysampler, pixel.texcoord) * pixel.color * light;
 }
 )";
 
@@ -128,6 +144,12 @@ void load_default_shaders(ID3D11Device* p_device, Model* p_model)
     ID3DBlob* p_error_blob = nullptr;
     D3DCompile(g_shaderSrc, strlen(g_shaderSrc), nullptr, nullptr, nullptr, "vs_main", "vs_5_0", 0, 0, &p_vertex_shader_cso, &p_error_blob);
 
+    if (p_error_blob)
+    {
+        OutputDebugStringA((char*)p_error_blob->GetBufferPointer());
+        p_error_blob->Release();
+    }
+
     p_device->CreateVertexShader(p_vertex_shader_cso->GetBufferPointer(), p_vertex_shader_cso->GetBufferSize(), nullptr, &p_model->m_p_vertex_shader);
 
     D3D11_INPUT_ELEMENT_DESC input_element_desc[] =
@@ -136,14 +158,25 @@ void load_default_shaders(ID3D11Device* p_device, Model* p_model)
         { "NOR", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, D3D11_APPEND_ALIGNED_ELEMENT, D3D11_INPUT_PER_VERTEX_DATA, 0 },
         { "TEX", 0, DXGI_FORMAT_R32G32_FLOAT, 0, D3D11_APPEND_ALIGNED_ELEMENT, D3D11_INPUT_PER_VERTEX_DATA, 0 },
         { "COL", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, D3D11_APPEND_ALIGNED_ELEMENT, D3D11_INPUT_PER_VERTEX_DATA, 0 },
+        { "INSTANCE_POS", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 1, 0, D3D11_INPUT_PER_INSTANCE_DATA, 1 },
     };
 
     p_device->CreateInputLayout(input_element_desc, ARRAYSIZE(input_element_desc), p_vertex_shader_cso->GetBufferPointer(), p_vertex_shader_cso->GetBufferSize(), &p_model->m_p_input_layout);
 
+    p_vertex_shader_cso->Release();
+
     ID3DBlob* p_pixel_shader_cso;
     D3DCompile(g_shaderSrc, strlen(g_shaderSrc), nullptr, nullptr, nullptr, "ps_main", "ps_5_0", 0, 0, &p_pixel_shader_cso, &p_error_blob);
 
+    if (p_error_blob)
+    {
+        OutputDebugStringA((char*)p_error_blob->GetBufferPointer());
+        p_error_blob->Release();
+    }
+
     p_device->CreatePixelShader(p_pixel_shader_cso->GetBufferPointer(), p_pixel_shader_cso->GetBufferSize(), nullptr, &p_model->m_p_pixel_shader);
+
+    p_pixel_shader_cso->Release();
 
     D3D11_SAMPLER_DESC sampler_desc = {};
     sampler_desc.Filter = D3D11_FILTER_MIN_MAG_MIP_POINT;
@@ -170,6 +203,27 @@ void load_default_shaders(ID3D11Device* p_device, Model* p_model)
 
     p_device->CreateTexture2D(&texture_desc, &texture_srd, &p_model->m_p_texture);
     p_device->CreateShaderResourceView(p_model->m_p_texture, nullptr, &p_model->m_p_texture_srv);
+
+    float4 initial_instance_data[MAX_INSTANCES];
+    for (int i = 0; i < MAX_INSTANCES; i++)
+    {
+        initial_instance_data[i] = float4{0.0f, 0.0f, 0.0f, 1.0f};
+    }
+
+    D3D11_BUFFER_DESC instance_buffer_desc = {};
+    instance_buffer_desc.ByteWidth = sizeof(float4) * MAX_INSTANCES;
+    instance_buffer_desc.Usage = D3D11_USAGE_DYNAMIC;
+    instance_buffer_desc.BindFlags = D3D11_BIND_VERTEX_BUFFER;
+    instance_buffer_desc.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
+    instance_buffer_desc.MiscFlags = 0;
+    instance_buffer_desc.StructureByteStride = sizeof(float4);
+
+    D3D11_SUBRESOURCE_DATA instance_buffer_data = {};
+    instance_buffer_data.pSysMem = initial_instance_data;
+    instance_buffer_data.SysMemPitch = 0;
+    instance_buffer_data.SysMemSlicePitch = 0;
+
+    p_device->CreateBuffer(&instance_buffer_desc, &instance_buffer_data, &p_model->m_p_instance_buffer);
 }
 
 inline void generate_sphere_mesh(ID3D11Device* p_device, Mesh* p_mesh, int latitude_count = 8, int longitude_count = 8)
@@ -570,21 +624,18 @@ void renderFrame(EditorRenderer* rend, const SwissTable<Instance>& instances)
         }
     }
     
-    FLOAT clearcolor[4] = { 0.015f, 0.015f, 0.015f, 1.0f };
+    FLOAT clearcolor[4] = { 0.015f, 0.015f, 0.315f, 1.0f };
 
-    UINT stride = 11 * sizeof(float); // vertex size (11 floats: float3 position, float3 normal, float2 texcoord, float3 color)
-    UINT offset = 0;
+    UINT stride[2] = { 11 * sizeof(float), sizeof(float4) };
+    UINT offset[2] = { 0, 0 };
 
     D3D11_VIEWPORT viewport = { 0.0f, 0.0f, (float)rend->width, (float)rend->height, 0.0f, 1.0f };
     
-    ///////////////////////////////////////////////////////////////////////////////////////////////
-
     float aspect_ratio = viewport.Width / viewport.Height;
-    float fov_y = 3.14159f * 0.5f;  // 90 degrees in radians
-    float f = 1000.0f;                 // far plane
-    float n = 0.1f;                   // near plane
+    float fov_y = 3.14159f * 0.5f;
+    float f = 1000.0f;
+    float n = 0.1f;
     
-    // Perspective projection matrix with explicit FOV
     float tan_half_fov = tanf(fov_y * 0.5f);
     matrix proj = { 
         1.0f / (aspect_ratio * tan_half_fov), 0, 0, 0,
@@ -592,8 +643,6 @@ void renderFrame(EditorRenderer* rend, const SwissTable<Instance>& instances)
         0, 0, f / (f - n), 1,
         0, 0, -(n * f) / (f - n), 0 
     };
-
-    ///////////////////////////////////////////////////////////////////////////////////////////
    
     auto& context = rend->context;
     auto& constantbuffer = rend->constantBuffer;
@@ -603,41 +652,55 @@ void renderFrame(EditorRenderer* rend, const SwissTable<Instance>& instances)
     context->RSSetViewports(1, &viewport);
     context->VSSetConstantBuffers(0, 1, &constantbuffer);
 
-    // Common render state setup
     context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
     context->OMSetRenderTargets(1, &rend->renderTargetView, rend->depthStencilView);
     context->OMSetBlendState(nullptr, nullptr, 0xffffffff);
 
-    // Group instances by model to minimize state changes
     auto& model = rend->m_models[0];
     
-    // Set model-specific state
     context->IASetInputLayout(model.m_p_input_layout);
-    context->IASetVertexBuffers(0, 1, &model.m_mesh.m_p_vertex_buffer, &stride, &offset);
+    ID3D11Buffer* buffers[2] = { model.m_mesh.m_p_vertex_buffer, model.m_p_instance_buffer };
+    context->IASetVertexBuffers(0, 2, buffers, stride, offset);
     context->IASetIndexBuffer(model.m_mesh.m_p_index_buffer, DXGI_FORMAT_R32_UINT, 0);
     context->VSSetShader(model.m_p_vertex_shader, nullptr, 0);
     context->PSSetShader(model.m_p_pixel_shader, nullptr, 0);
     context->PSSetShaderResources(0, 1, &model.m_p_texture_srv);
     context->PSSetSamplers(0, 1, &model.m_p_sampler_state);
-	for (const auto& instance : instances)
-	{
 
-        // Render all instances using this model
-        D3D11_MAPPED_SUBRESOURCE constantbufferMSR;
-        context->Map(constantbuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &constantbufferMSR);
+    D3D11_MAPPED_SUBRESOURCE constantbufferMSR;
+    context->Map(constantbuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &constantbufferMSR);
+    {
+        Constants* constants = (Constants*)constantbufferMSR.pData;
+        matrix view = rend->m_camera.get_view_matrix();
+        constants->view = view;
+        constants->projection = proj;
+        constants->lightvector = float3{1.0f, -1.0f, 1.0f};
+    }
+    context->Unmap(constantbuffer, 0);
+
+    int total_instance_count = 0;
+    auto it = instances.begin();
+    auto end = instances.end();
+
+    while (it != end)
+    {
+        D3D11_MAPPED_SUBRESOURCE instanceBufferMSR;
+        context->Map(model.m_p_instance_buffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &instanceBufferMSR);
         {
-            Constants* constants = (Constants*)constantbufferMSR.pData;
-            
-            matrix model_matrix = instance.get_model_matrix();
-            matrix view = rend->m_camera.get_view_matrix();
-            constants->model = model_matrix;
-            constants->view = view;
-            constants->projection = proj;
-			constants->lightvector = float3{1.0f, -1.0f, 1.0f};
-        }
+            float4* instance_data = (float4*)instanceBufferMSR.pData;
+            int batch_instance_count = 0;
 
-        context->Unmap(constantbuffer, 0);
-        context->DrawIndexed(model.m_mesh.m_index_count, 0, 0);
+            while (it != end && batch_instance_count < MAX_INSTANCES)
+            {
+                const Instance& instance = *it;
+                instance_data[batch_instance_count++] = float4{instance.m_position.x, instance.m_position.y, instance.m_position.z, 1.0f};
+                ++it;
+            }
+
+            context->Unmap(model.m_p_instance_buffer, 0);
+            context->DrawIndexedInstanced(model.m_mesh.m_index_count, batch_instance_count, 0, 0, 0);
+            total_instance_count += batch_instance_count;
+        }
     }
 
     HRESULT hr = rend->swapChain->Present(1, 0);
