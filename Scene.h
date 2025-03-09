@@ -22,6 +22,8 @@ struct SceneViewport : IViewport
 
 	const char* name;
 	Scene* scene;
+
+	bool dragging = false;
 };
 
 class Scene

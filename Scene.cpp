@@ -96,15 +96,30 @@ void SceneViewport::onGui()
 	ImGui::Image(ViewportTex, ImVec2(size.x, size.y));
 
 	ImGuiIO& io = ImGui::GetIO();
-	if (ImGui::IsWindowHovered() && ImGui::IsMouseDown(1)) {
+	static ImVec2 initialCursorPos = ImVec2(0, 0);
+	if (ImGui::IsItemHovered() && ImGui::IsMouseClicked(1)) 
+	{
+		if (!dragging) 
+		{
+			initialCursorPos = ImGui::GetMousePos();
+			dragging = true;
+		}
+	}
+	if (dragging) 
+	{
 		float2 mouseDelta(io.MouseDelta.x, io.MouseDelta.y);
 		float sensitivity = 0.3f * io.DeltaTime;
 		camera.m_yaw += mouseDelta.x * sensitivity;
 		camera.m_pitch += mouseDelta.y * sensitivity;
-		camera.m_pitch = clamp(camera.m_pitch, -3.14f / 2.0f, 3.14/2.0f);
+		camera.m_pitch = clamp(camera.m_pitch, -3.14f / 2.0f, 3.14f / 2.0f);
 	}
 
-	if(ImGui::IsWindowHovered())
+	if (!ImGui::IsMouseDown(1) && dragging) {
+		dragging = false;
+		ImGui::SetMouseCursor(ImGuiMouseCursor_Arrow);
+	}
+
+	if(ImGui::IsItemHovered())
 	{
 		bool w = ImGui::IsKeyDown(ImGuiKey_W);
 		bool s = ImGui::IsKeyDown(ImGuiKey_S);
