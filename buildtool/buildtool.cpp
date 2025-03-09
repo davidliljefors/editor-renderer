@@ -3,13 +3,32 @@
 #include <vector>
 #include <string>
 
-struct CompilerFlags {
-    static constexpr const char* debug = "-g -O0 -D_DEBUG -Wall -Wextra -std=c++17";
-    static constexpr const char* release = "-O3 -DNDEBUG -Wall -Wextra -std=c++17 -flto";
+#pragma comment(lib, "user32.lib")
+
+//struct CompilerFlags {
+//    static constexpr const char* debug = "-g -gcodeview -O0 -Wall -Wextra -std=c++17 --target=x86_64-pc-windows-msvc -fms-compatibility";
+//    static constexpr const char* release = "-O3 -DNDEBUG -Wall -Wextra -std=c++17 -flto";
+//};
+
+struct CompilerFlags
+{
+    const char* compile_exe;
+    const char* link_exe;
+    const char* compile_debug;
+    const char* link_debug;
 };
 
+CompilerFlags clang_cl
+{
+    "clang-cl ",
+    "lld-link ",
+    "/Zi /Od /MT /W4 /std:c++17 ",
+    "/debug /pdb:build/main.pdb ",
+};
+
+
 struct BuildConfig {
-    const char* CompilerFlags;
+    CompilerFlags CompilerFlags;
     std::vector<std::wstring> SourceFiles;
     std::vector<std::wstring> ObjectFiles;
     static constexpr const wchar_t* BuildDir = L"build";
@@ -34,10 +53,10 @@ struct FileEnumerator {
 };
 
 struct Compiler {
-    static bool CompileFile(const std::wstring& sourceFile, const char* flags, std::wstring& objFile) {
+    static bool CompileFile(const std::wstring& sourceFile, CompilerFlags flags, std::wstring& objFile) {
         std::wstring objName = std::wstring(BuildConfig::BuildDir) + L"\\" + sourceFile.substr(0, sourceFile.length() - 4) + L".o";
-        std::string command = "clang++ ";
-        command += flags;
+        std::string command = flags.compile_exe;
+        command += flags.compile_debug;
         command += " -c ";
         command += " -o ";
         
@@ -70,8 +89,8 @@ struct Compiler {
 };
 
 struct Linker {
-    static bool LinkFiles(const std::vector<std::wstring>& objFiles) {
-        std::string command = "clang++ ";
+    static bool LinkFiles(const std::vector<std::wstring>& objFiles, CompilerFlags flags) {
+        std::string command = flags.link_exe;
         
         for (const auto& obj : objFiles) {
             char objFileStr[MAX_PATH];
@@ -79,9 +98,10 @@ struct Linker {
             command += objFileStr;
             command += " ";
         }
-        
-        command += "-o ";
-        command += "build/output.exe";
+        command += "/out:build/output.exe ";
+        command += flags.link_debug;
+
+
 
         STARTUPINFOA si = {sizeof(si)};
         PROCESS_INFORMATION pi;
@@ -102,7 +122,7 @@ int main(int argc, char* argv[]) {
     BuildConfig::EnsureBuildDir();
     
     BuildConfig config;
-    config.CompilerFlags = CompilerFlags::debug;
+    config.CompilerFlags = clang_cl;
     
     FileEnumerator::GetSourceFiles(config.SourceFiles);
     
@@ -132,7 +152,7 @@ int main(int argc, char* argv[]) {
     }
 
     puts("Linking...");
-    if (!Linker::LinkFiles(config.ObjectFiles)) {
+    if (!Linker::LinkFiles(config.ObjectFiles, config.CompilerFlags)) {
         return 1;
     }
     puts("Done");
