@@ -22,16 +22,32 @@ struct Instance
 	}
 };
 
-struct Constants
+struct CBufferCpu
 {
 	matrix view;
 	matrix projection;
+	
 	float3 lightvector;
+	float _pad0;
+	
+	float3 lightColor;
+	float _pad1;
+	
+
+	float ambientStr;
+	float specularStr;
+	float specularPow;
+
+	float _pad2;
 };
 
 struct EditorRenderer;
 
+
+void preRender(EditorRenderer* rend);
 void renderFrame(EditorRenderer* rend, const SwissTable<Instance>& instances);
+void renderImgui(EditorRenderer* rend);
+void postRender(EditorRenderer* rend);
 
 void initRenderer(HWND hwnd, u32 w, u32 h, EditorRenderer*& rend);
 void createDevice(EditorRenderer* rend);

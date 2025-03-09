@@ -11,6 +11,10 @@
 #include "Array.h"
 #include "Math.h"
 
+#include "imgui.h"
+#include "imgui_impl_win32.h"
+#include "imgui_impl_dx11.h"
+
 #pragma comment(lib, "d3d11.lib")
 #pragma comment(lib, "d3dcompiler.lib")
 
@@ -44,8 +48,12 @@ struct EditorRenderer
 	ID3D11Device* device = nullptr;
 	ID3D11DeviceContext* context = nullptr;
     
-	ID3D11RenderTargetView* renderTargetView;
-	ID3D11DepthStencilView* depthStencilView;
+    ID3D11Texture2D* renderTargetTexture = nullptr;
+	ID3D11RenderTargetView* renderTargetView = nullptr;
+    ID3D11ShaderResourceView* shaderResourceView = nullptr;
+	ID3D11DepthStencilView* depthStencilView = nullptr;
+
+    ID3D11RenderTargetView* imGuirenderTargetView = nullptr;
 
 	ID3D11Buffer* constantBuffer = nullptr;
 
@@ -67,12 +75,17 @@ struct EditorRenderer
 };
 
 
+
 const char* g_shaderSrc = R"(
 cbuffer constants : register(b0)
 {
     row_major float4x4 view;
     row_major float4x4 projection;
     float3 lightvector;
+    float3 lightcolor;          // Light color (e.g., float3(1, 1, 1) for white)
+    float ambientStrength;      // Base illumination (e.g., 0.2)
+    float specularStrength;     // Specular intensity (e.g., 0.5)
+    float specularPower;        // Shininess (e.g., 32.0)
 }
 
 struct vertexdesc
@@ -90,10 +103,10 @@ struct instancedesc
 
 struct pixeldesc
 {
-    float4 position : SV_POSITION;
-    float2 texcoord : TEX;
-    float4 color : COL;
-    float3 worldnormal : NORMAL;
+    float4 position     : SV_POSITION;
+    float2 texcoord     : TEX;
+    float4 color        : COL;
+    float3 worldnormal  : NORMAL;
 };
 
 Texture2D mytexture : register(t0);
@@ -116,7 +129,7 @@ pixeldesc vs_main(vertexdesc vertex, instancedesc instance)
     output.texcoord = vertex.texcoord;
     output.worldnormal = worldNormal;
     
-    float light = clamp(dot(normalize(worldNormal), normalize(-lightvector)), 0.0f, 1.0f) * 0.8f + 0.2f;
+    float light = clamp(dot(normalize(worldNormal), normalize(-lightvector)), 0.0f, 1.0f) * 0.8f;
     output.color = float4(vertex.color * light, 1.0f);
 
     return output;
@@ -124,7 +137,7 @@ pixeldesc vs_main(vertexdesc vertex, instancedesc instance)
 
 float4 ps_main(pixeldesc pixel) : SV_TARGET
 {
-    float light = clamp(dot(normalize(pixel.worldnormal), normalize(-lightvector)), 0.0f, 1.0f) * 0.8f + 0.2f;
+    float light = clamp(dot(normalize(pixel.worldnormal), normalize(-lightvector)), 0.0f, 1.0f) * 0.8f + 0.6f;
     return mytexture.Sample(mysampler, pixel.texcoord) * pixel.color * light;
 }
 )";
@@ -358,6 +371,10 @@ void initRenderer(HWND hwnd, u32 w, u32 h, EditorRenderer*& rend)
     createDevice(rend);
     createAssetResources(rend);
     createResources(rend, w, h);
+
+    ImGui::CreateContext();
+    ImGui_ImplWin32_Init(hwnd);
+    ImGui_ImplDX11_Init(rend->device, rend->context);
 }
 
 void createDevice(EditorRenderer* rend)
@@ -420,13 +437,15 @@ void createDevice(EditorRenderer* rend)
             filter.DenyList.pIDList = hide;
             d3dInfoQueue->AddStorageFilterEntries(&filter);
         }
-        d3dInfoQueue->Release();
+        if(d3dInfoQueue)
+            d3dInfoQueue->Release();
     }
-    d3dDebug->Release();
+    if(d3dDebug)
+        d3dDebug->Release();
 #endif
 
     D3D11_BUFFER_DESC constantbufferdesc = {};
-    constantbufferdesc.ByteWidth      = sizeof(Constants) + 0xf & 0xfffffff0;   // ensure constant buffer size is multiple of 16 bytes
+    constantbufferdesc.ByteWidth      = sizeof(CBufferCpu) + 0xf & 0xfffffff0;   // ensure constant buffer size is multiple of 16 bytes
     constantbufferdesc.Usage          = D3D11_USAGE_DYNAMIC;                    // will be updated from CPU every frame
     constantbufferdesc.BindFlags      = D3D11_BIND_CONSTANT_BUFFER;
     constantbufferdesc.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
@@ -467,6 +486,15 @@ void createResources(EditorRenderer* rend, u32 w, u32 h)
 
     if(rend->depthStencilView)
         rend->depthStencilView->Release();
+
+    if(rend->shaderResourceView)
+        rend->shaderResourceView->Release();
+
+    if(rend->renderTargetTexture)
+        rend->renderTargetTexture->Release();
+
+    if(rend->imGuirenderTargetView)
+        rend->imGuirenderTargetView->Release();
 
 
     rend->context->Flush();
@@ -557,22 +585,41 @@ void createResources(EditorRenderer* rend, u32 w, u32 h)
         dxgiDevice->Release();
     }
 
-    // Obtain the backbuffer for this window which will be the final 3D rendertarget.
+    D3D11_TEXTURE2D_DESC texDesc = { 0 };
+    texDesc.Width = w;
+    texDesc.Height = h;
+    texDesc.MipLevels = 1;
+    texDesc.ArraySize = 1;
+    texDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+    texDesc.SampleDesc.Count = 1;
+    texDesc.Usage = D3D11_USAGE_DEFAULT;
+    texDesc.BindFlags = D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE;
+
+    auto hr = rend->device->CreateTexture2D(&texDesc, nullptr, &rend->renderTargetTexture);
+    breakIfFailed(hr, rend->device);
+    hr = rend->device->CreateRenderTargetView(rend->renderTargetTexture, nullptr, &rend->renderTargetView);
+    breakIfFailed(hr, rend->device);
+    hr =rend->device->CreateShaderResourceView(rend->renderTargetTexture, nullptr, &rend->shaderResourceView);
+    breakIfFailed(hr, rend->device);
+
     ID3D11Texture2D* backBuffer;
     rend->swapChain->GetBuffer(0, IID_PPV_ARGS(&backBuffer));
-    auto hr = rend->device->CreateRenderTargetView(backBuffer, nullptr, &rend->renderTargetView);
+    hr = rend->device->CreateRenderTargetView(backBuffer, nullptr, &rend->imGuirenderTargetView);
     breakIfFailed(hr, rend->device);
     backBuffer->Release();
 
     CD3D11_TEXTURE2D_DESC depthStencilDesc(depthBufferFormat, w, h, 1, 1, D3D11_BIND_DEPTH_STENCIL);
     ID3D11Texture2D* depthStencil;
-
     hr = rend->device->CreateTexture2D(&depthStencilDesc, nullptr, &depthStencil);
     breakIfFailed(hr, rend->device);
     hr = rend->device->CreateDepthStencilView(depthStencil, nullptr, &rend->depthStencilView);
     breakIfFailed(hr, rend->device);
 
     depthStencil->Release();
+}
+
+void preRender(EditorRenderer* )
+{
 
 }
 
@@ -590,40 +637,6 @@ void renderFrame(EditorRenderer* rend, const SwissTable<Instance>& instances)
 	    bool boost = GetAsyncKeyState(VK_LSHIFT) & 0x8000;
 	    
 	    rend->m_camera.update_movement(w, a, s, d, boost, delta_time);
-    }
-    
-    POINT current_mouse_pos;
-    GetCursorPos(&current_mouse_pos);
-    
-    bool right_mouse = GetAsyncKeyState(VK_RBUTTON) & 0x8000;
-    
-    if (right_mouse && !rend->m_right_mouse_down) {
-        rend->m_last_mouse_pos = current_mouse_pos;
-        rend->m_right_mouse_down = true;
-        ShowCursor(FALSE);
-        RECT window_rect;
-        GetWindowRect(rend->hwnd, &window_rect);
-        SetCursorPos((window_rect.left + window_rect.right) / 2, (window_rect.top + window_rect.bottom) / 2);
-    }
-    else if (!right_mouse && rend->m_right_mouse_down) {
-        rend->m_right_mouse_down = false;
-        ShowCursor(TRUE);
-        SetCursorPos(rend->m_last_mouse_pos.x, rend->m_last_mouse_pos.y);
-    }
-    
-    if (rend->m_right_mouse_down) {
-        RECT window_rect;
-        GetWindowRect(rend->hwnd, &window_rect);
-        POINT center_pos = { (window_rect.left + window_rect.right) / 2, (window_rect.top + window_rect.bottom) / 2 };
-        
-        GetCursorPos(&current_mouse_pos);
-        float delta_x = (float)(current_mouse_pos.x - center_pos.x);
-        float delta_y = (float)(current_mouse_pos.y - center_pos.y);
-        
-        if (delta_x != 0.0f || delta_y != 0.0f) {
-            rend->m_camera.update_rotation(delta_x, -delta_y);
-            SetCursorPos(center_pos.x, center_pos.y);
-        }
     }
     
     FLOAT clearcolor[4] = { 0.015f, 0.015f, 0.315f, 1.0f };
@@ -672,7 +685,7 @@ void renderFrame(EditorRenderer* rend, const SwissTable<Instance>& instances)
     D3D11_MAPPED_SUBRESOURCE constantbufferMSR;
     context->Map(constantbuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &constantbufferMSR);
     {
-        Constants* constants = (Constants*)constantbufferMSR.pData;
+        CBufferCpu* constants = (CBufferCpu*)constantbufferMSR.pData;
         matrix view = rend->m_camera.get_view_matrix();
         constants->view = view;
         constants->projection = proj;
@@ -703,8 +716,46 @@ void renderFrame(EditorRenderer* rend, const SwissTable<Instance>& instances)
         }
     }
 
+    renderImgui(rend);
+}
+
+void renderImgui(EditorRenderer *rend)
+{
+    ImGui_ImplDX11_NewFrame();
+    ImGui_ImplWin32_NewFrame();
+    ImGui::NewFrame();
+
+    // Make ImGui cover the full window
+    ImGui::SetNextWindowPos(ImVec2(0, 0));
+    ImGui::SetNextWindowSize(ImVec2(rend->width+20, rend->height+20));
+    ImGui::Begin("FullScreenWindow", nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | 
+                 ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoBringToFrontOnFocus);
+
+    // Add some ImGui UI elements
+    ImGui::Text("This is the full-screen ImGui background!");
+    ImGui::Button("Example Button");
+
+    // Display the DX11 render target in a sub-window
+    ImGui::BeginChild("DX11Buffer", ImVec2(rend->width, rend->height), true);
+    ImGui::Image((ImTextureID)rend->shaderResourceView, ImVec2(rend->width, rend->height));
+    ImGui::EndChild();
+
+    ImGui::End();
+
+    // Render ImGui to the swap chain
+    rend->context->OMSetRenderTargets(1, &rend->imGuirenderTargetView, nullptr);
+    float clearColor[] = { 0.2f, 0.2f, 0.2f, 1.0f }; // Dark gray for ImGui background
+    rend->context->ClearRenderTargetView(rend->imGuirenderTargetView, clearColor);
+    ImGui::Render();
+    ImGui_ImplDX11_RenderDrawData(ImGui::GetDrawData());
+
     HRESULT hr = rend->swapChain->Present(1, 0);
     breakIfFailed(hr, rend->device);
+}
+
+void postRender(EditorRenderer*)
+{
+
 }
 
 void onWindowResize(EditorRenderer *rend, u32 w, u32 h)

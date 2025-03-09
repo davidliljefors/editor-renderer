@@ -25,8 +25,14 @@ ThreadData g_threadData;
 HANDLE g_renderThread;
 HANDLE g_updateThread;
 
+extern LRESULT ImGui_ImplWin32_WndProcHandler(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
 LRESULT CALLBACK EditorWndProc(HWND hwnd, UINT msg, WPARAM w_param, LPARAM l_param)
 {
+    if(ImGui_ImplWin32_WndProcHandler(hwnd, msg, w_param, l_param))
+    {
+        return true;
+    }
+    
     switch (msg)
     {
         case WM_DESTROY:
@@ -85,6 +91,7 @@ int main()
     wc.lpfnWndProc = EditorWndProc;
     wc.hInstance = GetModuleHandle(nullptr);
     wc.lpszClassName = "EditorRendererClass";
+    wc.hCursor = LoadCursor(NULL, IDC_ARROW);
     
     RegisterClassEx(&wc);
 

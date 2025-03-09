@@ -27,7 +27,9 @@ void Scene::updateThread()
 
 void Scene::renderThread()
 {
+	preRender(m_renderer);
 	renderFrame(m_renderer, m_instances);
+	postRender(m_renderer);
 }
 
 u64 Scene::addInstance(float3 pos)
