@@ -43,11 +43,12 @@ struct CBufferCpu
 
 struct EditorRenderer;
 
-
+void preRenderSync(EditorRenderer* rend);
 void preRender(EditorRenderer* rend);
 void renderFrame(EditorRenderer* rend, const SwissTable<Instance>& instances);
 void renderImgui(EditorRenderer* rend);
 void postRender(EditorRenderer* rend);
+void renderSynchronize(EditorRenderer* rend);
 
 void initRenderer(HWND hwnd, u32 w, u32 h, EditorRenderer*& rend);
 void createDevice(EditorRenderer* rend);

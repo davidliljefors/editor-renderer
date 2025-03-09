@@ -7,12 +7,6 @@
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 
-struct ResizeEvent
-{
-    u32 w;
-    u32 h;
-};
-
 struct ThreadData
 {
     EditorRenderer* renderer;
@@ -20,62 +14,109 @@ struct ThreadData
     bool shouldExit;
 };
 
-ResizeEvent* wantResize = nullptr;
+
 ThreadData g_threadData;
 HANDLE g_renderThread;
 HANDLE g_updateThread;
+struct ThreadSignals
+{
+    alignas (64) u64 currentFrame = 0;
+    alignas (64) u64 renderdThreadCompletedFrame = 0;
+    alignas (64) u64 updateThreadCompletedFrame = 0;
+};
+
+ThreadSignals signals;
+
+struct Win32Event
+{
+    HWND hwnd;
+    UINT msg;
+    WPARAM wParam;
+    LPARAM lParam;
+};
+
+Array<Win32Event>* g_writeEvents = nullptr;
+Array<Win32Event>* g_readEvents = nullptr;
+
+volatile bool synchronized = false;
 
 extern LRESULT ImGui_ImplWin32_WndProcHandler(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
-LRESULT CALLBACK EditorWndProc(HWND hwnd, UINT msg, WPARAM w_param, LPARAM l_param)
+LRESULT SyncWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
 {
-    if(ImGui_ImplWin32_WndProcHandler(hwnd, msg, w_param, l_param))
+    if(ImGui_ImplWin32_WndProcHandler(hwnd, msg, wParam, lParam))
     {
-        return true;
+        return 0;
     }
-    
-    switch (msg)
-    {
-        case WM_DESTROY:
-            PostQuitMessage(0);
-            return 0;
-        case WM_SIZE:
-        {
-            u32 h = HIWORD(l_param);
-            u32 w = LOWORD(l_param);
-            if(h != 0 && w != 0)
-            {
-                ResizeEvent* newEvent = new ResizeEvent{w, h};
-                ResizeEvent* oldEvent = (ResizeEvent*)InterlockedExchangePointer((PVOID*)&wantResize, newEvent);
-                delete oldEvent;
-            }
-        }
-        break;
-    }
-    return DefWindowProc(hwnd, msg, w_param, l_param);
+    return DefWindowProc(hwnd, msg, wParam, lParam);
 }
+
+LRESULT CALLBACK EditorWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
+{
+    if(synchronized)
+    {
+        return SyncWndProc(hwnd, msg, wParam, lParam);
+    }
+    g_writeEvents->push_back({hwnd, msg, wParam, lParam});
+    return 0;
+}
+
+
+void ProcessEvents()
+{
+    Array<Win32Event>& events = *g_readEvents;
+    for(auto& event : events)
+    {
+        SyncWndProc(event.hwnd, event.msg, event.wParam, event.lParam);
+    }
+
+    Array<Win32Event>* tmp = g_readEvents;
+    g_readEvents = g_writeEvents;
+    g_writeEvents = tmp;
+}
+
 
 DWORD WINAPI UpdateThreadProc(LPVOID lpParameter)
 {
     ThreadData* data = (ThreadData*)lpParameter;
+
+    u64 frame = 0;
     while (!data->shouldExit)
     {
-        data->scene->updateThread();
+        u64 nextFrame = signals.currentFrame;
+        if(nextFrame > frame)
+        {
+            signals.updateThreadCompletedFrame = nextFrame;            
+        }
+        else 
+        {
+            Sleep(0);
+        }
     }
     return 0;
 }
 
 DWORD WINAPI RenderThreadProc(LPVOID lpParameter)
 {
+    SwissTable<Instance> instances {};
     ThreadData* data = (ThreadData*)lpParameter;
+    EditorRenderer* rend = data->renderer;
+
+    u64 frame = 0;
     while (!data->shouldExit)
     {
-        ResizeEvent* resizeEvent = (ResizeEvent*)InterlockedExchangePointer((PVOID*)&wantResize, nullptr);
-        if(resizeEvent)
+        u64 nextFrame = signals.currentFrame;
+        if(nextFrame > frame)
         {
-            onWindowResize(data->renderer, resizeEvent->w, resizeEvent->h);
-            delete resizeEvent;
+            preRender(rend);
+            renderFrame(rend, instances);
+            postRender(rend);
+            signals.renderdThreadCompletedFrame = nextFrame;          
+            frame = nextFrame;
         }
-        data->scene->renderThread();
+        else 
+        {
+            Sleep(0);
+        }
     }
     return 0;
 }
@@ -83,6 +124,11 @@ DWORD WINAPI RenderThreadProc(LPVOID lpParameter)
 int main()
 {
     block_memory_init();
+    MallocAllocator gMalloc;
+    synchronized = true;
+
+    g_writeEvents = new Array<Win32Event>(gMalloc);
+    g_readEvents = new Array<Win32Event>(gMalloc);
 
     bool isFullscreen = true;
 
@@ -166,11 +212,28 @@ int main()
             {
                 PostQuitMessage(0);
             }
-
             TranslateMessage(&msg);
             DispatchMessage(&msg);
         }
-        Sleep(0);
+
+        preRenderSync(rend);
+
+        ProcessEvents();    
+        synchronized = false;
+
+        u64 nextFrame = signals.currentFrame + 1;
+        signals.currentFrame = nextFrame;
+
+        while(
+            signals.renderdThreadCompletedFrame != nextFrame || 
+            signals.updateThreadCompletedFrame != nextFrame
+            )
+        {
+            Sleep(0);
+        }
+        synchronized = true;
+
+        renderSynchronize(rend);
     }
 
     block_memory_shutdown();

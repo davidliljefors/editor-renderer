@@ -72,6 +72,9 @@ struct EditorRenderer
 
 	UINT width;
 	UINT height;
+
+    UINT newWidth;
+    UINT newHeight;
 };
 
 
@@ -367,12 +370,18 @@ void initRenderer(HWND hwnd, u32 w, u32 h, EditorRenderer*& rend)
         memset(rend, 0, sizeof(EditorRenderer));
         rend->hwnd = hwnd;
     }
+    
+    rend->newHeight = h;
+    rend->newWidth = w;
 
     createDevice(rend);
     createAssetResources(rend);
     createResources(rend, w, h);
 
     ImGui::CreateContext();
+    ImGuiIO& io = ImGui::GetIO();
+    io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
+    io.ConfigFlags |= ImGuiConfigFlags_ViewportsEnable;
     ImGui_ImplWin32_Init(hwnd);
     ImGui_ImplDX11_Init(rend->device, rend->context);
 }
@@ -505,6 +514,7 @@ void createResources(EditorRenderer* rend, u32 w, u32 h)
 
     rend->width = w;
     rend->height = h;
+    
 
     if (rend->swapChain)
     {
@@ -585,7 +595,7 @@ void createResources(EditorRenderer* rend, u32 w, u32 h)
         dxgiDevice->Release();
     }
 
-    D3D11_TEXTURE2D_DESC texDesc = { 0 };
+    D3D11_TEXTURE2D_DESC texDesc = {};
     texDesc.Width = w;
     texDesc.Height = h;
     texDesc.MipLevels = 1;
@@ -618,7 +628,14 @@ void createResources(EditorRenderer* rend, u32 w, u32 h)
     depthStencil->Release();
 }
 
-void preRender(EditorRenderer* )
+void preRenderSync(EditorRenderer*)
+{
+    ImGui_ImplDX11_NewFrame();
+    ImGui_ImplWin32_NewFrame();
+    ImGui::NewFrame();
+}
+
+void preRender(EditorRenderer*)
 {
 
 }
@@ -721,36 +738,34 @@ void renderFrame(EditorRenderer* rend, const SwissTable<Instance>& instances)
 
 void renderImgui(EditorRenderer *rend)
 {
-    ImGui_ImplDX11_NewFrame();
-    ImGui_ImplWin32_NewFrame();
-    ImGui::NewFrame();
-
     // Make ImGui cover the full window
     ImGui::SetNextWindowPos(ImVec2(0, 0));
-    ImGui::SetNextWindowSize(ImVec2(rend->width+20, rend->height+20));
-    ImGui::Begin("FullScreenWindow", nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | 
-                 ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoBringToFrontOnFocus);
+    ImGui::SetNextWindowSize(ImVec2(rend->width, rend->height));
+    ImGui::Begin("DockSpace Window", nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoCollapse | 
+                 ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoBringToFrontOnFocus);
+
+
+    ImGuiID dockspace_id = ImGui::GetID("MyDockSpace");
+    ImGui::DockSpace(dockspace_id, ImVec2(0.0f, 0.0f), ImGuiDockNodeFlags_None);
 
     // Add some ImGui UI elements
     ImGui::Text("This is the full-screen ImGui background!");
     ImGui::Button("Example Button");
 
-    // Display the DX11 render target in a sub-window
-    ImGui::BeginChild("DX11Buffer", ImVec2(rend->width, rend->height), true);
-    ImGui::Image((ImTextureID)rend->shaderResourceView, ImVec2(rend->width, rend->height));
-    ImGui::EndChild();
-
+    ImGui::Begin("Sub Widnow");
     ImGui::End();
 
+    // Display the DX11 render target in a sub-window
+    //ImGui::Begin("Viewport");
+    //ImGui::Image((ImTextureID)rend->shaderResourceView, ImVec2(rend->width-10, rend->height-10));
+    //ImGui::End();
+    ImGui::End();
     // Render ImGui to the swap chain
     rend->context->OMSetRenderTargets(1, &rend->imGuirenderTargetView, nullptr);
     float clearColor[] = { 0.2f, 0.2f, 0.2f, 1.0f }; // Dark gray for ImGui background
     rend->context->ClearRenderTargetView(rend->imGuirenderTargetView, clearColor);
     ImGui::Render();
     ImGui_ImplDX11_RenderDrawData(ImGui::GetDrawData());
-
-    HRESULT hr = rend->swapChain->Present(1, 0);
-    breakIfFailed(hr, rend->device);
 }
 
 void postRender(EditorRenderer*)
@@ -758,9 +773,27 @@ void postRender(EditorRenderer*)
 
 }
 
+void renderSynchronize(EditorRenderer* rend)
+{
+    if(rend->width != rend->newWidth || rend->height != rend->newHeight)
+    {
+        createResources(rend, rend->newHeight, rend->newWidth);
+    }
+    
+    HRESULT hr = rend->swapChain->Present(1, 0);
+    breakIfFailed(hr, rend->device);
+
+    if (ImGui::GetIO().ConfigFlags & ImGuiConfigFlags_ViewportsEnable) 
+    {
+        ImGui::UpdatePlatformWindows();
+        ImGui::RenderPlatformWindowsDefault();
+    }
+}
+
 void onWindowResize(EditorRenderer *rend, u32 w, u32 h)
 {
-    createResources(rend, w, h);
+    rend->newHeight = h;
+    rend->newWidth = w;
 }
 
 void onDeviceLost(EditorRenderer *renderer)

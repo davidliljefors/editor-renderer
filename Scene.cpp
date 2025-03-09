@@ -1,4 +1,7 @@
 #include "Scene.h"
+
+#include <stdlib.h>
+
 #include "EditorRenderer.h"
 
 Scene::Scene(EditorRenderer* renderer)
@@ -18,18 +21,39 @@ Scene::Scene(EditorRenderer* renderer)
 
 
 	addInstance({ 5.0f, 5.0f, 5.0f });
+
+	m_lists[0].data = (Instance*)malloc(sizeof(Instance) * 1024);
+	m_lists[1].data = (Instance*)malloc(sizeof(Instance) * 1024);
+	m_lists[0].cap = 1024;
+	m_lists[1].cap = 1024;
 }
 
 
-void Scene::updateThread()
+void Scene::buildDrawList()
 {
+	DrawList& drawList = m_lists[writeSlot];
+	u64 count = m_instances.size;
+	
+	if(count > drawList.cap)
+	{
+		drawList.data = (Instance*)realloc(drawList.data, sizeof(Instance) * count);
+		drawList.cap = count;
+	}
+
+	drawList.size = count;
+	u64 idx = 0;
+	for(auto& instance : m_instances)
+	{
+		drawList.data[idx++] = instance;
+	}
+
+	
 }
 
-void Scene::renderThread()
+bool Scene::getDrawList(DrawList& outDrawList)
 {
-	preRender(m_renderer);
-	renderFrame(m_renderer, m_instances);
-	postRender(m_renderer);
+	outDrawList = m_lists[readSlot];
+	return true;
 }
 
 u64 Scene::addInstance(float3 pos)
