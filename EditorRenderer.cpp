@@ -294,7 +294,8 @@ inline void generate_sphere_mesh(ID3D11Device* p_device, Mesh* p_mesh, int latit
     vertex_buffer_desc.ByteWidth = vertices.size() * sizeof(float);
     vertex_buffer_desc.Usage = D3D11_USAGE_IMMUTABLE;
     vertex_buffer_desc.BindFlags = D3D11_BIND_VERTEX_BUFFER;
-    D3D11_SUBRESOURCE_DATA vertex_buffer_srd = { vertices.data() };
+    D3D11_SUBRESOURCE_DATA vertex_buffer_srd = {};
+    vertex_buffer_srd.pSysMem = vertices.data();
     
     p_device->CreateBuffer(&vertex_buffer_desc, &vertex_buffer_srd, &p_mesh->m_p_vertex_buffer);
     
@@ -302,7 +303,8 @@ inline void generate_sphere_mesh(ID3D11Device* p_device, Mesh* p_mesh, int latit
     index_buffer_desc.ByteWidth = indices.size() * sizeof(UINT);
     index_buffer_desc.Usage = D3D11_USAGE_IMMUTABLE;
     index_buffer_desc.BindFlags = D3D11_BIND_INDEX_BUFFER;
-    D3D11_SUBRESOURCE_DATA index_buffer_srd = { indices.data() };
+    D3D11_SUBRESOURCE_DATA index_buffer_srd ={};
+    index_buffer_srd.pSysMem = indices.data();
     
     p_device->CreateBuffer(&index_buffer_desc, &index_buffer_srd, &p_mesh->m_p_index_buffer);
     
@@ -637,11 +639,11 @@ void renderFrame(EditorRenderer* rend, const SwissTable<Instance>& instances)
     float n = 0.1f;
     
     float tan_half_fov = tanf(fov_y * 0.5f);
-    matrix proj = { 
-        1.0f / (aspect_ratio * tan_half_fov), 0, 0, 0,
-        0, 1.0f / tan_half_fov, 0, 0,
-        0, 0, f / (f - n), 1,
-        0, 0, -(n * f) / (f - n), 0 
+    matrix proj = matrix{ 
+        float4{1.0f / (aspect_ratio * tan_half_fov), 0, 0, 0},
+        float4{0, 1.0f / tan_half_fov, 0, 0},
+        float4{0, 0, f / (f - n), 1},
+        float4{0, 0, -(n * f) / (f - n), 0}
     };
    
     auto& context = rend->context;
@@ -678,7 +680,6 @@ void renderFrame(EditorRenderer* rend, const SwissTable<Instance>& instances)
     }
     context->Unmap(constantbuffer, 0);
 
-    int total_instance_count = 0;
     auto it = instances.begin();
     auto end = instances.end();
 
@@ -699,7 +700,6 @@ void renderFrame(EditorRenderer* rend, const SwissTable<Instance>& instances)
 
             context->Unmap(model.m_p_instance_buffer, 0);
             context->DrawIndexedInstanced(model.m_mesh.m_index_count, batch_instance_count, 0, 0, 0);
-            total_instance_count += batch_instance_count;
         }
     }
 
@@ -714,5 +714,5 @@ void onWindowResize(EditorRenderer *rend, u32 w, u32 h)
 
 void onDeviceLost(EditorRenderer *renderer)
 {
-
+    (void)renderer;
 }

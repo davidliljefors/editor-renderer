@@ -23,9 +23,6 @@ Scene::Scene(EditorRenderer* renderer)
 
 void Scene::updateThread()
 {
-	static float current_time = 0.0f;
-	current_time += 0.001f;
-    int id = 0;
 }
 
 void Scene::renderThread()

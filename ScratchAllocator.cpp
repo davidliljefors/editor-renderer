@@ -52,13 +52,11 @@ void block_memory_init()
 
 void block_memory_shutdown()
 {
-    i32 blocks_freed = 0;
     Block* block = s_freeBlocks;
     while(block)
     {
         Block* next = block->header.prev;
         ::free(block);
-        ++blocks_freed;
         block = next;
     }
 }
@@ -99,7 +97,7 @@ void* ScratchPadAllocator::alloc(i32 size)
     }
 }
 
-void ScratchPadAllocator::free(void* data, i32 size)
+void ScratchPadAllocator::free(void*, i32)
 {
     // Do nothing
 }

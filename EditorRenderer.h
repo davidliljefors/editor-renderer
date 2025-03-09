@@ -13,7 +13,12 @@ struct Instance
 
 	matrix get_model_matrix() const
 	{
-		return {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, m_position.x, m_position.y, m_position.z, 1};
+		return matrix{
+			float4{1, 0, 0, 0},
+			float4{0, 1, 0, 0},
+			float4{0, 0, 1, 0},
+			float4{m_position.x, m_position.y, m_position.z, 1}
+		};
 	}
 };
 

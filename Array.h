@@ -24,7 +24,7 @@ public:
 		return ::malloc(size);
 	}
 
-	void free(void* block, i32 size) override
+	void free(void* block, i32) override
 	{
 		return ::free(block);
 	}

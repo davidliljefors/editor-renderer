@@ -2,44 +2,58 @@
 
 #include <math.h>
 
-using u64 = unsigned long long;
-using u32 = unsigned int;
-
-struct matrix
-{
-	float m[4][4];
-};
+#include "Core.h"
 
 struct float3
 {
 	float x, y, z;
 };
 
-struct float4
+struct alignas(16) float4
 {
 	float x, y, z, w;
 };
 
+struct alignas(16) matrix
+{
+    matrix()
+    {
+        }
+    matrix(float4 row1, float4 row2, float4 row3, float4 row4)
+    {
+        m.rows[0] = row1;
+        m.rows[1] = row2;
+        m.rows[2] = row3;
+        m.rows[3] = row4;
+    };
+
+    matrix(const matrix&) = default;
+    matrix(matrix&&) = default;
+    matrix& operator=(const matrix&) = default;
+    matrix& operator=(matrix&&) = default;
+
+    union
+    {
+	    float4 rows[4];
+        float data[4][4];
+    }m;
+};
+
 inline matrix operator*(const matrix& m1, const matrix& m2)
 {
-	return {
-		m1.m[0][0] * m2.m[0][0] + m1.m[0][1] * m2.m[1][0] + m1.m[0][2] * m2.m[2][0] + m1.m[0][3] * m2.m[3][0],
-		m1.m[0][0] * m2.m[0][1] + m1.m[0][1] * m2.m[1][1] + m1.m[0][2] * m2.m[2][1] + m1.m[0][3] * m2.m[3][1],
-		m1.m[0][0] * m2.m[0][2] + m1.m[0][1] * m2.m[1][2] + m1.m[0][2] * m2.m[2][2] + m1.m[0][3] * m2.m[3][2],
-		m1.m[0][0] * m2.m[0][3] + m1.m[0][1] * m2.m[1][3] + m1.m[0][2] * m2.m[2][3] + m1.m[0][3] * m2.m[3][3],
-		m1.m[1][0] * m2.m[0][0] + m1.m[1][1] * m2.m[1][0] + m1.m[1][2] * m2.m[2][0] + m1.m[1][3] * m2.m[3][0],
-		m1.m[1][0] * m2.m[0][1] + m1.m[1][1] * m2.m[1][1] + m1.m[1][2] * m2.m[2][1] + m1.m[1][3] * m2.m[3][1],
-		m1.m[1][0] * m2.m[0][2] + m1.m[1][1] * m2.m[1][2] + m1.m[1][2] * m2.m[2][2] + m1.m[1][3] * m2.m[3][2],
-		m1.m[1][0] * m2.m[0][3] + m1.m[1][1] * m2.m[1][3] + m1.m[1][2] * m2.m[2][3] + m1.m[1][3] * m2.m[3][3],
-		m1.m[2][0] * m2.m[0][0] + m1.m[2][1] * m2.m[1][0] + m1.m[2][2] * m2.m[2][0] + m1.m[2][3] * m2.m[3][0],
-		m1.m[2][0] * m2.m[0][1] + m1.m[2][1] * m2.m[1][1] + m1.m[2][2] * m2.m[2][1] + m1.m[2][3] * m2.m[3][1],
-		m1.m[2][0] * m2.m[0][2] + m1.m[2][1] * m2.m[1][2] + m1.m[2][2] * m2.m[2][2] + m1.m[2][3] * m2.m[3][2],
-		m1.m[2][0] * m2.m[0][3] + m1.m[2][1] * m2.m[1][3] + m1.m[2][2] * m2.m[2][3] + m1.m[2][3] * m2.m[3][3],
-		m1.m[3][0] * m2.m[0][0] + m1.m[3][1] * m2.m[1][0] + m1.m[3][2] * m2.m[2][0] + m1.m[3][3] * m2.m[3][0],
-		m1.m[3][0] * m2.m[0][1] + m1.m[3][1] * m2.m[1][1] + m1.m[3][2] * m2.m[2][1] + m1.m[3][3] * m2.m[3][1],
-		m1.m[3][0] * m2.m[0][2] + m1.m[3][1] * m2.m[1][2] + m1.m[3][2] * m2.m[2][2] + m1.m[3][3] * m2.m[3][2],
-		m1.m[3][0] * m2.m[0][3] + m1.m[3][1] * m2.m[1][3] + m1.m[3][2] * m2.m[2][3] + m1.m[3][3] * m2.m[3][3],
-	};
+    matrix result;
+    
+    for(int i = 0; i < 4; i++)
+    {
+        float4 col;
+        col.x = m2.m.rows[0].x * m1.m.rows[i].x + m2.m.rows[1].x * m1.m.rows[i].y + m2.m.rows[2].x * m1.m.rows[i].z + m2.m.rows[3].x * m1.m.rows[i].w;
+        col.y = m2.m.rows[0].y * m1.m.rows[i].x + m2.m.rows[1].y * m1.m.rows[i].y + m2.m.rows[2].y * m1.m.rows[i].z + m2.m.rows[3].y * m1.m.rows[i].w;
+        col.z = m2.m.rows[0].z * m1.m.rows[i].x + m2.m.rows[1].z * m1.m.rows[i].y + m2.m.rows[2].z * m1.m.rows[i].z + m2.m.rows[3].z * m1.m.rows[i].w;
+        col.w = m2.m.rows[0].w * m1.m.rows[i].x + m2.m.rows[1].w * m1.m.rows[i].y + m2.m.rows[2].w * m1.m.rows[i].z + m2.m.rows[3].w * m1.m.rows[i].w;
+        result.m.rows[i] = col;
+    }
+
+    return result;
 }
 
 struct Camera
@@ -112,13 +126,13 @@ struct Camera
         float3 zaxis = { sinYaw * cosPitch, -sinPitch, cosPitch * cosYaw };
         
         return {
-            xaxis.x, yaxis.x, zaxis.x, 0,
-            xaxis.y, yaxis.y, zaxis.y, 0, 
-            xaxis.z, yaxis.z, zaxis.z, 0,
-            -(m_position.x * xaxis.x + m_position.y * xaxis.y + m_position.z * xaxis.z),
+            float4{xaxis.x, yaxis.x, zaxis.x, 0},
+            float4{xaxis.y, yaxis.y, zaxis.y, 0}, 
+            float4{xaxis.z, yaxis.z, zaxis.z, 0},
+            float4{-(m_position.x * xaxis.x + m_position.y * xaxis.y + m_position.z * xaxis.z),
             -(m_position.x * yaxis.x + m_position.y * yaxis.y + m_position.z * yaxis.z),
             -(m_position.x * zaxis.x + m_position.y * zaxis.y + m_position.z * zaxis.z),
-            1
+            1}
         };
     }
 };
