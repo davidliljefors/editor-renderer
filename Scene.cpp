@@ -90,11 +90,7 @@ DrawList Scene::getDrawList()
 void SceneViewport::onGui()
 {
 	ImGui::Begin(name);
-	ImGui::DragFloat3("Camera Pos", &camera.m_position.x);
-	ImGui::SliderFloat("Camera yaw", &camera.m_yaw, -90.0f, 90.0f);
-	ImGui::SliderFloat("Camera pitch", &camera.m_pitch, -90.0f, 90.0f);
 	ImGui::Image(ViewportTex, ImVec2(size.x, size.y));
-
 	ImGuiIO& io = ImGui::GetIO();
 	static ImVec2 initialCursorPos = ImVec2(0, 0);
 	if (ImGui::IsItemHovered() && ImGui::IsMouseClicked(1)) 

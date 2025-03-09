@@ -23,6 +23,7 @@ struct ThreadSignals
     alignas (64) u64 currentFrame = 0;
     alignas (64) u64 renderdThreadCompletedFrame = 0;
     alignas (64) u64 updateThreadCompletedFrame = 0;
+    alignas (64) u64 wantQuit = 0;
 };
 
 ThreadSignals signals;
@@ -43,10 +44,32 @@ volatile bool synchronized = false;
 extern LRESULT ImGui_ImplWin32_WndProcHandler(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
 LRESULT SyncWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
 {
+    if(msg == WM_USER + 1)
+    {
+        signals.wantQuit = true;
+    }
+
     if(ImGui_ImplWin32_WndProcHandler(hwnd, msg, wParam, lParam))
     {
         return 0;
     }
+
+    if(msg == WM_QUIT || msg == WM_CLOSE)
+    {
+        PostQuitMessage(0);
+    }
+
+    if(msg == WM_SIZE)
+    {
+        UINT width = LOWORD(lParam);
+        UINT height = HIWORD(lParam);
+        if(g_threadData.renderer)
+        {
+            onWindowResize(g_threadData.renderer, width, height);
+            return 0;
+        }
+    }
+
     return DefWindowProc(hwnd, msg, wParam, lParam);
 }
 
@@ -85,7 +108,8 @@ DWORD WINAPI UpdateThreadProc(LPVOID lpParameter)
         u64 nextFrame = signals.currentFrame;
         if(nextFrame > frame)
         {
-            signals.updateThreadCompletedFrame = nextFrame;            
+            signals.updateThreadCompletedFrame = nextFrame;
+            frame = nextFrame;
         }
         else 
         {
@@ -129,7 +153,7 @@ int main()
     g_writeEvents = new Array<Win32Event>(gMalloc);
     g_readEvents = new Array<Win32Event>(gMalloc);
 
-    bool isFullscreen = true;
+    bool isFullscreen = false;
 
     WNDCLASSEX wc = {};
     wc.cbSize = sizeof(WNDCLASSEX);
@@ -137,13 +161,14 @@ int main()
     wc.hInstance = GetModuleHandle(nullptr);
     wc.lpszClassName = "EditorRendererClass";
     wc.hCursor = LoadCursor(NULL, IDC_ARROW);
+    wc.style = CS_HREDRAW | CS_VREDRAW;
     
     RegisterClassEx(&wc);
 
     int screen_width = 1600;
     int screen_height = 900;
 
-    DWORD windowStyle = isFullscreen ? WS_VISIBLE|WS_POPUP : (WS_OVERLAPPEDWINDOW | WS_VISIBLE);
+    DWORD windowStyle = isFullscreen ? WS_VISIBLE|WS_POPUP : (WS_OVERLAPPEDWINDOW);
     DWORD windowExStyle = isFullscreen ? WS_EX_APPWINDOW : WS_EX_APPWINDOW;
 
     if (isFullscreen)
@@ -165,10 +190,12 @@ int main()
         nullptr
     );
 
+    ShowWindow(hwnd, SW_SHOW);
+    UpdateWindow(hwnd);
+
     EditorRenderer* rend = nullptr;
     initRenderer(hwnd, screen_width, screen_height, rend);
     Scene scene = {rend};
-    
 
     g_threadData.renderer = rend;
     g_threadData.scene = &scene;
@@ -199,7 +226,7 @@ int main()
     {
         while (PeekMessage(&msg, nullptr, 0, 0, PM_REMOVE))
         {
-            if (msg.message == WM_QUIT)
+            if (msg.message == WM_QUIT || signals.wantQuit)
             {
                 g_threadData.shouldExit = true;
                 WaitForSingleObject(g_renderThread, INFINITE);

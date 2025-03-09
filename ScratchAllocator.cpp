@@ -41,7 +41,7 @@ Block* get_block()
 
 void block_memory_init()
 {
-    for(i32 i = 0; i < 32; i++)
+    for(i32 i = 0; i < 8; i++)
     {
         Block* block = (Block*)::malloc(sizeof(Block));
         memset(block, 0, sizeof(Block));
