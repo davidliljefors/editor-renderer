@@ -41,17 +41,23 @@ struct Model
 
 static const int MAX_INSTANCES = 512; // 16K instances per batch - good balance between memory and draw call overhead
 
+struct ViewportData
+{
+    float2 txSize;
+    ID3D11Texture2D* renderTargetTexture = nullptr;
+	ID3D11RenderTargetView* renderTargetView = nullptr;
+    ID3D11DepthStencilView* depthStencilView = nullptr;
+    ID3D11ShaderResourceView* shaderResourceView = nullptr;
+    
+    IViewport* usr;
+};
+
 struct EditorRenderer
 {
 	HWND hwnd = nullptr;
 	IDXGISwapChain1* swapChain = nullptr;
 	ID3D11Device* device = nullptr;
 	ID3D11DeviceContext* context = nullptr;
-    
-    ID3D11Texture2D* renderTargetTexture = nullptr;
-	ID3D11RenderTargetView* renderTargetView = nullptr;
-    ID3D11ShaderResourceView* shaderResourceView = nullptr;
-	ID3D11DepthStencilView* depthStencilView = nullptr;
 
     ID3D11RenderTargetView* imGuirenderTargetView = nullptr;
 
@@ -75,6 +81,9 @@ struct EditorRenderer
 
     UINT newWidth;
     UINT newHeight;
+
+    ViewportData viewports[1024];
+    u32 numViewports = 0;
 };
 
 
@@ -370,7 +379,7 @@ void initRenderer(HWND hwnd, u32 w, u32 h, EditorRenderer*& rend)
         memset(rend, 0, sizeof(EditorRenderer));
         rend->hwnd = hwnd;
     }
-    
+
     rend->newHeight = h;
     rend->newWidth = w;
 
@@ -481,6 +490,54 @@ void createAssetResources(EditorRenderer* rend)
     rend->m_last_frame_time = (float)GetTickCount64() / 1000.0f;
 }
 
+void destroyViewport(EditorRenderer*, ViewportData* data)
+{
+    if(data->renderTargetView)
+        data->renderTargetView->Release();
+
+    if(data->depthStencilView)
+        data->depthStencilView->Release();
+
+    if(data->shaderResourceView)
+        data->shaderResourceView->Release();
+
+    if(data->renderTargetTexture)
+        data->renderTargetTexture->Release();
+}
+
+void createViewportResources(EditorRenderer* rend, ViewportData* vp)
+{
+    DXGI_FORMAT depthBufferFormat = DXGI_FORMAT_D24_UNORM_S8_UINT;
+    D3D11_TEXTURE2D_DESC texDesc = {};
+    texDesc.Width = (u32)vp->usr->size.x;
+    texDesc.Height = (u32)vp->usr->size.y;
+    texDesc.MipLevels = 1;
+    texDesc.ArraySize = 1;
+    texDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+    texDesc.SampleDesc.Count = 1;
+    texDesc.Usage = D3D11_USAGE_DEFAULT;
+    texDesc.BindFlags = D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE;
+
+    HRESULT hr;
+    
+    hr = rend->device->CreateTexture2D(&texDesc, nullptr, &vp->renderTargetTexture);
+    breakIfFailed(hr, rend->device);
+    hr = rend->device->CreateRenderTargetView(vp->renderTargetTexture, nullptr, &vp->renderTargetView);
+    breakIfFailed(hr, rend->device);
+    hr =rend->device->CreateShaderResourceView(vp->renderTargetTexture, nullptr, &vp->shaderResourceView);
+    breakIfFailed(hr, rend->device);
+
+    CD3D11_TEXTURE2D_DESC depthStencilDesc(depthBufferFormat, vp->usr->size.x, vp->usr->size.y, 1, 1, D3D11_BIND_DEPTH_STENCIL);
+    ID3D11Texture2D* depthStencil;
+    hr = rend->device->CreateTexture2D(&depthStencilDesc, nullptr, &depthStencil);
+    breakIfFailed(hr, rend->device);
+    hr = rend->device->CreateDepthStencilView(depthStencil, nullptr, &vp->depthStencilView);
+    breakIfFailed(hr, rend->device);
+    depthStencil->Release();
+    vp->txSize = vp->usr->size;
+    vp->usr->ViewportTex = (u64)vp->shaderResourceView;
+}
+
 void createResources(EditorRenderer* rend, u32 w, u32 h)
 {
     rend->context->OMSetRenderTargets(0, nullptr, nullptr);
@@ -490,17 +547,11 @@ void createResources(EditorRenderer* rend, u32 w, u32 h)
     rend->context->PSSetShaderResources(0, 1, nullSRVs);
     rend->context->CSSetShaderResources(0, 1, nullSRVs);
 
-    if(rend->renderTargetView)
-        rend->renderTargetView->Release();
-
-    if(rend->depthStencilView)
-        rend->depthStencilView->Release();
-
-    if(rend->shaderResourceView)
-        rend->shaderResourceView->Release();
-
-    if(rend->renderTargetTexture)
-        rend->renderTargetTexture->Release();
+    for(u32 i = 0; i < rend->numViewports; ++i)
+    {
+        ViewportData* vp = &rend->viewports[i];
+        destroyViewport(rend, vp);
+    }
 
     if(rend->imGuirenderTargetView)
         rend->imGuirenderTargetView->Release();
@@ -509,7 +560,6 @@ void createResources(EditorRenderer* rend, u32 w, u32 h)
     rend->context->Flush();
 
     DXGI_FORMAT backBufferFormat = DXGI_FORMAT_B8G8R8A8_UNORM;
-    DXGI_FORMAT depthBufferFormat = DXGI_FORMAT_D24_UNORM_S8_UINT;
     u32 backBufferCount = 2;
 
     rend->width = w;
@@ -595,41 +645,41 @@ void createResources(EditorRenderer* rend, u32 w, u32 h)
         dxgiDevice->Release();
     }
 
-    D3D11_TEXTURE2D_DESC texDesc = {};
-    texDesc.Width = w;
-    texDesc.Height = h;
-    texDesc.MipLevels = 1;
-    texDesc.ArraySize = 1;
-    texDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
-    texDesc.SampleDesc.Count = 1;
-    texDesc.Usage = D3D11_USAGE_DEFAULT;
-    texDesc.BindFlags = D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE;
-
-    auto hr = rend->device->CreateTexture2D(&texDesc, nullptr, &rend->renderTargetTexture);
-    breakIfFailed(hr, rend->device);
-    hr = rend->device->CreateRenderTargetView(rend->renderTargetTexture, nullptr, &rend->renderTargetView);
-    breakIfFailed(hr, rend->device);
-    hr =rend->device->CreateShaderResourceView(rend->renderTargetTexture, nullptr, &rend->shaderResourceView);
-    breakIfFailed(hr, rend->device);
+    HRESULT hr;
+    for(u32 i = 0; i < rend->numViewports; ++i)
+    {
+        ViewportData* vp = &rend->viewports[i];
+        createViewportResources(rend, vp);
+    }
 
     ID3D11Texture2D* backBuffer;
     rend->swapChain->GetBuffer(0, IID_PPV_ARGS(&backBuffer));
     hr = rend->device->CreateRenderTargetView(backBuffer, nullptr, &rend->imGuirenderTargetView);
     breakIfFailed(hr, rend->device);
     backBuffer->Release();
-
-    CD3D11_TEXTURE2D_DESC depthStencilDesc(depthBufferFormat, w, h, 1, 1, D3D11_BIND_DEPTH_STENCIL);
-    ID3D11Texture2D* depthStencil;
-    hr = rend->device->CreateTexture2D(&depthStencilDesc, nullptr, &depthStencil);
-    breakIfFailed(hr, rend->device);
-    hr = rend->device->CreateDepthStencilView(depthStencil, nullptr, &rend->depthStencilView);
-    breakIfFailed(hr, rend->device);
-
-    depthStencil->Release();
 }
 
-void preRenderSync(EditorRenderer*)
+void addViewport(EditorRenderer* rend, IViewport* viewport)
 {
+    int slot = rend->numViewports;
+    rend->numViewports += 1;
+    rend->viewports[slot].usr = viewport;
+
+    createViewportResources(rend, &rend->viewports[slot]);
+}
+
+void preRenderSync(EditorRenderer* rend)
+{
+    for(u32 i = 0; i < rend->numViewports; ++i)
+    {
+        ViewportData* vpd = &rend->viewports[i];
+        if(vpd->txSize != vpd->usr->size)
+        {
+            destroyViewport(rend, vpd);
+            createViewportResources(rend, vpd);
+        }
+    }
+
     ImGui_ImplDX11_NewFrame();
     ImGui_ImplWin32_NewFrame();
     ImGui::NewFrame();
@@ -640,7 +690,7 @@ void preRender(EditorRenderer*)
 
 }
 
-void renderFrame(EditorRenderer* rend, const SwissTable<Instance>& instances)
+void renderFrame(EditorRenderer* rend)
 {
     float current_time = (float)GetTickCount64() / 1000.0f;
     float delta_time = current_time - rend->m_last_frame_time;
@@ -660,76 +710,80 @@ void renderFrame(EditorRenderer* rend, const SwissTable<Instance>& instances)
 
     UINT stride[2] = { 11 * sizeof(float), sizeof(float4) };
     UINT offset[2] = { 0, 0 };
-
-    D3D11_VIEWPORT viewport = { 0.0f, 0.0f, (float)rend->width, (float)rend->height, 0.0f, 1.0f };
-    
-    float aspect_ratio = viewport.Width / viewport.Height;
-    float fov_y = 3.14159f * 0.5f;
-    float f = 1000.0f;
-    float n = 0.1f;
-    
-    float tan_half_fov = tanf(fov_y * 0.5f);
-    matrix proj = matrix{ 
-        float4{1.0f / (aspect_ratio * tan_half_fov), 0, 0, 0},
-        float4{0, 1.0f / tan_half_fov, 0, 0},
-        float4{0, 0, f / (f - n), 1},
-        float4{0, 0, -(n * f) / (f - n), 0}
-    };
    
     auto& context = rend->context;
     auto& constantbuffer = rend->constantBuffer;
 
-    context->ClearRenderTargetView(rend->renderTargetView, clearcolor);
-    context->ClearDepthStencilView(rend->depthStencilView, D3D11_CLEAR_DEPTH, 1.0f, 0);
-    context->RSSetViewports(1, &viewport);
-    context->VSSetConstantBuffers(0, 1, &constantbuffer);
-
-    context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-    context->OMSetRenderTargets(1, &rend->renderTargetView, rend->depthStencilView);
-    context->OMSetBlendState(nullptr, nullptr, 0xffffffff);
-
-    auto& model = rend->m_models[0];
-    
-    context->IASetInputLayout(model.m_p_input_layout);
-    ID3D11Buffer* buffers[2] = { model.m_mesh.m_p_vertex_buffer, model.m_p_instance_buffer };
-    context->IASetVertexBuffers(0, 2, buffers, stride, offset);
-    context->IASetIndexBuffer(model.m_mesh.m_p_index_buffer, DXGI_FORMAT_R32_UINT, 0);
-    context->VSSetShader(model.m_p_vertex_shader, nullptr, 0);
-    context->PSSetShader(model.m_p_pixel_shader, nullptr, 0);
-    context->PSSetShaderResources(0, 1, &model.m_p_texture_srv);
-    context->PSSetSamplers(0, 1, &model.m_p_sampler_state);
-
-    D3D11_MAPPED_SUBRESOURCE constantbufferMSR;
-    context->Map(constantbuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &constantbufferMSR);
+    for(u32 vp = 0; vp<rend->numViewports; ++vp)
     {
-        CBufferCpu* constants = (CBufferCpu*)constantbufferMSR.pData;
-        matrix view = rend->m_camera.get_view_matrix();
-        constants->view = view;
-        constants->projection = proj;
-        constants->lightvector = float3{1.0f, -1.0f, 1.0f};
-    }
-    context->Unmap(constantbuffer, 0);
+        ViewportData* vpd = &rend->viewports[vp];
+        D3D11_VIEWPORT viewport = { 0.0f, 0.0f, (float)vpd->txSize.x, (float)vpd->txSize.y, 0.0f, 1.0f };
+        float aspect_ratio = viewport.Width / viewport.Height;
+        float fov_y = 3.14159f * 0.5f;
+        float f = 1000.0f;
+        float n = 0.1f;
+        
+        float tan_half_fov = tanf(fov_y * 0.5f);
+        matrix proj = matrix{ 
+            float4{1.0f / (aspect_ratio * tan_half_fov), 0, 0, 0},
+            float4{0, 1.0f / tan_half_fov, 0, 0},
+            float4{0, 0, f / (f - n), 1},
+            float4{0, 0, -(n * f) / (f - n), 0}
+        };
 
-    auto it = instances.begin();
-    auto end = instances.end();
+        context->ClearRenderTargetView(vpd->renderTargetView, clearcolor);
+        context->ClearDepthStencilView(vpd->depthStencilView, D3D11_CLEAR_DEPTH, 1.0f, 0);
+        context->RSSetViewports(1, &viewport);
+        context->VSSetConstantBuffers(0, 1, &constantbuffer);
 
-    while (it != end)
-    {
-        D3D11_MAPPED_SUBRESOURCE instanceBufferMSR;
-        context->Map(model.m_p_instance_buffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &instanceBufferMSR);
+        context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+        context->OMSetRenderTargets(1, &vpd->renderTargetView, vpd->depthStencilView);
+        context->OMSetBlendState(nullptr, nullptr, 0xffffffff);
+
+        auto& model = rend->m_models[0];
+        
+        context->IASetInputLayout(model.m_p_input_layout);
+        ID3D11Buffer* buffers[2] = { model.m_mesh.m_p_vertex_buffer, model.m_p_instance_buffer };
+        context->IASetVertexBuffers(0, 2, buffers, stride, offset);
+        context->IASetIndexBuffer(model.m_mesh.m_p_index_buffer, DXGI_FORMAT_R32_UINT, 0);
+        context->VSSetShader(model.m_p_vertex_shader, nullptr, 0);
+        context->PSSetShader(model.m_p_pixel_shader, nullptr, 0);
+        context->PSSetShaderResources(0, 1, &model.m_p_texture_srv);
+        context->PSSetSamplers(0, 1, &model.m_p_sampler_state);
+
+        D3D11_MAPPED_SUBRESOURCE constantbufferMSR;
+        context->Map(constantbuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &constantbufferMSR);
         {
-            float4* instance_data = (float4*)instanceBufferMSR.pData;
-            int batch_instance_count = 0;
+            CBufferCpu* constants = (CBufferCpu*)constantbufferMSR.pData;
+            matrix view = vpd->usr->camera.get_view_matrix();
+            constants->view = view;
+            constants->projection = proj;
+            constants->lightvector = float3{1.0f, -1.0f, 1.0f};
+        }
+        context->Unmap(constantbuffer, 0);
 
-            while (it != end && batch_instance_count < MAX_INSTANCES)
+        DrawList list = vpd->usr->getDrawList();
+        int instancesDrawn = 0;
+        int count = list.count;
+
+        while (instancesDrawn != count)
+        {
+            D3D11_MAPPED_SUBRESOURCE instanceBufferMSR;
+            context->Map(model.m_p_instance_buffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &instanceBufferMSR);
             {
-                const Instance& instance = *it;
-                instance_data[batch_instance_count++] = float4{instance.m_position.x, instance.m_position.y, instance.m_position.z, 1.0f};
-                ++it;
-            }
+                float4* instance_data = (float4*)instanceBufferMSR.pData;
+                int batch_instance_count = 0;
 
-            context->Unmap(model.m_p_instance_buffer, 0);
-            context->DrawIndexedInstanced(model.m_mesh.m_index_count, batch_instance_count, 0, 0, 0);
+                while (instancesDrawn != count && batch_instance_count < MAX_INSTANCES)
+                {
+                    const Instance& instance = list.data[instancesDrawn];
+                    instance_data[batch_instance_count++] = float4{instance.m_position.x, instance.m_position.y, instance.m_position.z, 1.0f};
+                    ++instancesDrawn;
+                }
+
+                context->Unmap(model.m_p_instance_buffer, 0);
+                context->DrawIndexedInstanced(model.m_mesh.m_index_count, batch_instance_count, 0, 0, 0);
+            }
         }
     }
 
@@ -744,7 +798,6 @@ void renderImgui(EditorRenderer *rend)
     ImGui::Begin("DockSpace Window", nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoCollapse | 
                  ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoBringToFrontOnFocus);
 
-
     ImGuiID dockspace_id = ImGui::GetID("MyDockSpace");
     ImGui::DockSpace(dockspace_id, ImVec2(0.0f, 0.0f), ImGuiDockNodeFlags_None);
 
@@ -755,10 +808,12 @@ void renderImgui(EditorRenderer *rend)
     ImGui::Begin("Sub Widnow");
     ImGui::End();
 
-    // Display the DX11 render target in a sub-window
-    //ImGui::Begin("Viewport");
-    //ImGui::Image((ImTextureID)rend->shaderResourceView, ImVec2(rend->width-10, rend->height-10));
-    //ImGui::End();
+
+    for(u32 i = 0; i < rend->numViewports; ++i)
+    {
+        rend->viewports[i].usr->onGui();
+    }
+
     ImGui::End();
     // Render ImGui to the swap chain
     rend->context->OMSetRenderTargets(1, &rend->imGuirenderTargetView, nullptr);
@@ -768,9 +823,10 @@ void renderImgui(EditorRenderer *rend)
     ImGui_ImplDX11_RenderDrawData(ImGui::GetDrawData());
 }
 
-void postRender(EditorRenderer*)
+void postRender(EditorRenderer* rend)
 {
-
+    HRESULT hr = rend->swapChain->Present(1, 0);
+    breakIfFailed(hr, rend->device);
 }
 
 void renderSynchronize(EditorRenderer* rend)
@@ -779,9 +835,6 @@ void renderSynchronize(EditorRenderer* rend)
     {
         createResources(rend, rend->newHeight, rend->newWidth);
     }
-    
-    HRESULT hr = rend->swapChain->Present(1, 0);
-    breakIfFailed(hr, rend->device);
 
     if (ImGui::GetIO().ConfigFlags & ImGuiConfigFlags_ViewportsEnable) 
     {

@@ -4,6 +4,46 @@
 
 #include "Core.h"
 
+struct float2
+{
+	float x, y;
+    float2() = default;
+
+    float2(float x, float y) : x(x), y(y) 
+    {}
+
+    friend float2 operator+(float2 lhs, float2 rhs) 
+    {
+        return float2(lhs.x + rhs.x, lhs.y + rhs.y);
+    }
+
+    friend float2 operator-(float2 lhs, float2 rhs) 
+    {
+        return float2(lhs.x - rhs.x, lhs.y - rhs.y);
+    }
+
+    friend float2 operator*(float2 lhs, float2 rhs) 
+    {
+        return float2(lhs.x * rhs.x, lhs.y * rhs.y);
+    }
+
+    friend float2 operator/(float2 lhs, float2 rhs) 
+    {
+        return float2(lhs.x / rhs.x, lhs.y / rhs.y);
+    }
+
+    friend bool operator==(float2 lhs, float2 rhs) 
+    {
+        constexpr float epsilon = 0.0001f;
+        return fabs(lhs.x - rhs.x) < epsilon && fabs(lhs.y - rhs.y) < epsilon;
+    }
+
+    friend bool operator!=(float2 lhs, float2 rhs) 
+    {
+        return !(lhs == rhs);
+    }
+};
+
 struct float3
 {
 	float x, y, z;
@@ -54,6 +94,12 @@ inline matrix operator*(const matrix& m1, const matrix& m2)
     }
 
     return result;
+}
+
+inline float clamp(float value, float min_val, float max_val) {
+    if (value < min_val) return min_val;
+    if (value > max_val) return max_val;
+    return value;
 }
 
 struct Camera

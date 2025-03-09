@@ -1,5 +1,8 @@
+#pragma once
+
 #include "Core.h"
 #include "Array.h"
+
 
 struct Block
 {

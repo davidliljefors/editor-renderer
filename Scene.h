@@ -1,7 +1,10 @@
 #pragma once
 
+#include "EditorRenderer.h"
+#include "Array.h"
 #include "SwissTable.h"
 #include "Math.h"
+
 
 struct EditorRenderer;
 struct EditorMesh;
@@ -9,11 +12,16 @@ struct Camera;
 struct SceneInstance;
 struct Instance;
 
-struct DrawList
+
+class Scene;
+
+struct SceneViewport : IViewport
 {
-	Instance* data = nullptr;
-	u64 size = 0;
-	u64 cap = 0;
+	virtual DrawList getDrawList();
+	virtual void onGui();
+
+	const char* name;
+	Scene* scene;
 };
 
 class Scene
@@ -26,16 +34,15 @@ public:
 	void updateInstance(u64 id, float3 pos);
 	void popInstance(u64 instanceId);
 
+	void addViewport(const char* name);
 
-	void buildDrawList();
-	bool getDrawList(DrawList& outDrawList);
+	DrawList getDrawList();
 
 private:
 	EditorRenderer* m_renderer;
-
 	SwissTable<Instance> m_instances;
+	Array<SceneViewport*> m_viewports;
 	u64 m_nextInstance = 0;
 	DrawList m_lists[2];
 	int writeSlot;
-	int readSlot;
 };

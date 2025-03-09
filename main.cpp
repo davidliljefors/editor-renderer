@@ -97,7 +97,6 @@ DWORD WINAPI UpdateThreadProc(LPVOID lpParameter)
 
 DWORD WINAPI RenderThreadProc(LPVOID lpParameter)
 {
-    SwissTable<Instance> instances {};
     ThreadData* data = (ThreadData*)lpParameter;
     EditorRenderer* rend = data->renderer;
 
@@ -108,7 +107,7 @@ DWORD WINAPI RenderThreadProc(LPVOID lpParameter)
         if(nextFrame > frame)
         {
             preRender(rend);
-            renderFrame(rend, instances);
+            renderFrame(rend);
             postRender(rend);
             signals.renderdThreadCompletedFrame = nextFrame;          
             frame = nextFrame;
@@ -169,6 +168,7 @@ int main()
     EditorRenderer* rend = nullptr;
     initRenderer(hwnd, screen_width, screen_height, rend);
     Scene scene = {rend};
+    
 
     g_threadData.renderer = rend;
     g_threadData.scene = &scene;

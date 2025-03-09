@@ -3,16 +3,20 @@
 #include <stdlib.h>
 
 #include "EditorRenderer.h"
+#include "imgui.h"
+
+MallocAllocator ma;
 
 Scene::Scene(EditorRenderer* renderer)
+	:m_viewports(ma)
 {
 	m_renderer = renderer;
 
-	for (int x = 0; x < 100; x++)
+	for (int x = -10; x < 10; x++)
 	{
-		for (int y = 0; y < 100; y++)
+		for (int y = -10; y < 10; y++)
 		{
-			for (int z = 0; z < 100; z++)
+			for (int z = -10; z < 10; z++)
 			{
 				addInstance({ x * 5.0f, y * 5.0f, z * 5.0f });
 			}
@@ -24,36 +28,11 @@ Scene::Scene(EditorRenderer* renderer)
 
 	m_lists[0].data = (Instance*)malloc(sizeof(Instance) * 1024);
 	m_lists[1].data = (Instance*)malloc(sizeof(Instance) * 1024);
-	m_lists[0].cap = 1024;
-	m_lists[1].cap = 1024;
-}
+	m_lists[0].capacity = 1024;
+	m_lists[1].capacity = 1024;
 
-
-void Scene::buildDrawList()
-{
-	DrawList& drawList = m_lists[writeSlot];
-	u64 count = m_instances.size;
-	
-	if(count > drawList.cap)
-	{
-		drawList.data = (Instance*)realloc(drawList.data, sizeof(Instance) * count);
-		drawList.cap = count;
-	}
-
-	drawList.size = count;
-	u64 idx = 0;
-	for(auto& instance : m_instances)
-	{
-		drawList.data[idx++] = instance;
-	}
-
-	
-}
-
-bool Scene::getDrawList(DrawList& outDrawList)
-{
-	outDrawList = m_lists[readSlot];
-	return true;
+	addViewport("View 1");
+	addViewport("View 2");
 }
 
 u64 Scene::addInstance(float3 pos)
@@ -75,4 +54,74 @@ void Scene::updateInstance(u64 id, float3 pos)
 void Scene::popInstance(u64 id)
 {
 	m_instances.erase(id);
+}
+
+void Scene::addViewport(const char* name)
+{
+	SceneViewport* scv = new SceneViewport();
+	scv->scene = this;
+	scv->name = name;
+	m_viewports.push_back(scv);
+	::addViewport(m_renderer, scv);
+}
+
+DrawList Scene::getDrawList()
+{
+	DrawList& drawList = m_lists[writeSlot];
+	u64 count = m_instances.size;
+	
+	if(count > drawList.capacity)
+	{
+		drawList.data = (Instance*)realloc(drawList.data, sizeof(Instance) * count);
+		drawList.capacity = count;
+	}
+
+	drawList.count = count;
+	u64 idx = 0;
+
+	for(auto& instance : m_instances)
+	{
+		drawList.data[idx++] = instance;
+	}
+
+	return m_lists[writeSlot];
+}
+
+void SceneViewport::onGui()
+{
+	ImGui::Begin(name);
+	ImGui::DragFloat3("Camera Pos", &camera.m_position.x);
+	ImGui::SliderFloat("Camera yaw", &camera.m_yaw, -90.0f, 90.0f);
+	ImGui::SliderFloat("Camera pitch", &camera.m_pitch, -90.0f, 90.0f);
+	ImGui::Image(ViewportTex, ImVec2(size.x, size.y));
+
+	ImGuiIO& io = ImGui::GetIO();
+	if (ImGui::IsWindowHovered() && ImGui::IsMouseDown(1)) {
+		float2 mouseDelta(io.MouseDelta.x, io.MouseDelta.y);
+		float sensitivity = 0.3f * io.DeltaTime;
+		camera.m_yaw += mouseDelta.x * sensitivity;
+		camera.m_pitch += mouseDelta.y * sensitivity;
+		camera.m_pitch = clamp(camera.m_pitch, -3.14f / 2.0f, 3.14/2.0f);
+	}
+
+	if(ImGui::IsWindowHovered())
+	{
+		bool w = ImGui::IsKeyDown(ImGuiKey_W);
+		bool s = ImGui::IsKeyDown(ImGuiKey_S);
+		bool a = ImGui::IsKeyDown(ImGuiKey_A);
+		bool d = ImGui::IsKeyDown(ImGuiKey_D);
+		bool boost = ImGui::IsKeyDown(ImGuiKey_LeftShift);
+
+		camera.update_movement(w, a, s, d, boost, io.DeltaTime);
+	}
+
+	ImVec2 windowSize = ImGui::GetWindowSize();
+	size.x = windowSize.x;
+	size.y = windowSize.y;
+	ImGui::End();
+}
+
+DrawList SceneViewport::getDrawList()
+{
+	return scene->getDrawList();
 }

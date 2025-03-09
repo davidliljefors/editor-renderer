@@ -22,6 +22,13 @@ struct Instance
 	}
 };
 
+struct DrawList
+{
+	Instance* data = nullptr;
+	u64 count = 0;
+	u64 capacity = 0;
+};
+
 struct CBufferCpu
 {
 	matrix view;
@@ -43,9 +50,22 @@ struct CBufferCpu
 
 struct EditorRenderer;
 
+class IViewport
+{
+public:
+	virtual DrawList getDrawList() = 0;
+	virtual void onGui() = 0;
+
+	Camera camera;
+	bool open = true;
+	u64 ViewportTex;
+	float2 size = {100, 100};
+};
+
+void addViewport(EditorRenderer* rend, IViewport* viewport);
 void preRenderSync(EditorRenderer* rend);
 void preRender(EditorRenderer* rend);
-void renderFrame(EditorRenderer* rend, const SwissTable<Instance>& instances);
+void renderFrame(EditorRenderer* rend);
 void renderImgui(EditorRenderer* rend);
 void postRender(EditorRenderer* rend);
 void renderSynchronize(EditorRenderer* rend);

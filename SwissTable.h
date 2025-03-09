@@ -86,7 +86,7 @@ class SwissTable
 
 		Iterator& operator++() { advance(); return *this; }
 		T& operator*() { return m_data[m_index].value; }
-		bool operator!=(const Iterator& r) const { return m_data != r.m_data && m_index != r.m_index; }
+		bool operator!=(const Iterator& r) const { return !(m_data == r.m_data && m_index == r.m_index); }
 	};
 
 	constexpr static float MAX_LOAD_FACTOR = 0.7f;
