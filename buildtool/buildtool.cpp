@@ -17,8 +17,8 @@ struct CompilerFlags {
 CompilerFlags clang_cl {
     "clang-cl ",
     "lld-link ",
-    "/Zi /Od /MT /W4 /std:c++17 ",
-    "/debug /pdb:build/main.pdb ",
+    "/Zi /Od /MTd /W4 /std:c++17",
+    "/debug /pdb:build/main.pdb",
 };
 
 struct BuildConfig {

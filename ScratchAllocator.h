@@ -1,13 +1,11 @@
 #pragma once
 
 #include "Core.h"
-#include "Array.h"
-
+#include "Allocator.h"
 
 struct Block
 {
 	static constexpr i32 PAGE_SIZE = 4096;
-	// 4 megabyte blocks
 	static constexpr i32 BLOCK_SIZE = 16 * 256 * PAGE_SIZE;
 	struct Header
 	{
@@ -34,7 +32,8 @@ struct ScratchPadAllocator : public Allocator
 	ScratchPadAllocator& operator=(ScratchPadAllocator&&) = delete;
 
 	void* alloc(i32 size) override;
-	void free(void* block, i32 size) override;
+	void free(void* block) override;
+	void freeSizeKnown(void* block, i32 size) override;
 private:
 	Block* m_current;
 	i32 m_pos;

@@ -107,6 +107,11 @@ void MetroHash64::Update(const uint8_t * const buffer, const uint64_t length)
         memcpy(input.b, ptr, static_cast<size_t>(end - ptr));
 }
 
+void MetroHash64::Update(const int8_t * const buffer, const uint64_t length)
+{
+    Update((const uint8_t*)buffer, length);
+}
+
 
 void MetroHash64::Finalize(uint8_t * const hash)
 {
@@ -167,6 +172,13 @@ void MetroHash64::Finalize(uint8_t * const hash)
     // do any endian conversion here
 
     memcpy(hash, state.v, 8);
+}
+
+uint64_t MetroHash64::Finalize()
+{
+    uint64_t out;
+    Finalize((uint8_t*)&out);
+    return out;
 }
 
 

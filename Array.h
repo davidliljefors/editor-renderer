@@ -1,35 +1,131 @@
 #pragma once
 
-#include <string.h>
 #include <new>
 
 #include "Core.h"
+#include "Allocator.h"
 
-struct Allocator
-{
-	virtual ~Allocator() = default;
 
-	virtual void* alloc(i32 size) = 0;
-	virtual void free(void* block, i32 size) = 0;
-};
-
-class MallocAllocator : public Allocator
-{
-public:
-	MallocAllocator() = default;
-	~MallocAllocator() override = default;
-
-	void* alloc(i32 size) override
+struct ArrayBase
+{	
+	template<typename T>
+	void push_back(Allocator& alloc, T val)
 	{
-		return ::malloc(size);
+		if (m_size == m_capacity)
+			grow<T>(alloc);
+
+		T* dataPtr = (T*)m_data;
+		new (&dataPtr[m_size]) T(val);
+		++m_size;
 	}
 
-	void free(void* block, i32) override
+	template<typename T>
+	T* push_back_uninit()
 	{
-		return ::free(block);
-	}
-};
+		if (m_size == m_capacity)
+			grow<T>();
 
+		T* dataPtr = (T*)m_data;
+		return &m_data[dataPtr++];
+	}
+
+	template<typename T>
+	void resize(Allocator& alloc, i32 new_size)
+	{
+		if (new_size > m_capacity)
+		{
+			reserve<T>(alloc, new_size);
+		}
+
+		if (new_size > m_size)
+		{
+			for (i32 i = m_size; i < new_size; ++i)
+			{
+				T* dataPtr = (T*)m_data;
+				new (&dataPtr[i]) T();
+			}
+		}
+		else if (new_size < m_size)
+		{
+			for (i32 i = new_size; i < m_size; ++i)
+			{
+				T* dataPtr = (T*)m_data;
+				dataPtr[i].~T();
+			}
+		}
+
+		m_size = new_size;
+	}
+	
+	template<typename T>
+	void reserve(Allocator& allocator, i32 new_capacity, i32 element_size)
+	{
+		if (new_capacity > m_capacity)
+		{
+			void* new_data = allocator.alloc(new_capacity * element_size);
+
+			if (m_size > 0)
+			{
+				memcpy(new_data, m_data, m_size * element_size);
+			}
+
+			if(m_data)
+			{
+				allocator.freeSizeKnown(m_data, m_capacity * element_size);
+			}
+
+			m_data = new_data;
+			m_capacity = new_capacity;
+		}
+	}
+	
+	template<typename T>
+	void clear()
+	{
+
+	}
+
+	template<typename T>
+	void grow(Allocator& allocator)
+	{	
+		i32 new_capacity = m_capacity < 1 ? 1 : (m_capacity * 2);
+		void* new_data = allocator.alloc(new_capacity * sizeof(T));
+
+		if (m_size > 0)
+		{
+			memcpy(new_data, m_data, m_size * sizeof(T));
+		}
+		if(m_data)
+		{
+			allocator.freeSizeKnown(m_data, m_capacity * sizeof(T));
+		}
+
+		m_data = new_data;
+		m_capacity = new_capacity;
+	}
+
+	i32 size() const 
+	{ 
+		return m_size; 
+	}
+
+	template<typename T>
+	T* data() 
+	{ 
+		return (T*)m_data; 
+	}
+
+	template<typename T>
+	T& at(i32 i)
+	{
+		T* dataPtr = (T*)m_data;
+		return dataPtr[i];
+	}
+
+	i32 m_size = 0;
+	i32 m_capacity = 0;
+	void* m_data = nullptr;
+};
 
 template<typename T>
 class Array
@@ -86,7 +182,7 @@ Array<T>::~Array()
 
 	if (m_data)
 	{
-		m_allocator.free(m_data, m_capacity * sizeof(T));
+		m_allocator.freeSizeKnown(m_data, m_capacity * sizeof(T));
 	}
 
 	m_capacity = 0;
@@ -158,7 +254,7 @@ void Array<T>::reserve(i32 new_capacity)
 
 		if(m_data)
 		{
-			m_allocator.free(m_data, sizeof(T) * m_capacity);
+			m_allocator.freeSizeKnown(m_data, sizeof(T) * m_capacity);
 		}
 
 		m_data = new_data;
@@ -214,7 +310,7 @@ void Array<T>::grow()
 	}
 	if(m_data)
 	{
-		m_allocator.free(m_data, sizeof(T) * m_capacity);
+		m_allocator.freeSizeKnown(m_data, sizeof(T) * m_capacity);
 	}
 	m_data = new_data;
 	m_capacity = new_capacity;

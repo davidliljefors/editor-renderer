@@ -97,7 +97,13 @@ void* ScratchPadAllocator::alloc(i32 size)
     }
 }
 
-void ScratchPadAllocator::free(void*, i32)
+void ScratchPadAllocator::free(void*)
+{
+    // Do nothing
+}
+
+
+void ScratchPadAllocator::freeSizeKnown(void*, i32)
 {
     // Do nothing
 }

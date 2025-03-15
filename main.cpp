@@ -2,6 +2,8 @@
 #include "EditorRenderer.h"
 
 #include "ScratchAllocator.h"
+#include "hpt.h"
+#include "mh64.h"
 
 #pragma comment(lib, "user32.lib")
 #define WIN32_LEAN_AND_MEAN
@@ -144,10 +146,130 @@ DWORD WINAPI RenderThreadProc(LPVOID lpParameter)
     return 0;
 }
 
+hpt::Key getKey(u64 entity, const char* name)
+{
+    MetroHash64 hasher;
+    hasher.Update((const u8*)&entity, sizeof(u64));
+    hasher.Update((const u8*)name, strlen(name));
+    hpt::Key key;
+    hasher.Finalize((u8*)&key.asU64);
+    return key;
+}
+
+enum class TypeCode
+{
+    Uint8,
+    Uint16,
+    Uint32,
+    Uint64,
+    
+    Int8,
+    Int16,
+    Int32,
+    Int64,
+
+    Float32,
+    Float64,
+
+    Vec2,
+    Vec3,
+    Vec4,
+
+    Array,
+
+    ValueType,
+};
+
+
+struct TypeInfo
+{
+    TypeCode typeCode;
+    
+};
+
+struct FieldInfo
+{
+    u64 fieldName;
+    TypeInfo* fieldType;
+};
+
+struct ArrayTypeInfo
+{
+    TypeInfo base;
+    TypeInfo elementType;
+};
+
+struct ValueTypeInfo
+{
+    u64 nameHash;
+    Array<FieldInfo*> fields;
+};
+
+struct BoxedValue
+{
+    TypeInfo* type;
+    void* data;
+};
+
+SwissTable<const char*> g_nameLookup;
+
+u64 getNameHash(const char* str)
+{
+    u64 hash;
+    MetroHash64::Hash(str, strlen(str), (u8*)&hash);
+
+}
+
+
 int main()
 {
-    block_memory_init();
     MallocAllocator gMalloc;
+    ArrayBase base;
+
+    base.push_back(gMalloc, 3);
+    base.push_back(gMalloc, 4);
+    base.push_back(gMalloc, 5);
+
+    int val = base.at<int>(2);
+
+    HierarchicalPageTable* root = HierarchicalPageTable::create(gMalloc);
+    HierarchicalPageTable* update = root;
+
+    hpt::Key k1{0};
+    hpt::Key k2{1};
+    hpt::Key k3{2};
+
+    for(u32 i = 0; i < 100; ++i)
+    {
+        hpt::Key key = getKey(i, "Transform");
+        void* entry;
+        update = HierarchicalPageTable::lookupForWrite(root, update, key, &entry);
+        entry = gMalloc.alloc(4);
+        *(int*)entry = i;
+    }
+
+    Array<KeyEntry> adds1{gMalloc};
+    Array<KeyEntry> edits1{gMalloc};
+    Array<KeyEntry> removes1{gMalloc};
+    diff(root, update, adds1, edits1, removes1);
+
+    HierarchicalPageTable* update2 = update;
+
+    for(u32 i = 0; i < 200; ++i)
+    {
+        hpt::Key key = getKey(i, "Transform");
+        void* entry;
+        update2 = HierarchicalPageTable::lookupForWrite(update, update2, key, &entry);
+        entry = gMalloc.alloc(4);
+        *(int*)entry = i;
+    }
+
+    Array<KeyEntry> adds2{gMalloc};
+    Array<KeyEntry> edits2{gMalloc};
+    Array<KeyEntry> removes2{gMalloc};
+    diff(update, update2, adds2, edits2, removes2);
+    
+    block_memory_init();
     synchronized = true;
 
     g_writeEvents = new Array<Win32Event>(gMalloc);
