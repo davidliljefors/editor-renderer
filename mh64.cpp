@@ -252,3 +252,20 @@ void MetroHash64::Hash(const uint8_t * buffer, const uint64_t length, uint8_t * 
 
     memcpy(hash, &h, 8);
 }
+
+void MetroHash64::Hash(const char* buffer, uint64_t length, uint8_t* hash, uint64_t seed)
+{
+    Hash((const uint8_t*)buffer, length, hash, seed);
+}
+
+uint64_t MetroHash64::Hash(const uint8_t* buffer, uint64_t length, uint64_t seed)
+{
+    uint64_t out;
+    Hash(buffer, length, (uint8_t*)&out, seed);
+    return out;
+}
+
+uint64_t MetroHash64::Hash(const char* buffer, uint64_t length, uint64_t seed)
+{
+    return Hash((const uint8_t*)buffer, length, seed);
+}

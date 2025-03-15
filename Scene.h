@@ -46,5 +46,5 @@ private:
 	Array<SceneViewport*> m_viewports;
 	u64 m_nextInstance = 0;
 	DrawList m_lists[2];
-	int writeSlot;
+	int writeSlot = 0;
 };

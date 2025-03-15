@@ -22,8 +22,6 @@ Scene::Scene(EditorRenderer* renderer)
 			}
 		}
 	}
-
-
 	addInstance({ 5.0f, 5.0f, 5.0f });
 
 	m_lists[0].data = (Instance*)malloc(sizeof(Instance) * 1024);
@@ -68,6 +66,7 @@ void Scene::addViewport(const char* name)
 DrawList Scene::getDrawList()
 {
 	DrawList& drawList = m_lists[writeSlot];
+	
 	u64 count = m_instances.size;
 	
 	if(count > drawList.capacity)

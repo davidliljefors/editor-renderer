@@ -1,5 +1,7 @@
 #include "ScratchAllocator.h"
 
+#include <string.h>
+
 static Block* s_freeBlocks = nullptr;
 
 void return_block(Block* block)

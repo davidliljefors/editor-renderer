@@ -215,11 +215,10 @@ SwissTable<const char*> g_nameLookup;
 
 u64 getNameHash(const char* str)
 {
-    u64 hash;
-    MetroHash64::Hash(str, strlen(str), (u8*)&hash);
-
+    u64 hash = MetroHash64::Hash(str, strlen(str));
+    g_nameLookup.insert(hash, str);
+    return hash;
 }
-
 
 int main()
 {
@@ -230,14 +229,8 @@ int main()
     base.push_back(gMalloc, 4);
     base.push_back(gMalloc, 5);
 
-    int val = base.at<int>(2);
-
     HierarchicalPageTable* root = HierarchicalPageTable::create(gMalloc);
     HierarchicalPageTable* update = root;
-
-    hpt::Key k1{0};
-    hpt::Key k2{1};
-    hpt::Key k3{2};
 
     for(u32 i = 0; i < 100; ++i)
     {
