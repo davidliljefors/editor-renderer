@@ -2,40 +2,53 @@
 
 #include <string.h>
 
+#include "Simd.h"
+
 using u8 = unsigned char;
 using u32 = unsigned int;
 using u64 = unsigned long long;
 
-struct forward_iterator_tag {};
+#if defined(_MSC_VER)
+#include <intrin.h>
+#endif
 
-constexpr u64 next_power_of_2(u64 n)
-{
-	if (n == 0) return 1;
-
-	n |= n >> 1;
-	n |= n >> 2;
-	n |= n >> 4;
-	n |= n >> 8;
-	n |= n >> 16;
-	n |= n >> 32;
-
-	return n+1;
+inline u64 next_power_of_2(u64 n) {
+    if (n == 0) return 1;
+#ifdef __GNUC__ // GCC/Clang
+    return (u64)1 << (64 - __builtin_clzll(n - 1));
+#elif defined(_MSC_VER) // MSVC
+    unsigned long index;
+    _BitScanReverse64(&index, n - 1);
+    return (u64)1 << (index + 2);
+#else // Fallback to original
+    n |= n >> 1;
+    n |= n >> 2;
+    n |= n >> 4;
+    n |= n >> 8;
+    n |= n >> 16;
+    n |= n >> 32;
+    return n + 1;
+#endif
 }
 
-constexpr u64 power_of_2(u64 n)
-{
-	if (n == 0) return 1;
-
-	--n;
-
-	n |= n >> 1;
-	n |= n >> 2;
-	n |= n >> 4;
-	n |= n >> 8;
-	n |= n >> 16;
-	n |= n >> 32;
-
-	return n+1;
+inline u64 round_up_to_power_of_2(u64 n) {
+    if (n <= 1) return n ? 1 : 0; // Handle 0 and 1
+#ifdef __GNUC__ // GCC/Clang
+    return (u64)1 << (64 - __builtin_clzll(n - 1));
+#elif defined(_MSC_VER) // MSVC
+    unsigned long index;
+    _BitScanReverse64(&index, n - 1);
+    return (u64)1 << (index + 1);
+#else // Fallback
+    n--;
+    n |= n >> 1;
+    n |= n >> 2;
+    n |= n >> 4;
+    n |= n >> 8;
+    n |= n >> 16;
+    n |= n >> 32;
+    return n + 1;
+#endif
 }
 
 enum ControlByte : u8
@@ -155,6 +168,9 @@ private:
 
 	__forceinline u32 probe(u32 index, u32 step) const;
 
+	// using no intrinsics
+	u32 find_slot_u(u64 key) const;
+
 	u32 find_slot(u64 key) const;
 
 	void rehash(u32 newCapacity);
@@ -169,7 +185,7 @@ public:
 template <typename T>
 SwissTable<T>::SwissTable(u32 initialCapacity)
 {
-	init(power_of_2(initialCapacity));
+	init(round_up_to_power_of_2(initialCapacity));
 }
 
 template <typename T>
@@ -303,8 +319,8 @@ void SwissTable<T>::init(u32 newCapacity)
 {
 	size = 0;
 	capacity = newCapacity;
-	control = new u8[capacity];
-	memset(control, EMPTY, capacity);
+	control = new u8[capacity + 16];
+	memset(control, EMPTY, capacity + 16);
 	data = new Entry[capacity];
 }
 
@@ -320,8 +336,10 @@ u32 SwissTable<T>::probe(u32 index, u32 step) const
 	return (index + step * step) & (capacity - 1);
 }
 
+
+
 template <typename T>
-u32 SwissTable<T>::find_slot(u64 key) const
+u32 SwissTable<T>::find_slot_u(u64 key) const
 {
 	u32 index = hash(key);
 	u32 step = 1;
@@ -336,6 +354,40 @@ u32 SwissTable<T>::find_slot(u64 key) const
 	return index;
 }
 
+template<typename T>
+u32 SwissTable<T>::find_slot(u64 key) const {
+    u32 index = hash(key) & ~7; // Align to 8-byte boundary
+    u32 step = 0;
+
+    while (step * 8 < capacity) {
+        Simd128 control_chunk = Simd128::load128(control + index);
+        Simd128 empty_vec = Simd128::broadcast(EMPTY);
+        Simd128 cmp_empty = Simd128::compare_eq(control_chunk, empty_vec);
+        uint32_t empty_mask_simd = Simd128::move_mask(cmp_empty);
+
+        if (empty_mask_simd != 0) {
+            u32 first_empty = count_trailing_zeros(empty_mask_simd);
+            return index + first_empty;
+        }
+
+        Simd128 deleted_vec = Simd128::broadcast(DELETED);
+        Simd128 cmp_deleted = Simd128::compare_eq(control_chunk, deleted_vec);
+        uint32_t deleted_mask = Simd128::move_mask(cmp_deleted);
+
+        for (u32 i = 0; i < 8; i++) {
+            u8 ctrl = control_chunk.data[i];
+            if (ctrl != DELETED && data[index + i].key == key) {
+                return index + i;
+            }
+        }
+
+        step++;
+        index += 8;
+    }
+
+    return capacity;
+}
+
 template <typename T>
 void SwissTable<T>::rehash(u32 newCapacity)
 {
@@ -344,8 +396,8 @@ void SwissTable<T>::rehash(u32 newCapacity)
 	u32 oldCapacity = capacity;
 
 	capacity = newCapacity;
-	control = new u8[capacity]{ EMPTY };
-	memset(control, EMPTY, capacity);
+	control = new u8[capacity + 16]{ EMPTY };
+	memset(control, EMPTY, capacity + 16);
 	data = new Entry[capacity];
 
 	u32 sizeCopy = size;
