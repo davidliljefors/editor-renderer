@@ -27,7 +27,7 @@
     <ClInclude Include="..\..\EditorRenderer.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="..\..\HashTable.h">
+    <ClInclude Include="..\..\HashMap.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="..\..\hpt.h">
