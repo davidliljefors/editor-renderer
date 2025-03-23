@@ -213,7 +213,7 @@ struct BoxedValue
 
 MallocAllocator gMalloc;
 
-Hashtable<const char*> g_nameLookup(gMalloc);
+HashMap<const char*> g_nameLookup(gMalloc);
 
 u64 getNameHash(const char* str)
 {
@@ -224,21 +224,6 @@ u64 getNameHash(const char* str)
 
 int main()
 {
-    Hashtable<int> ints(gMalloc);
-    Array<int> arrays(gMalloc);
-
-    arrays.push_back(1);
-    arrays.push_back(2);
-    arrays.push_back(3);
-    arrays.push_back(4);
-    arrays.push_back(5);
-    arrays.push_back(6);
-
-    ints.add(1, 1);
-    ints.add(2, 2);
-    ints.add(3, 4);
-    ints.add(5, 6);
-
     block_memory_init();
     synchronized = true;
 
@@ -330,6 +315,7 @@ int main()
             if (msg.message == WM_KEYDOWN && msg.wParam == VK_ESCAPE)
             {
                 PostQuitMessage(0);
+                break;
             }
             TranslateMessage(&msg);
             DispatchMessage(&msg);

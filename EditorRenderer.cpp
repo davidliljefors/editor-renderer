@@ -515,9 +515,11 @@ void createDevice(EditorRenderer* rend)
     rend->context = context;
 
 
+    HRESULT hr;
+
 #ifndef NDEBUG
     ID3D11Debug* d3dDebug;
-    HRESULT hr = device->QueryInterface(__uuidof(ID3D11Debug), (void**)&d3dDebug);
+    hr = device->QueryInterface(__uuidof(ID3D11Debug), (void**)&d3dDebug);
     if (SUCCEEDED(hr))
     {
         ID3D11InfoQueue* d3dInfoQueue;
@@ -739,6 +741,31 @@ void createResources(EditorRenderer* rend, u32 w, u32 h)
     hr = rend->device->CreateRenderTargetView(backBuffer, nullptr, &rend->imGuirenderTargetView);
     breakIfFailed(hr, rend->device);
     backBuffer->Release();
+}
+
+Win32Timer::Win32Timer(const char* name)
+	:name(name)
+{
+    LARGE_INTEGER f;
+    LARGE_INTEGER s;
+
+    QueryPerformanceFrequency(&f);
+    QueryPerformanceCounter(&s);
+
+    freq = f.QuadPart;
+    start = s.QuadPart;
+}
+
+Win32Timer::~Win32Timer()
+{
+    LARGE_INTEGER endTime;
+    QueryPerformanceCounter(&endTime);
+
+    double elapsedMs = ((endTime.QuadPart - start) * 1000.0) / freq;
+    
+    char buffer[256];
+    sprintf_s(buffer, "Timer (%s) took %.3fms\n", name, elapsedMs);
+    OutputDebugStringA(buffer);
 }
 
 void addViewport(EditorRenderer* rend, IViewport* viewport)

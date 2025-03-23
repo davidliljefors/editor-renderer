@@ -150,10 +150,13 @@ public:
 	T& operator[](i32 i);
 	const T& operator[](i32 i) const;
 
+	T& at(i32 i);
 
 	i32 size() const { return m_size; }
-	T* data() { return m_data; }
+	i32 capacity() const { return m_capacity; }
 
+	T* data() { return m_data; }
+	
 	T* begin();
 	T* end();
 
@@ -307,6 +310,12 @@ T& Array<T>::operator[](i32 i)
 
 template <typename T>
 const T& Array<T>::operator[](i32 i) const
+{
+	return m_data[i];
+}
+
+template <typename T>
+T& Array<T>::at(i32 i)
 {
 	return m_data[i];
 }

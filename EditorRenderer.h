@@ -5,6 +5,18 @@
 struct HWND__;
 using HWND = HWND__*;
 
+struct Win32Timer
+{
+	Win32Timer(const char* name);
+	~Win32Timer();
+
+	u64 freq;
+	u64 start;
+	const char* name;
+};
+
+#define PROF_SCOPE(name) Win32Timer timer_##name(#name)
+
 struct Instance
 {
 	float3 m_position;

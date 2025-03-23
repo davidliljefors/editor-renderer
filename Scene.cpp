@@ -8,16 +8,18 @@
 MallocAllocator ma;
 
 Scene::Scene(EditorRenderer* renderer)
-	:m_viewports(ma)
-	,m_instances(ma)
+	: m_viewports(ma)
+	, m_instances(ma)
 {
+	PROF_SCOPE(Scene_Constructor);
+
 	m_renderer = renderer;
 
-	for (int x = -10; x < 10; x++)
+	for (int x = -30; x < 30; x++)
 	{
-		for (int y = -10; y < 10; y++)
+		for (int y = -30; y < 30; y++)
 		{
-			for (int z = -10; z < 10; z++)
+			for (int z = -30; z < 30; z++)
 			{
 				addInstance({ x * 5.0f, y * 5.0f, z * 5.0f });
 			}
@@ -37,7 +39,7 @@ Scene::Scene(EditorRenderer* renderer)
 u64 Scene::addInstance(float3 pos)
 {
     u64 id = m_nextInstance++;
-    m_instances.add(id, { pos, 0});
+    m_instances.insert_or_assign(id, Instance{ pos, 0});
     return id;
 }
 
@@ -81,7 +83,7 @@ DrawList Scene::getDrawList()
 
 	for(auto& instance : m_instances)
 	{
-		drawList.data[idx++] = instance.value;
+		drawList.data[idx++] = instance;
 	}
 
 	return m_lists[writeSlot];

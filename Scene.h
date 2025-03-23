@@ -3,7 +3,7 @@
 #include "EditorRenderer.h"
 #include "Array.h"
 #include "Math.h"
-#include "HashTable.h"
+#include "HashMap.h"
 
 
 struct EditorRenderer;
@@ -42,8 +42,8 @@ public:
 
 private:
 	EditorRenderer* m_renderer;
-	Hashtable<Instance> m_instances;
 	Array<SceneViewport*> m_viewports;
+	HashMap<Instance> m_instances;
 	u64 m_nextInstance = 0;
 	DrawList m_lists[2];
 	int writeSlot = 0;
