@@ -20,16 +20,16 @@ struct Block
 void block_memory_init();
 void block_memory_shutdown();
 
-struct ScratchPadAllocator : public Allocator
+struct TempAllocator : public Allocator
 {
-	ScratchPadAllocator();
-	~ScratchPadAllocator() override;
+	TempAllocator();
+	~TempAllocator() override;
 
-	ScratchPadAllocator(const ScratchPadAllocator&) = delete;
-	ScratchPadAllocator(ScratchPadAllocator&&) = delete;
+	TempAllocator(const TempAllocator&) = delete;
+	TempAllocator(TempAllocator&&) = delete;
 
-	ScratchPadAllocator& operator=(const ScratchPadAllocator&) = delete;
-	ScratchPadAllocator& operator=(ScratchPadAllocator&&) = delete;
+	TempAllocator& operator=(const TempAllocator&) = delete;
+	TempAllocator& operator=(TempAllocator&&) = delete;
 
 	void* alloc(i32 size) override;
 	void free(void* block) override;

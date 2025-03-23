@@ -211,57 +211,34 @@ struct BoxedValue
     void* data;
 };
 
-SwissTable<const char*> g_nameLookup;
+MallocAllocator gMalloc;
+
+Hashtable<const char*> g_nameLookup(gMalloc);
 
 u64 getNameHash(const char* str)
 {
     u64 hash = MetroHash64::Hash(str, strlen(str));
-    g_nameLookup.insert(hash, str);
+    g_nameLookup.add(hash, str);
     return hash;
 }
 
 int main()
 {
-    MallocAllocator gMalloc;
-    ArrayBase base;
+    Hashtable<int> ints(gMalloc);
+    Array<int> arrays(gMalloc);
 
-    base.push_back(gMalloc, 3);
-    base.push_back(gMalloc, 4);
-    base.push_back(gMalloc, 5);
+    arrays.push_back(1);
+    arrays.push_back(2);
+    arrays.push_back(3);
+    arrays.push_back(4);
+    arrays.push_back(5);
+    arrays.push_back(6);
 
-    HierarchicalPageTable* root = HierarchicalPageTable::create(gMalloc);
-    HierarchicalPageTable* update = root;
+    ints.add(1, 1);
+    ints.add(2, 2);
+    ints.add(3, 4);
+    ints.add(5, 6);
 
-    for(u32 i = 0; i < 100; ++i)
-    {
-        hpt::Key key = getKey(i, "Transform");
-        void* entry;
-        update = HierarchicalPageTable::lookupForWrite(root, update, key, &entry);
-        entry = gMalloc.alloc(4);
-        *(int*)entry = i;
-    }
-
-    Array<KeyEntry> adds1{gMalloc};
-    Array<KeyEntry> edits1{gMalloc};
-    Array<KeyEntry> removes1{gMalloc};
-    diff(root, update, adds1, edits1, removes1);
-
-    HierarchicalPageTable* update2 = update;
-
-    for(u32 i = 0; i < 200; ++i)
-    {
-        hpt::Key key = getKey(i, "Transform");
-        void* entry;
-        update2 = HierarchicalPageTable::lookupForWrite(update, update2, key, &entry);
-        entry = gMalloc.alloc(4);
-        *(int*)entry = i;
-    }
-
-    Array<KeyEntry> adds2{gMalloc};
-    Array<KeyEntry> edits2{gMalloc};
-    Array<KeyEntry> removes2{gMalloc};
-    diff(update, update2, adds2, edits2, removes2);
-    
     block_memory_init();
     synchronized = true;
 
@@ -274,7 +251,7 @@ int main()
     wc.cbSize = sizeof(WNDCLASSEX);
     wc.lpfnWndProc = EditorWndProc;
     wc.hInstance = GetModuleHandle(nullptr);
-    wc.lpszClassName = "EditorRendererClass";
+    wc.lpszClassName = TEXT("EditorRendererClass");
     wc.hCursor = LoadCursor(NULL, IDC_ARROW);
     wc.style = CS_HREDRAW | CS_VREDRAW;
     

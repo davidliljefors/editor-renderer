@@ -1,13 +1,13 @@
 #pragma once
 
 #include <new>
+#include <string.h>
 
 #include "Core.h"
 #include "Allocator.h"
 
-
 struct ArrayBase
-{	
+{
 	template<typename T>
 	void push_back(Allocator& alloc, T val)
 	{
@@ -56,7 +56,7 @@ struct ArrayBase
 
 		m_size = new_size;
 	}
-	
+
 	template<typename T>
 	void reserve(Allocator& allocator, i32 new_capacity, i32 element_size)
 	{
@@ -69,7 +69,7 @@ struct ArrayBase
 				memcpy(new_data, m_data, m_size * element_size);
 			}
 
-			if(m_data)
+			if (m_data)
 			{
 				allocator.freeSizeKnown(m_data, m_capacity * element_size);
 			}
@@ -78,7 +78,7 @@ struct ArrayBase
 			m_capacity = new_capacity;
 		}
 	}
-	
+
 	template<typename T>
 	void clear()
 	{
@@ -87,7 +87,7 @@ struct ArrayBase
 
 	template<typename T>
 	void grow(Allocator& allocator)
-	{	
+	{
 		i32 new_capacity = m_capacity < 1 ? 1 : (m_capacity * 2);
 		void* new_data = allocator.alloc(new_capacity * sizeof(T));
 
@@ -95,7 +95,7 @@ struct ArrayBase
 		{
 			memcpy(new_data, m_data, m_size * sizeof(T));
 		}
-		if(m_data)
+		if (m_data)
 		{
 			allocator.freeSizeKnown(m_data, m_capacity * sizeof(T));
 		}
@@ -104,15 +104,15 @@ struct ArrayBase
 		m_capacity = new_capacity;
 	}
 
-	i32 size() const 
-	{ 
-		return m_size; 
+	i32 size() const
+	{
+		return m_size;
 	}
 
 	template<typename T>
-	T* data() 
-	{ 
-		return (T*)m_data; 
+	T* data()
+	{
+		return (T*)m_data;
 	}
 
 	template<typename T>
@@ -142,8 +142,10 @@ public:
 	void resize(i32 new_size);
 	void reserve(i32 new_capacity);
 
+	void swap(Array<T>& other);
 
 	void clear();
+	bool empty() const;
 
 	T& operator[](i32 i);
 	const T& operator[](i32 i) const;
@@ -154,6 +156,8 @@ public:
 
 	T* begin();
 	T* end();
+
+	Allocator& get_allocator();
 
 private:
 	void grow();
@@ -202,7 +206,7 @@ void Array<T>::push_back(T val)
 template <typename T>
 T& Array<T>::back()
 {
-	return m_data[m_size-1];
+	return m_data[m_size - 1];
 }
 
 template <typename T>
@@ -233,7 +237,7 @@ void Array<T>::resize(i32 new_size)
 	{
 		for (i32 i = new_size; i < m_size; ++i)
 		{
-			m_data[i].~T();	
+			m_data[i].~T();
 		}
 	}
 
@@ -252,7 +256,7 @@ void Array<T>::reserve(i32 new_capacity)
 			memcpy(new_data, m_data, sizeof(T) * m_size);
 		}
 
-		if(m_data)
+		if (m_data)
 		{
 			m_allocator.freeSizeKnown(m_data, sizeof(T) * m_capacity);
 		}
@@ -260,6 +264,22 @@ void Array<T>::reserve(i32 new_capacity)
 		m_data = new_data;
 		m_capacity = new_capacity;
 	}
+}
+
+template <typename T>
+void Array<T>::swap(Array<T>& other)
+{
+	T* temp_data = m_data;
+	m_data = other.m_data;
+	other.m_data = temp_data;
+
+	i32 temp_size = m_size;
+	m_size = other.m_size;
+	other.m_size = temp_size;
+
+	i32 temp_capacity = m_capacity;
+	m_capacity = other.m_capacity;
+	other.m_capacity = temp_capacity;
 }
 
 template <typename T>
@@ -271,6 +291,12 @@ void Array<T>::clear()
 	}
 
 	m_size = 0;
+}
+
+template <typename T>
+bool Array<T>::empty() const
+{
+	return m_size == 0;
 }
 
 template <typename T>
@@ -298,17 +324,23 @@ T* Array<T>::end()
 }
 
 template <typename T>
+Allocator& Array<T>::get_allocator()
+{
+	return m_allocator;
+}
+
+template <typename T>
 void Array<T>::grow()
 {
 	i32 new_capacity = m_capacity < 1 ? 1 : (m_capacity * 2);
-	
+
 	T* new_data = (T*)m_allocator.alloc(sizeof(T) * new_capacity);
 
 	if (m_size > 0)
 	{
 		memcpy(new_data, m_data, sizeof(T) * m_size);
 	}
-	if(m_data)
+	if (m_data)
 	{
 		m_allocator.freeSizeKnown(m_data, sizeof(T) * m_capacity);
 	}

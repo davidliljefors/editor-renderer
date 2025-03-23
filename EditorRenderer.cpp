@@ -21,23 +21,23 @@
 
 struct Mesh
 {
-	ID3D11Buffer* m_p_vertex_buffer;
-	ID3D11Buffer* m_p_index_buffer;
-	UINT m_index_count;
+	ID3D11Buffer* vertexBuffer;
+	ID3D11Buffer* indexBuffer;
+	UINT indices;
 };
 
 struct Model
 {
-	ID3D11VertexShader* m_p_vertex_shader;
-	ID3D11PixelShader* m_p_pixel_shader;
-	ID3D11InputLayout* m_p_input_layout;
-	ID3D11SamplerState* m_p_sampler_state;
+	ID3D11VertexShader* vertexShader;
+	ID3D11PixelShader* pixelSHader;
+	ID3D11InputLayout* inputLayout;
+	ID3D11SamplerState* samplerState;
 
-	ID3D11Texture2D* m_p_texture;
-	ID3D11ShaderResourceView* m_p_texture_srv;
-	ID3D11Buffer* m_p_instance_buffer;
+	ID3D11Texture2D* texture;
+	ID3D11ShaderResourceView* textureSrv;
+	ID3D11Buffer* instanceBuffer;
 
-	Mesh m_mesh;
+	Mesh mesh;
 };
 
 static const int MAX_INSTANCES = 512; // 16K instances per batch - good balance between memory and draw call overhead
@@ -164,7 +164,7 @@ UINT texturedata[] = // 2x2 pixel checkerboard pattern, 0xAARRGGBB
     0xff7f7f7f, 0xffffffff,
 };
 
-void load_default_shaders(ID3D11Device* p_device, Model* p_model)
+void load_default_shaders(ID3D11Device* device, Model* model)
 {
     ID3DBlob* p_vertex_shader_cso;
     ID3DBlob* p_error_blob = nullptr;
@@ -176,7 +176,7 @@ void load_default_shaders(ID3D11Device* p_device, Model* p_model)
         p_error_blob->Release();
     }
 
-    p_device->CreateVertexShader(p_vertex_shader_cso->GetBufferPointer(), p_vertex_shader_cso->GetBufferSize(), nullptr, &p_model->m_p_vertex_shader);
+    device->CreateVertexShader(p_vertex_shader_cso->GetBufferPointer(), p_vertex_shader_cso->GetBufferSize(), nullptr, &model->vertexShader);
 
     D3D11_INPUT_ELEMENT_DESC input_element_desc[] =
     {
@@ -187,7 +187,7 @@ void load_default_shaders(ID3D11Device* p_device, Model* p_model)
         { "INSTANCE_POS", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 1, 0, D3D11_INPUT_PER_INSTANCE_DATA, 1 },
     };
 
-    p_device->CreateInputLayout(input_element_desc, ARRAYSIZE(input_element_desc), p_vertex_shader_cso->GetBufferPointer(), p_vertex_shader_cso->GetBufferSize(), &p_model->m_p_input_layout);
+    device->CreateInputLayout(input_element_desc, ARRAYSIZE(input_element_desc), p_vertex_shader_cso->GetBufferPointer(), p_vertex_shader_cso->GetBufferSize(), &model->inputLayout);
 
     p_vertex_shader_cso->Release();
 
@@ -200,7 +200,7 @@ void load_default_shaders(ID3D11Device* p_device, Model* p_model)
         p_error_blob->Release();
     }
 
-    p_device->CreatePixelShader(p_pixel_shader_cso->GetBufferPointer(), p_pixel_shader_cso->GetBufferSize(), nullptr, &p_model->m_p_pixel_shader);
+    device->CreatePixelShader(p_pixel_shader_cso->GetBufferPointer(), p_pixel_shader_cso->GetBufferSize(), nullptr, &model->pixelSHader);
 
     p_pixel_shader_cso->Release();
 
@@ -211,7 +211,7 @@ void load_default_shaders(ID3D11Device* p_device, Model* p_model)
     sampler_desc.AddressW = D3D11_TEXTURE_ADDRESS_WRAP;
     sampler_desc.ComparisonFunc = D3D11_COMPARISON_NEVER;
 
-    p_device->CreateSamplerState(&sampler_desc, &p_model->m_p_sampler_state);
+    device->CreateSamplerState(&sampler_desc, &model->samplerState);
 
     D3D11_TEXTURE2D_DESC texture_desc = {};
     texture_desc.Width = TEXTURE_WIDTH;
@@ -227,8 +227,8 @@ void load_default_shaders(ID3D11Device* p_device, Model* p_model)
     texture_srd.pSysMem = texturedata;
     texture_srd.SysMemPitch = TEXTURE_WIDTH * sizeof(UINT);
 
-    p_device->CreateTexture2D(&texture_desc, &texture_srd, &p_model->m_p_texture);
-    p_device->CreateShaderResourceView(p_model->m_p_texture, nullptr, &p_model->m_p_texture_srv);
+    device->CreateTexture2D(&texture_desc, &texture_srd, &model->texture);
+    device->CreateShaderResourceView(model->texture, nullptr, &model->textureSrv);
 
     float4 initial_instance_data[MAX_INSTANCES];
     for (int i = 0; i < MAX_INSTANCES; i++)
@@ -249,12 +249,12 @@ void load_default_shaders(ID3D11Device* p_device, Model* p_model)
     instance_buffer_data.SysMemPitch = 0;
     instance_buffer_data.SysMemSlicePitch = 0;
 
-    p_device->CreateBuffer(&instance_buffer_desc, &instance_buffer_data, &p_model->m_p_instance_buffer);
+    device->CreateBuffer(&instance_buffer_desc, &instance_buffer_data, &model->instanceBuffer);
 }
 
-inline void generate_sphere_mesh(ID3D11Device* p_device, Mesh* p_mesh, int latitude_count = 8, int longitude_count = 8)
+inline void generate_sphere_mesh(ID3D11Device* device, Mesh* mesh, int latitude_count = 8, int longitude_count = 8)
 {
-    ScratchPadAllocator ta;
+    TempAllocator ta;
     
     Array<float> vertices(ta);
     Array<UINT> indices(ta);
@@ -323,7 +323,7 @@ inline void generate_sphere_mesh(ID3D11Device* p_device, Mesh* p_mesh, int latit
     D3D11_SUBRESOURCE_DATA vertex_buffer_srd = {};
     vertex_buffer_srd.pSysMem = vertices.data();
     
-    p_device->CreateBuffer(&vertex_buffer_desc, &vertex_buffer_srd, &p_mesh->m_p_vertex_buffer);
+    device->CreateBuffer(&vertex_buffer_desc, &vertex_buffer_srd, &mesh->vertexBuffer);
     
     D3D11_BUFFER_DESC index_buffer_desc = {};
     index_buffer_desc.ByteWidth = indices.size() * sizeof(UINT);
@@ -332,9 +332,9 @@ inline void generate_sphere_mesh(ID3D11Device* p_device, Mesh* p_mesh, int latit
     D3D11_SUBRESOURCE_DATA index_buffer_srd ={};
     index_buffer_srd.pSysMem = indices.data();
     
-    p_device->CreateBuffer(&index_buffer_desc, &index_buffer_srd, &p_mesh->m_p_index_buffer);
+    device->CreateBuffer(&index_buffer_desc, &index_buffer_srd, &mesh->indexBuffer);
     
-    p_mesh->m_index_count = indices.size();
+    mesh->indices = indices.size();
 }
 
 void breakIfFailed(HRESULT hr, ID3D11Device* device)
@@ -562,7 +562,7 @@ void createAssetResources(EditorRenderer* rend)
     {
         Model& model = rend->m_models[rend->m_model_count++];
         load_default_shaders(rend->device, &model);
-        generate_sphere_mesh(rend->device, &model.m_mesh);
+        generate_sphere_mesh(rend->device, &model.mesh);
     }
     
     rend->m_camera.m_position = float3{0.0f, 0.0f, -4.0f};
@@ -824,14 +824,14 @@ void renderFrame(EditorRenderer* rend)
 
         auto& model = rend->m_models[0];
         
-        context->IASetInputLayout(model.m_p_input_layout);
-        ID3D11Buffer* buffers[2] = { model.m_mesh.m_p_vertex_buffer, model.m_p_instance_buffer };
+        context->IASetInputLayout(model.inputLayout);
+        ID3D11Buffer* buffers[2] = { model.mesh.vertexBuffer, model.instanceBuffer };
         context->IASetVertexBuffers(0, 2, buffers, stride, offset);
-        context->IASetIndexBuffer(model.m_mesh.m_p_index_buffer, DXGI_FORMAT_R32_UINT, 0);
-        context->VSSetShader(model.m_p_vertex_shader, nullptr, 0);
-        context->PSSetShader(model.m_p_pixel_shader, nullptr, 0);
-        context->PSSetShaderResources(0, 1, &model.m_p_texture_srv);
-        context->PSSetSamplers(0, 1, &model.m_p_sampler_state);
+        context->IASetIndexBuffer(model.mesh.indexBuffer, DXGI_FORMAT_R32_UINT, 0);
+        context->VSSetShader(model.vertexShader, nullptr, 0);
+        context->PSSetShader(model.pixelSHader, nullptr, 0);
+        context->PSSetShaderResources(0, 1, &model.textureSrv);
+        context->PSSetSamplers(0, 1, &model.samplerState);
 
         D3D11_MAPPED_SUBRESOURCE constantbufferMSR;
         context->Map(constantbuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &constantbufferMSR);
@@ -851,7 +851,7 @@ void renderFrame(EditorRenderer* rend)
         while (instancesDrawn != count)
         {
             D3D11_MAPPED_SUBRESOURCE instanceBufferMSR;
-            context->Map(model.m_p_instance_buffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &instanceBufferMSR);
+            context->Map(model.instanceBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &instanceBufferMSR);
             {
                 float4* instance_data = (float4*)instanceBufferMSR.pData;
                 int batch_instance_count = 0;
@@ -863,8 +863,8 @@ void renderFrame(EditorRenderer* rend)
                     ++instancesDrawn;
                 }
 
-                context->Unmap(model.m_p_instance_buffer, 0);
-                context->DrawIndexedInstanced(model.m_mesh.m_index_count, batch_instance_count, 0, 0, 0);
+                context->Unmap(model.instanceBuffer, 0);
+                context->DrawIndexedInstanced(model.mesh.indices, batch_instance_count, 0, 0, 0);
             }
         }
     }

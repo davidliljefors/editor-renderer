@@ -1,7 +1,6 @@
 #pragma once
 
 #include "Math.h"
-#include "SwissTable.h"
 
 struct HWND__;
 using HWND = HWND__*;
@@ -53,6 +52,7 @@ struct EditorRenderer;
 class IViewport
 {
 public:
+	virtual ~IViewport() = default;
 	virtual DrawList getDrawList() = 0;
 	virtual void onGui() = 0;
 

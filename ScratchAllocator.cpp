@@ -63,18 +63,18 @@ void block_memory_shutdown()
     }
 }
 
-ScratchPadAllocator::ScratchPadAllocator()
+TempAllocator::TempAllocator()
 {
     m_current = get_block();
     m_pos = 0;
 }
 
-ScratchPadAllocator::~ScratchPadAllocator()
+TempAllocator::~TempAllocator()
 {
     return_block(m_current);
 }
 
-void* ScratchPadAllocator::alloc(i32 size)
+void* TempAllocator::alloc(i32 size)
 {
    i32 size_with_alignment = size + 16 - (size & 15);
 
@@ -99,13 +99,13 @@ void* ScratchPadAllocator::alloc(i32 size)
     }
 }
 
-void ScratchPadAllocator::free(void*)
+void TempAllocator::free(void*)
 {
     // Do nothing
 }
 
 
-void ScratchPadAllocator::freeSizeKnown(void*, i32)
+void TempAllocator::freeSizeKnown(void*, i32)
 {
     // Do nothing
 }

@@ -2,8 +2,8 @@
 
 #include "EditorRenderer.h"
 #include "Array.h"
-#include "SwissTable.h"
 #include "Math.h"
+#include "HashTable.h"
 
 
 struct EditorRenderer;
@@ -42,7 +42,7 @@ public:
 
 private:
 	EditorRenderer* m_renderer;
-	SwissTable<Instance> m_instances;
+	Hashtable<Instance> m_instances;
 	Array<SceneViewport*> m_viewports;
 	u64 m_nextInstance = 0;
 	DrawList m_lists[2];
