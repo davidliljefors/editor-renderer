@@ -4,7 +4,8 @@
 #include "Allocator.h"
 #include "Array.h"
 
-namespace hpt
+
+namespace truth
 {
 constexpr static int BlockBits = 8;
 constexpr static int NumBlocks = (1 << BlockBits);
@@ -14,6 +15,8 @@ constexpr static int NumEntries = (1 << EntryBits);
 
 struct Key
 {
+#pragma warning(push)
+#pragma warning(disable: 4201)
 	union
 	{
 		struct
@@ -24,16 +27,31 @@ struct Key
 		};
 		u64 asU64;
 	};
+#pragma warning (pop)
 };
+
+inline bool operator==(truth::Key a, truth::Key b)
+{
+	return a.asU64 == b.asU64;
+}
+inline bool operator!=(truth::Key a, truth::Key b)
+{
+	return a.asU64 != b.asU64;
+}
 
 }
 
-
+struct TruthElement
+{
+	virtual ~TruthElement() = default;
+	virtual u64 typeId() = 0;
+	virtual TruthElement* clone(Allocator& a) = 0;
+};
 
 struct KeyEntry
 {
-	hpt::Key key;
-	void* value;
+	truth::Key key;
+	TruthElement* value;
 
 	bool operator==(const KeyEntry& other) const { return value == other.value; }
 	bool operator<(const KeyEntry& other) const { return key.Index < other.key.Index; }
@@ -42,7 +60,7 @@ struct KeyEntry
  inline u32 lower_bound(const KeyEntry *begin, const KeyEntry *end, const KeyEntry &key) 
  {
 	u32 left = 0;
-	u32 right = end - begin;
+	u32 right = u32(end - begin);
 
 	while (left < right) 
 	{
@@ -59,23 +77,31 @@ struct KeyEntry
 	return left;
 }
 
-class HierarchicalPageTable
+
+class TruthMap
 {
 public:
+	explicit TruthMap(Allocator& allocator)
+		: m_allocator(allocator)
+	{}
+
 	struct InlineArray
 	{
 		u32 size;
 		u32 _pad;
 
+#pragma warning(push)
+#pragma warning(disable:4200)
 		KeyEntry data[0];
+#pragma warning(pop)
 
 		KeyEntry* begin() { return data; }
 		KeyEntry* end() { return data + size; }
 
-		static InlineArray* alloc(Allocator& arena, u32 capacity)
+		static InlineArray* alloc(Allocator& arena, i32 capacity)
 		{
-			u32 structSize = sizeof(InlineArray);
-			u32 dynamicArraySize = sizeof(KeyEntry*) * capacity;
+			i32 structSize = sizeof(InlineArray);
+			i32 dynamicArraySize = i32(sizeof(KeyEntry) * capacity);
 			InlineArray* arr = (InlineArray*)arena.alloc(structSize + dynamicArraySize);
 			arr->size = 0;
 			return arr;
@@ -86,17 +112,17 @@ public:
 
 	struct Block
 	{
-		InlineArray* entries[hpt::NumEntries]{};
+		InlineArray* entries[truth::NumEntries]{};
 	};
 
 	struct BigBlock
 	{
-		Block* blocks[hpt::NumBlocks]{};
+		Block* blocks[truth::NumBlocks]{};
 	};
 
 	static void diff(
-		HierarchicalPageTable* from,
-		HierarchicalPageTable* to,
+		TruthMap* from,
+		TruthMap* to,
 		Array<Block*>& outBlocks,
 		Array<InlineArray*>& outEntryArrays,
 		Array<KeyEntry>& outEntries)
@@ -109,7 +135,7 @@ public:
 		{
 			Block** arrFrom = from->m_root->blocks;
 			Block** arrTo = to->m_root->blocks;
-			for (u32 i = 0; i < hpt::NumBlocks; ++i)
+			for (u32 i = 0; i < truth::NumBlocks; ++i)
 			{
 				if (arrFrom[i] != arrTo[i])
 				{
@@ -120,43 +146,54 @@ public:
 		}
 	}
 
-	static HierarchicalPageTable* create(Allocator& allocator)
+	static TruthMap* create(Allocator& allocator)
 	{
-		HierarchicalPageTable* instance = new (allocator) HierarchicalPageTable(allocator);
+		TruthMap* instance = alloc<TruthMap>(allocator, allocator);
 
-		instance->m_root = new (allocator) BigBlock();
+		instance->m_root = alloc<BigBlock>(allocator);
 
 		for (Block*& block : instance->m_root->blocks)
 		{
-			block = new (allocator) Block();
+			block = alloc<Block>(allocator);
 		}
 
 		return instance;
 	}
 
-	static HierarchicalPageTable* lookupForWrite(
-		const HierarchicalPageTable* base,
-		HierarchicalPageTable* head,
-		hpt::Key key,
-		void** outEntry)
+	static TruthMap* lookupForWrite(
+		const TruthMap* base,
+		TruthMap* head,
+		truth::Key key,
+		TruthElement** outEntry)
 	{
 		InlineArray* array;
 		u32 slot;
-		HierarchicalPageTable* update = getWritableEntryArray(base, head, key, false, &array, &slot);
-
-		*outEntry = &array->data[slot].value;
+		TruthMap* update = getWritableEntryArray(base, head, key, false, &array, &slot);
+		*outEntry = array->data[slot].value;
 
 		return update;
 	}
 
-	static HierarchicalPageTable* erase(
-		const HierarchicalPageTable* base,
-		HierarchicalPageTable* head,
-		hpt::Key key)
+	static TruthMap* writeValue(const TruthMap* base, TruthMap* head, truth::Key key, TruthElement* value)
 	{
 		InlineArray* array;
 		u32 slot;
-		HierarchicalPageTable* update = getWritableEntryArray(base, head, key, true, &array, &slot);
+		TruthMap* update = getWritableEntryArray(base, head, key, false, &array, &slot);
+		assert(array->data[slot].value == nullptr);
+		KeyEntry& dst = array->data[slot];
+		dst.value = value;
+
+		return update;
+	}
+
+	static TruthMap* erase(
+		const TruthMap* base,
+		TruthMap* head,
+		truth::Key key)
+	{
+		InlineArray* array;
+		u32 slot;
+		TruthMap* update = getWritableEntryArray(base, head, key, true, &array, &slot);
 
 		// keep array in sorted order
 		array->data[slot] = {};
@@ -169,18 +206,17 @@ public:
 		return update;
 	}
 
-	const void* find(hpt::Key key)
+	const TruthElement* find(truth::Key key)
 	{
 		InlineArray* entries = getEntries(key);
 
 		if (entries)
 		{
-			// todo binary search
 			for (u32 i = 0; i < entries->size; ++i)
 			{
 				if (entries->data[i].key.Index == key.Index)
 				{
-					return &entries->data[i].value;
+					return entries->data[i].value;
 				}
 			}
 		}
@@ -196,20 +232,20 @@ public:
 	}
 
 private:
-	static HierarchicalPageTable* getWritableEntryArray(
-		const HierarchicalPageTable* base,
-		HierarchicalPageTable* head,
-		hpt::Key key,
+	static TruthMap* getWritableEntryArray(
+		const TruthMap* base,
+		TruthMap* head,
+		truth::Key key,
 		bool erasing,
 		InlineArray** outArray,
 		u32* outSlot)
 	{
-		HierarchicalPageTable* updated = head;
+		TruthMap* updated = head;
 		Allocator& allocator = head->m_allocator;
 
 		if (updated == base)
 		{
-			updated = new (allocator) HierarchicalPageTable(allocator);
+			updated = alloc<TruthMap>(allocator, allocator);
 			updated->m_size = head->size();
 			updated->m_root = head->m_root;
 		}
@@ -218,7 +254,7 @@ private:
 		const BigBlock* baseBigBlock = base->m_root;
 		if (bigBlockUpdate == baseBigBlock)
 		{
-			bigBlockUpdate = new (allocator) BigBlock();
+			bigBlockUpdate = alloc<BigBlock>(allocator);
 			memcpy(bigBlockUpdate, baseBigBlock, sizeof(BigBlock));
 			updated->m_root = bigBlockUpdate;
 		}
@@ -227,7 +263,7 @@ private:
 		const Block* baseBlock = baseBigBlock->blocks[key.Block];
 		if (blockUpdate == baseBlock)
 		{
-			blockUpdate = new (allocator) Block();
+			blockUpdate = alloc<Block>(allocator);
 			memcpy(blockUpdate, baseBlock, sizeof(Block));
 			bigBlockUpdate->blocks[key.Block] = blockUpdate;
 		}
@@ -271,7 +307,6 @@ private:
 			}
 		}
 
-		// todo binary serach
 		for (u32 i = 0; i < entriesUpdate->size; ++i)
 		{
 			if (entriesUpdate->data[i].key.Index == key.Index)
@@ -293,14 +328,14 @@ private:
 				u32 newCapacity = baseEntries->size;
 				entriesUpdate = InlineArray::alloc(allocator, newCapacity);
 				entriesUpdate->size = baseEntries->size;
-				memcpy(entriesUpdate->data, baseEntries->data, baseEntries->size * sizeof(KeyEntry*));
+				memcpy(entriesUpdate->data, baseEntries->data, baseEntries->size * sizeof(KeyEntry));
 				blockUpdate->entries[key.Entry] = entriesUpdate;
 			}
 
 			// need to aquire ownership of KeyEntry if we are not removing it from the list
 			if (entriesUpdate->data[slotUpdate] == baseEntry && !erasing)
 			{
-				entriesUpdate->data[slotUpdate] = {};
+				entriesUpdate->data[slotUpdate].value = nullptr;
 				entriesUpdate->data[slotUpdate].key = key;
 			}
 			*outSlot = slotUpdate;
@@ -318,7 +353,7 @@ private:
 				u32 newCapacity = baseSize + 1;
 				entriesUpdate = InlineArray::alloc(allocator, newCapacity);
 				entriesUpdate->size = baseSize;
-				memcpy(entriesUpdate->data, baseEntries->data, baseSize * sizeof(KeyEntry*));
+				memcpy(entriesUpdate->data, baseEntries->data, baseSize * sizeof(KeyEntry));
 				blockUpdate->entries[key.Entry] = entriesUpdate;
 			}
 			else
@@ -328,7 +363,7 @@ private:
 
 				InlineArray* temp = InlineArray::alloc(allocator, entriesUpdate->size + 1);
 				temp->size = entriesUpdate->size;
-				memcpy(temp->data, entriesUpdate->data, entriesUpdate->size * sizeof(KeyEntry*));
+				memcpy(temp->data, entriesUpdate->data, entriesUpdate->size * sizeof(KeyEntry));
 				allocator.free(entriesUpdate);
 				entriesUpdate = temp;
 				blockUpdate->entries[key.Entry] = entriesUpdate;
@@ -347,10 +382,10 @@ private:
 			}
 			else
 			{
-				u32 i = entriesUpdate->size + 1;
+				u32 i = entriesUpdate->size;
 				while (i > desiredSlot)
 				{
-					entriesUpdate[i] = entriesUpdate[i - 1];
+					entriesUpdate->data[i] = entriesUpdate->data[i - 1];
 					--i;
 				}
 				entriesUpdate->data[desiredSlot] = toInsert;
@@ -364,7 +399,7 @@ private:
 		return updated;
 	}
 
-	InlineArray* getEntries(hpt::Key key)
+	InlineArray* getEntries(truth::Key key)
 	{
 		Block& block = *m_root->blocks[key.Block];
 		return block.entries[key.Entry];
@@ -429,7 +464,7 @@ private:
 			InlineArray** arrFrom = from->entries;
 			InlineArray** arrTo = to->entries;
 
-			for (u32 i = 0; i < hpt::NumEntries; ++i)
+			for (u32 i = 0; i < truth::NumEntries; ++i)
 			{
 				if (arrFrom[i] != arrTo[i])
 				{
@@ -443,10 +478,6 @@ private:
 		}
 	}
 
-	explicit HierarchicalPageTable(Allocator& allocator)
-		: m_allocator(allocator)
-	{}
-
 	BigBlock* m_root = nullptr;
 	u32 m_size = 0;
 	Allocator& m_allocator;
@@ -459,7 +490,7 @@ private:
 
 
 
-inline void diff(HierarchicalPageTable* base, HierarchicalPageTable* compare, 
+inline void diff(TruthMap* base, TruthMap* compare, 
 Array<KeyEntry>& adds,
 Array<KeyEntry>& edits,
 Array<KeyEntry>& removes)
@@ -470,7 +501,7 @@ Array<KeyEntry>& removes)
 		auto* compareBig = compare->root();
 		if (baseBig != compareBig)
 		{
-			for (u32 iBlock = 0; iBlock < hpt::NumBlocks; ++iBlock)
+			for (u32 iBlock = 0; iBlock < truth::NumBlocks; ++iBlock)
 			{
 				auto* baseBlock = baseBig->blocks[iBlock];
 				auto* compareBlock = compareBig->blocks[iBlock];
@@ -480,7 +511,7 @@ Array<KeyEntry>& removes)
 					continue;
 				}
 
-				for (u32 iEntry = 0; iEntry < hpt::NumEntries; ++iEntry)
+				for (u32 iEntry = 0; iEntry < truth::NumEntries; ++iEntry)
 				{
 					auto* baseEntries = baseBig->blocks[iBlock]->entries[iEntry];
 					auto* compareEntries = compareBig->blocks[iBlock]->entries[iEntry];
@@ -490,6 +521,10 @@ Array<KeyEntry>& removes)
 					{
 						for (KeyEntry entry : *compareEntries)
 						{
+							if (entry.key.asU64 == 14829735431805717965ull)
+							{
+								__debugbreak();
+							}
 							adds.push_back(entry);
 						}
 					}

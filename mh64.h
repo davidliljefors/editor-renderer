@@ -49,14 +49,7 @@ public:
     static uint64_t Hash(const uint8_t* buffer, uint64_t length, uint64_t seed=0);
     static uint64_t Hash(const char* buffer, uint64_t length, uint64_t seed=0);
 
-    // Does implementation correctly execute test vectors?
-    static bool ImplementationVerified();
-
     // test vectors -- Hash(test_string, seed=0) => test_seed_0
-    static const char * test_string;
-    static const uint8_t test_seed_0[8];
-    static const uint8_t test_seed_1[8];
-
 private:
     static const uint64_t k0 = 0xD6D018F5;
     static const uint64_t k1 = 0xA2AA033B;

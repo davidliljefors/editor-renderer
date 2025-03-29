@@ -248,7 +248,7 @@ void HashMap<T>::erase_impl(HashFind find)
 	else
 		data[find.dataPrev].next = data[find.dataIndex].next;
 
-	if (find.dataIndex == data.size() - 1)
+	if (find.dataIndex == u32(data.size() - 1))
 	{
 		data.resize(data.size() - 1);
 		return;
@@ -327,12 +327,12 @@ void HashMap<T>::rehash(i32 new_size)
 	nh.hash.resize(new_size);
 	nh.data.reserve(data.size());
 
-	for (u32 i = 0; i < new_size; ++i)
+	for (i32 i = 0; i < new_size; ++i)
 	{
 		nh.hash[i] = END_OF_CHAIN;
 	}
 
-	for (u32 i = 0; i < data.size(); ++i)
+	for (i32 i = 0; i < data.size(); ++i)
 	{
 		auto& e = data[i];
 		nh.insert_or_assign(e.key, static_cast<T&&>(e.value));

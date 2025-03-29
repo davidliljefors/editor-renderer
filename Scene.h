@@ -4,7 +4,7 @@
 #include "Array.h"
 #include "Math.h"
 #include "HashMap.h"
-
+#include "TruthMap.h"
 
 struct EditorRenderer;
 struct EditorMesh;
@@ -26,25 +26,28 @@ struct SceneViewport : IViewport
 	bool dragging = false;
 };
 
+
 class Scene
 {
 
 public:
 	Scene(EditorRenderer* renderer);
 
-	u64 addInstance(float3 pos);
+	void update();
+
+	void addInstance(u64 id, float3 pos);
 	void updateInstance(u64 id, float3 pos);
-	void popInstance(u64 instanceId);
+	void popInstance(u64 id);
 
 	void addViewport(const char* name);
 
 	DrawList getDrawList();
 
 private:
+	TruthMap* state = nullptr;
 	EditorRenderer* m_renderer;
 	Array<SceneViewport*> m_viewports;
 	HashMap<Instance> m_instances;
-	u64 m_nextInstance = 0;
 	DrawList m_lists[2];
 	int writeSlot = 0;
 };

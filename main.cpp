@@ -2,12 +2,14 @@
 #include "EditorRenderer.h"
 
 #include "ScratchAllocator.h"
-#include "hpt.h"
+#include "TruthMap.h"
 #include "mh64.h"
 
 #pragma comment(lib, "user32.lib")
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
+
+#include "TruthView.h"
 
 struct ThreadData
 {
@@ -23,9 +25,13 @@ HANDLE g_updateThread;
 struct ThreadSignals
 {
     alignas (64) u64 currentFrame = 0;
+    u64 _pad0[7];
     alignas (64) u64 renderdThreadCompletedFrame = 0;
+    u64 _pad1[7];
     alignas (64) u64 updateThreadCompletedFrame = 0;
+    u64 _pad2[7];
     alignas (64) u64 wantQuit = 0;
+    u64 _pad3[7];
 };
 
 ThreadSignals signals;
@@ -111,6 +117,7 @@ DWORD WINAPI UpdateThreadProc(LPVOID lpParameter)
         if(nextFrame > frame)
         {
             signals.updateThreadCompletedFrame = nextFrame;
+            data->scene->update();
             frame = nextFrame;
         }
         else 
@@ -146,12 +153,12 @@ DWORD WINAPI RenderThreadProc(LPVOID lpParameter)
     return 0;
 }
 
-hpt::Key getKey(u64 entity, const char* name)
+truth::Key getKey(u64 entity, const char* name)
 {
     MetroHash64 hasher;
     hasher.Update((const u8*)&entity, sizeof(u64));
     hasher.Update((const u8*)name, strlen(name));
-    hpt::Key key;
+    truth::Key key;
     hasher.Finalize((u8*)&key.asU64);
     return key;
 }
@@ -212,15 +219,6 @@ struct BoxedValue
 };
 
 MallocAllocator gMalloc;
-
-HashMap<const char*> g_nameLookup(gMalloc);
-
-u64 getNameHash(const char* str)
-{
-    u64 hash = MetroHash64::Hash(str, strlen(str));
-    g_nameLookup.add(hash, str);
-    return hash;
-}
 
 int main()
 {

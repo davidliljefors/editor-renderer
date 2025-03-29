@@ -134,6 +134,30 @@ public:
 	explicit Array(Allocator& allocator);
 	~Array();
 
+	Array(Array&& r)
+		:m_allocator(r.m_allocator)
+	{
+		m_data = r.m_data;
+		m_size = r.m_size;
+		m_capacity = r.m_capacity;
+
+		r.m_data = nullptr;
+		r.m_size = 0;
+		r.m_capacity = 0;
+	}
+
+	Array& operator=(Array&& rhs)
+	{ 
+		if (&rhs != this)
+		{
+			swap(rhs);
+		}
+
+		return *this;
+	}
+
+	Array clone();
+
 	void push_back(T val);
 	T& back();
 
@@ -194,6 +218,20 @@ Array<T>::~Array()
 
 	m_capacity = 0;
 	m_size = 0;
+}
+
+template <typename T>
+Array<T> Array<T>::clone()
+{
+	Array<T> copy(m_allocator);
+	copy.resize(size());
+
+	for (i32 i = 0; i < size(); ++i)
+	{
+		copy.m_data[i] = m_data[i];
+	}
+
+	return (Array&&)copy;
 }
 
 template <typename T>

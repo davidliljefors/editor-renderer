@@ -14,24 +14,21 @@ struct Allocator
 	virtual void freeSizeKnown(void* block, i32 size) = 0;
 };
 
-inline void* operator new(size_t size, Allocator& allocator)
+template <typename T, typename... Args>
+T* alloc(Allocator& allocator, Args&&... args)
 {
-    return allocator.alloc(static_cast<i32>(size));
+	void* mem = allocator.alloc(sizeof(T));
+	return new (mem) T(args...);
 }
 
-inline void* operator new[](size_t size, Allocator& allocator)
+template <typename T>
+void free(Allocator& allocator, T* obj)
 {
-    return allocator.alloc(static_cast<i32>(size));
-}
-
-inline void operator delete(void* ptr, Allocator& allocator, size_t size)
-{
-    allocator.freeSizeKnown(ptr, static_cast<i32>(size));
-}
-
-inline void operator delete[](void* ptr, Allocator& allocator, size_t size)
-{
-    allocator.freeSizeKnown(ptr, static_cast<i32>(size));
+	if (obj)
+	{
+		obj->~T();
+		allocator.free(obj);
+	}
 }
 
 class MallocAllocator : public Allocator

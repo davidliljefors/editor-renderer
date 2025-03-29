@@ -611,7 +611,7 @@ void createViewportResources(EditorRenderer* rend, ViewportData* vp)
     hr =rend->device->CreateShaderResourceView(vp->renderTargetTexture, nullptr, &vp->shaderResourceView);
     breakIfFailed(hr, rend->device);
 
-    CD3D11_TEXTURE2D_DESC depthStencilDesc(depthBufferFormat, vp->usr->size.x, vp->usr->size.y, 1, 1, D3D11_BIND_DEPTH_STENCIL);
+    CD3D11_TEXTURE2D_DESC depthStencilDesc(depthBufferFormat, UINT(vp->usr->size.x), UINT(vp->usr->size.y), 1, 1, D3D11_BIND_DEPTH_STENCIL);
     ID3D11Texture2D* depthStencil;
     hr = rend->device->CreateTexture2D(&depthStencilDesc, nullptr, &depthStencil);
     breakIfFailed(hr, rend->device);
@@ -770,7 +770,7 @@ Win32Timer::~Win32Timer()
 
 void addViewport(EditorRenderer* rend, IViewport* viewport)
 {
-    int slot = rend->numViewports;
+    u32 slot = rend->numViewports;
     rend->numViewports += 1;
     rend->viewports[slot].usr = viewport;
 
@@ -873,7 +873,7 @@ void renderFrame(EditorRenderer* rend)
 
         DrawList list = vpd->usr->getDrawList();
         int instancesDrawn = 0;
-        int count = list.count;
+        int count = int(list.count);
 
         while (instancesDrawn != count)
         {
@@ -886,7 +886,7 @@ void renderFrame(EditorRenderer* rend)
                 while (instancesDrawn != count && batch_instance_count < MAX_INSTANCES)
                 {
                     const Instance& instance = list.data[instancesDrawn];
-                    instance_data[batch_instance_count++] = float4{instance.m_position.x, instance.m_position.y, instance.m_position.z, 1.0f};
+                    instance_data[batch_instance_count++] = float4{instance.pos.x, instance.pos.y, instance.pos.z, 1.0f};
                     ++instancesDrawn;
                 }
 
@@ -901,8 +901,6 @@ void renderFrame(EditorRenderer* rend)
 
 void renderImgui(EditorRenderer *rend)
 {
-
-
     ImGuiIO& io = ImGui::GetIO();
     ImGui::SetNextWindowPos(ImVec2(0, 0));           // Position at top-left
     ImGui::SetNextWindowSize(io.DisplaySize);        // Use full window size
@@ -945,13 +943,6 @@ void renderImgui(EditorRenderer *rend)
         ImGui::DockSpace(dockspace_id, ImVec2(0, 0), ImGuiDockNodeFlags_PassthruCentralNode);
     }
     ImGui::EndChild();
-    ImGui::End();
-
-    ImGui::Begin("Inspector");
-    ImGui::End();
-    ImGui::Begin("Outliner");
-    ImGui::End();
-    ImGui::Begin("DataExplorer");
     ImGui::End();
 
     ImGui::ShowDemoWindow();

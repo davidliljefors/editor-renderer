@@ -19,8 +19,8 @@ struct Win32Timer
 
 struct Instance
 {
-	float3 m_position;
-	int m_model_id;
+	float3 pos;
+	int model_id;
 
 	matrix get_model_matrix() const
 	{
@@ -28,7 +28,7 @@ struct Instance
 			float4{1, 0, 0, 0},
 			float4{0, 1, 0, 0},
 			float4{0, 0, 1, 0},
-			float4{m_position.x, m_position.y, m_position.z, 1}
+			float4{pos.x, pos.y, pos.z, 1}
 		};
 	}
 };
