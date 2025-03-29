@@ -11,4 +11,15 @@
       </ArrayItems>
     </Expand>
   </Type>
+
+<Type Name="TruthMap::InlineArray">
+	<DisplayString>{{ Size = {size} }}</DisplayString>
+	<Expand>
+		<Item Name="[size]" ExcludeView="simple">size</Item>
+		<ArrayItems>
+			<Size>size</Size>
+			<ValuePointer>data</ValuePointer>
+		</ArrayItems>
+	</Expand>
+</Type>
 </AutoVisualizer>
