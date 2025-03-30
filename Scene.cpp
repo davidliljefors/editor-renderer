@@ -74,22 +74,25 @@ Scene::Scene(EditorRenderer* renderer)
 
 	Entity* rootEntity = alloc<Entity>(ma, ma);
 	g_truth->set(rootKey, rootEntity);
+
+	
 	for (int x = -10; x < 10; x++)
 	{
 		for (int y = -10; y < 10; y++)
 		{
+			Transaction tx = g_truth->openTransaction();
 			for (int z = -10; z < 10; z++)
 			{
-				Transaction tx = g_truth->openTransaction();
 				truth::Key childKey = nextKey();
 				rootEntity->m_children.push_back(childKey);
 				Entity* child = alloc<Entity>(ma, ma);
 				child->position = { (float)x * 5.0f, (float)y * 5.0f, (float)z * 5.0f };
 				g_truth->add(tx, childKey, child);
-				g_truth->tryCommit(tx);
 			}
+			g_truth->tryCommit(tx);
 		}
 	}
+
 
 	m_lists[0].data = (Instance*)malloc(sizeof(Instance) * 1024);
 	m_lists[1].data = (Instance*)malloc(sizeof(Instance) * 1024);

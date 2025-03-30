@@ -168,10 +168,14 @@ inline Transaction Truth::openTransaction()
 
 inline bool Truth::tryCommit(Transaction& tx)
 {
+	assert(tx.uncommitted != nullptr);
+
 	// todo need exclusive head 
 	if (m_head == tx.base)
 	{
 		push(tx.uncommitted);
+		tx.uncommitted = nullptr;
+		tx.base = nullptr;
 		return true;
 	}
 	else

@@ -27,7 +27,7 @@ void free(Allocator& allocator, T* obj)
 	if (obj)
 	{
 		obj->~T();
-		allocator.free(obj);
+		allocator.freeSizeKnown(obj, sizeof(T));
 	}
 }
 
