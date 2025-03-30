@@ -1,5 +1,7 @@
 #include "Scene.h"
 
+#include <cstdio>
+#include <d3d10.h>
 #include <stdlib.h>
 
 #include "ScratchAllocator.h"
@@ -65,28 +67,29 @@ Scene::Scene(EditorRenderer* renderer)
 	m_renderer = renderer;
 
 	g_truth = alloc<Truth>(ma, ma);
-	state = g_truth->m_head;
+	state = g_truth->head();
 
-	Transaction tx = g_truth->openTransaction();
+	m_undoWindow = alloc<UndoStackWindow>(ma, g_truth);
+	addEditorWindow(renderer, m_undoWindow);
+
 	Entity* rootEntity = alloc<Entity>(ma, ma);
-	g_truth->add(tx, rootKey, rootEntity);
-
+	g_truth->set(rootKey, rootEntity);
 	for (int x = -10; x < 10; x++)
 	{
 		for (int y = -10; y < 10; y++)
 		{
 			for (int z = -10; z < 10; z++)
 			{
+				Transaction tx = g_truth->openTransaction();
 				truth::Key childKey = nextKey();
 				rootEntity->m_children.push_back(childKey);
 				Entity* child = alloc<Entity>(ma, ma);
 				child->position = { (float)x * 5.0f, (float)y * 5.0f, (float)z * 5.0f };
 				g_truth->add(tx, childKey, child);
+				g_truth->tryCommit(tx);
 			}
 		}
 	}
-
-	g_truth->tryCommit(tx);
 
 	m_lists[0].data = (Instance*)malloc(sizeof(Instance) * 1024);
 	m_lists[1].data = (Instance*)malloc(sizeof(Instance) * 1024);
@@ -99,39 +102,53 @@ Scene::Scene(EditorRenderer* renderer)
 
 void Scene::update()
 {
-	TempAllocator ta;
-	Array<KeyEntry> adds(ta);
-	Array<KeyEntry> removes(ta);
-	Array<KeyEntry> edits(ta);
-
-	diff(state, g_truth->m_head, adds, edits, removes);
-
-	for (i32 i = 0; i < adds.size(); ++i)
+	TruthMap* newHead = g_truth->head();
+	if (state != newHead)
 	{
-		Entity* e = (Entity*)adds[i].value;
-		u64 key = adds[i].key.asU64;
-		(void)key;
-		addInstance(adds[i].key.asU64, e->position);
-	}
+		PROF_SCOPE(Update_Scene_Instances);
 
-	for (KeyEntry& edit : edits)
-	{
-		if (edit.key != rootKey)
+		TempAllocator ta;
+		Array<KeyEntry> adds(ta);
+		Array<KeyEntry> removes(ta);
+		Array<KeyEntry> edits(ta);
+
+		diff(state, newHead, adds, edits, removes);
+
+		for (i32 i = 0; i < adds.size(); ++i)
 		{
-			Entity* i = (Entity*)edit.value;
-			updateInstance(edit.key.asU64, i->position);
+			Entity* e = (Entity*)adds[i].value;
+			u64 key = adds[i].key.asU64;
+			(void)key;
+			addInstance(adds[i].key.asU64, e->position);
 		}
-	}
 
-	for (KeyEntry& remove : removes)
-	{
-		if (remove.key != rootKey)
+		for (KeyEntry& edit : edits)
 		{
-			popInstance(remove.key.asU64);
+			if (edit.key != rootKey)
+			{
+				Entity* i = (Entity*)edit.value;
+				updateInstance(edit.key.asU64, i->position);
+			}
 		}
-	}
 
-	state = g_truth->m_head;
+		for (KeyEntry& remove : removes)
+		{
+			if (remove.key != rootKey)
+			{
+				popInstance(remove.key.asU64);
+			}
+		}
+
+		char buf[256];
+		sprintf_s(buf, 256, "Added %d, updated %d, removed %d instances\n", adds.size(), edits.size(), removes.size());
+
+		OutputDebugStringA(buf);
+		printf("%s", buf);
+
+		rebuildDrawList();
+
+		state = newHead;
+	}
 }
 
 void Scene::addInstance(u64 key, float3 pos)
@@ -162,9 +179,11 @@ void Scene::addViewport(const char* name)
 	::addViewport(m_renderer, scv);
 }
 
-DrawList Scene::getDrawList()
+void Scene::rebuildDrawList()
 {
-	DrawList& drawList = m_lists[writeSlot];
+	PROF_SCOPE(rebuildDrawList);
+
+	DrawList& drawList = m_lists[m_writeSlot];
 	
 	i32 count = m_instances.size();
 	
@@ -182,7 +201,14 @@ DrawList Scene::getDrawList()
 		drawList.data[idx++] = instance;
 	}
 
-	return m_lists[writeSlot];
+	int oldReadSlot = m_readSlot;
+	m_readSlot = m_writeSlot;
+	m_writeSlot = oldReadSlot;
+}
+
+DrawList Scene::getDrawList()
+{
+	return m_lists[m_readSlot];
 }
 
 void SceneViewport::onGui()
@@ -227,6 +253,32 @@ void SceneViewport::onGui()
 	ImVec2 windowSize = ImGui::GetWindowSize();
 	size.x = windowSize.x;
 	size.y = windowSize.y;
+	ImGui::End();
+}
+
+UndoStackWindow::UndoStackWindow(Truth* truth)
+	:m_truth(truth)
+{
+
+}
+
+void UndoStackWindow::onGui()
+{
+	ImGui::Begin("Undo Stack Window");
+
+	i32 history_size = m_truth->undoUnits() - 1;
+	i32 read_index = m_truth->getReadIndex();
+
+	if (ImGui::Button("Zero"))
+	{
+		m_truth->setReadIndex(0);
+	}
+	ImGui::SameLine();
+	if (ImGui::SliderInt("History", &read_index, 0, history_size))
+	{
+		m_truth->setReadIndex(read_index);
+	}
+
 	ImGui::End();
 }
 

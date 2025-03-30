@@ -74,7 +74,17 @@ public:
 	float2 size = {100, 100};
 };
 
+class IEditorWindow
+{
+public:
+	virtual ~IEditorWindow() = default;
+
+	virtual void onGui() = 0;
+};
+
 void addViewport(EditorRenderer* rend, IViewport* viewport);
+void addEditorWindow(EditorRenderer* rend, IEditorWindow* window);
+
 void preRenderSync(EditorRenderer* rend);
 void preRender(EditorRenderer* rend);
 void renderFrame(EditorRenderer* rend);

@@ -222,6 +222,13 @@ MallocAllocator gMalloc;
 
 int main()
 {
+    HashMap < int > hm(gMalloc);
+
+    hm.add(1, 1);
+    hm.add(2, 2);
+    hm.add(3, 3);
+    hm.erase(1);
+
     block_memory_init();
     synchronized = true;
 

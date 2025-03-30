@@ -1,8 +1,6 @@
 #pragma once
-#include "imgui.h"
 
 #include "Array.h"
-#include "HashMap.h"
 #include "Math.h"
 #include "mh64.h"
 #include "TruthMap.h"
@@ -60,6 +58,7 @@ public:
 		TruthMap* emptyState = TruthMap::create(allocator);
 		m_nodes.push_back(emptyState);
 		m_head = emptyState;
+		m_readIndex = 0;
 	}
 
 	/// Single shot API
@@ -81,8 +80,65 @@ public:
 
 	Allocator& allocator() const { return m_allocator; }
 
+	/// Undo Stack API
+	
+	i32 undoUnits()
+	{
+		return m_nodes.size();
+	}
+
+
+	i32 getReadIndex()
+	{
+		return m_readIndex;
+	}
+
+	void setReadIndex(i32 index)
+	{
+		m_head = m_nodes[index];
+		m_readIndex = index;
+	}
+
+	bool canUndo()
+	{
+		return m_readIndex > 0;
+	}
+
+	void undo()
+	{
+		if (canUndo())
+		{
+			--m_readIndex;
+		}
+	}
+
+	TruthMap* head()
+	{
+		return m_head;
+	}
+
+	void push(TruthMap* node)
+	{
+		// todo hold a little lock
+
+		if (m_readIndex == (m_nodes.size() - 1))
+		{
+			m_nodes.push_back(node);
+		}
+		else
+		{
+			m_nodes.resize(m_readIndex + 1);
+			m_nodes[m_readIndex + 1] = node;
+		}
+
+		++m_readIndex;
+		m_head = m_nodes[m_readIndex];
+	}
+
+private:
 	Allocator& m_allocator;
 	Array<TruthMap*> m_nodes;
+	i32 m_readIndex = 0;
 	TruthMap* m_head = nullptr;
 };
 
@@ -93,27 +149,29 @@ inline const TruthElement* Truth::get(truth::Key key)
 
 inline void Truth::set(truth::Key key, TruthElement* element)
 {
-	m_nodes.push_back(m_head);
-	m_head = TruthMap::writeValue(m_head, m_head, key, element);
+	TruthMap* newHead = TruthMap::writeValue(m_head, m_head, key, element);
+	push(newHead);
 }
 
 inline void Truth::erase(truth::Key key)
 {
-	m_nodes.push_back(m_head);
-	m_head = TruthMap::erase(m_head, m_head, key);
+	TruthMap* newHead = TruthMap::erase(m_head, m_head, key);
+	push(newHead);
 }
 
 inline Transaction Truth::openTransaction()
 {
-	return Transaction{ m_head, m_head };
+	TruthMap* current_head = head();
+
+	return Transaction{ current_head, current_head };
 }
 
 inline bool Truth::tryCommit(Transaction& tx)
 {
+	// todo need exclusive head 
 	if (m_head == tx.base)
 	{
-		m_nodes.push_back(m_head);
-		m_head = tx.uncommitted;
+		push(tx.uncommitted);
 		return true;
 	}
 	else
@@ -129,10 +187,6 @@ inline const TruthElement* Truth::read(Transaction& tx, truth::Key key)
 
 inline void Truth::add(Transaction& tx, truth::Key key, TruthElement* element)
 {
-	if (key.asU64 == 14829735431805717965ull)
-	{
-		__debugbreak();
-	}
 	tx.uncommitted = TruthMap::writeValue(tx.base, tx.uncommitted, key, element);
 }
 

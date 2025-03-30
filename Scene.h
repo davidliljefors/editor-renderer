@@ -6,6 +6,7 @@
 #include "HashMap.h"
 #include "TruthMap.h"
 
+class Truth;
 struct EditorRenderer;
 struct EditorMesh;
 struct Camera;
@@ -26,6 +27,15 @@ struct SceneViewport : IViewport
 	bool dragging = false;
 };
 
+class UndoStackWindow : public IEditorWindow
+{
+public:
+	UndoStackWindow(Truth* truth);
+	void onGui() override;
+
+	Truth* m_truth;
+};
+
 
 class Scene
 {
@@ -41,13 +51,16 @@ public:
 
 	void addViewport(const char* name);
 
+	void rebuildDrawList();
 	DrawList getDrawList();
 
 private:
 	TruthMap* state = nullptr;
 	EditorRenderer* m_renderer;
+	UndoStackWindow* m_undoWindow;
 	Array<SceneViewport*> m_viewports;
 	HashMap<Instance> m_instances;
 	DrawList m_lists[2];
-	int writeSlot = 0;
+	int m_writeSlot = 0;
+	int m_readSlot = 1;
 };

@@ -85,6 +85,9 @@ struct EditorRenderer
 
     ViewportData viewports[1024];
     u32 numViewports = 0;
+
+    IEditorWindow* windows[256];
+    u32 numWindows = 0;
 };
 
 
@@ -777,6 +780,14 @@ void addViewport(EditorRenderer* rend, IViewport* viewport)
     createViewportResources(rend, &rend->viewports[slot]);
 }
 
+void addEditorWindow(EditorRenderer* rend, IEditorWindow* window)
+{
+    u32 slot = rend->numViewports;
+
+    rend->numWindows += 1;
+    rend->windows[slot] = window;
+}
+
 void preRenderSync(EditorRenderer* rend)
 {
     for(u32 i = 0; i < rend->numViewports; ++i)
@@ -945,11 +956,14 @@ void renderImgui(EditorRenderer *rend)
     ImGui::EndChild();
     ImGui::End();
 
-    ImGui::ShowDemoWindow();
-
     for(u32 i = 0; i < rend->numViewports; ++i)
     {
         rend->viewports[i].usr->onGui();
+    }
+
+    for (u32 i = 0; i < rend->numWindows; ++i)
+    {
+        rend->windows[i]->onGui();
     }
 
     // Render ImGui to the swap chain
