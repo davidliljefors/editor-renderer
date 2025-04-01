@@ -30,9 +30,6 @@
     <ClInclude Include="..\..\HashMap.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="..\..\hpt.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
     <ClInclude Include="..\..\imconfig.h">
       <Filter>Header Files</Filter>
     </ClInclude>
@@ -75,6 +72,9 @@
     <ClInclude Include="..\..\TruthView.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="..\..\JobManager.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="..\..\EditorRenderer.cpp">
@@ -111,6 +111,9 @@
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="..\..\ScratchAllocator.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\JobManager.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>
