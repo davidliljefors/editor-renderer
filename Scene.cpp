@@ -1,7 +1,6 @@
 #include "Scene.h"
 
 #include <cstdio>
-#include <d3d10.h>
 #include <stdlib.h>
 
 #include "ScratchAllocator.h"
@@ -133,12 +132,6 @@ void Scene::update()
 			{
 				popInstance(remove.key.asU64);
 			}
-
-			char buf[256];
-			sprintf_s(buf, 256, "Added %d, updated %d, removed %d instances\n", adds.size(), edits.size(), removes.size());
-
-			OutputDebugStringA(buf);
-			printf("%s", buf);
 
 			rebuildDrawList();
 

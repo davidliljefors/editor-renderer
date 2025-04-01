@@ -850,17 +850,6 @@ u64 readId(EditorRenderer* rend, IViewport* vp, u32 x, u32 y)
         }
     }
 
-    if (!vpd)
-    {
-        __debugbreak();
-        return 0;
-    }
-
-    if (x > vpd->txSize.x || y > vpd->txSize.y)
-    {
-        __debugbreak();
-	}
-
     D3D11_MAPPED_SUBRESOURCE mapped;
     HRESULT hr = rend->context->Map(vpd->idStagingTexture, 0, D3D11_MAP_READ, 0, &mapped);
     breakIfFailed(hr, rend->device);
@@ -875,12 +864,6 @@ u64 readId(EditorRenderer* rend, IViewport* vp, u32 x, u32 y)
     UINT rowPitch = mapped.RowPitch / sizeof(uint2);
     uint2 idParts = pixels[y * rowPitch + x];
     uint64_t fullId = ((uint64_t)idParts.x << 32) | idParts.y;
-    
-    if (fullId > 0) {
-        printf("Object ID: %llu\n", fullId);
-    } else {
-        printf("No object\n");
-    }
 
     rend->context->Unmap(vpd->idStagingTexture, 0);
 
@@ -1020,9 +1003,10 @@ void renderFrame(EditorRenderer* rend)
 		context->PSSetSamplers(0, 1, &nullSampler);
 
         // draw picking content
-        context->OMSetRenderTargets(1, &vpd->idRenderTargetView, nullptr);
+        context->OMSetRenderTargets(1, &vpd->idRenderTargetView, vpd->depthStencilView);
         UINT idClearColor[2] = { 0, 0 };
         context->ClearRenderTargetView(vpd->idRenderTargetView, (float*)idClearColor);
+        context->ClearDepthStencilView(vpd->depthStencilView, D3D11_CLEAR_DEPTH, 1.0f, 0);
 
         instancesDrawn = 0;
         while (instancesDrawn != count)
