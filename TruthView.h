@@ -1,8 +1,6 @@
 #pragma once
-#include "imgui.h"
 
 #include "Array.h"
-#include "HashMap.h"
 #include "Math.h"
 #include "mh64.h"
 #include "TruthMap.h"
@@ -26,7 +24,7 @@ struct Entity : TruthElement
 		return kTypeId;
 	}
 
-	TruthElement* clone(Allocator& a) override
+	TruthElement* clone(Allocator& a) const override
 	{
 		Entity* entityClone = alloc<Entity>(a, a);
 		entityClone->m_children = m_children.clone();
@@ -40,8 +38,8 @@ struct Entity : TruthElement
 
 struct Transaction
 {
-	const TruthMap* base;
-	TruthMap* uncommitted;
+	ReadOnlySnapshot base;
+	Snapshot uncommitted;
 };
 
 class Truth
@@ -55,65 +53,151 @@ public:
 
 	explicit Truth(Allocator& allocator)
 		: m_allocator(allocator)
-		, m_nodes(allocator)
+		, m_history(allocator)
 	{
 		TruthMap* emptyState = TruthMap::create(allocator);
-		m_nodes.push_back(emptyState);
-		m_head = emptyState;
+		m_history.push_back(Snapshot{ emptyState }.asImmutable());
+		m_readIndex = 0;
 	}
 
 	/// Single shot API
 
 	const TruthElement* get(truth::Key key);
-	void set(truth::Key key, TruthElement* element);
-	void erase(truth::Key key);
+	bool set(truth::Key key, TruthElement* element);
+	bool erase(truth::Key key);
+
+	ReadOnlySnapshot snap();
 
 	/// Transaction API
 
 	Transaction openTransaction();
-	bool tryCommit(Transaction& tx);
+	bool commit(Transaction& tx);
+	void drop(Transaction& tx);
+
 	void getConflicts(Transaction& tx, Array<Conflict>& outConflicts);
 
+	const TruthElement* read(ReadOnlySnapshot snap, truth::Key key);
 	const TruthElement* read(Transaction& tx, truth::Key key);
 	void add(Transaction& tx, truth::Key key, TruthElement* element);
 	TruthElement* write(Transaction& tx, truth::Key key);
 	void erase(Transaction& tx, truth::Key key);
 
+
 	Allocator& allocator() const { return m_allocator; }
 
+	/// Undo Stack API
+	
+	i32 undoUnits()
+	{
+		return m_history.size();
+	}
+
+
+	i32 getReadIndex()
+	{
+		return m_readIndex;
+	}
+
+	void setReadIndex(i32 index)
+	{
+		m_readIndex = index;
+	}
+
+	bool canUndo()
+	{
+		return m_readIndex > 0;
+	}
+
+	void undo()
+	{
+		if (canUndo())
+		{
+			--m_readIndex;
+		}
+	}
+
+	ReadOnlySnapshot head()
+	{
+		// todo little lock
+		i32 readIndex = m_readIndex;
+
+		return m_history[readIndex];
+	}
+
+	void push(Snapshot snapshot)
+	{
+		// todo hold a little lock
+
+		if (m_readIndex == (m_history.size() - 1))
+		{
+			m_history.push_back(snapshot.asImmutable());
+		}
+		else
+		{
+			m_history.resize(m_readIndex + 1);
+			m_history.push_back(snapshot.asImmutable());
+		}
+
+		++m_readIndex;
+	}
+
+private:
 	Allocator& m_allocator;
-	Array<TruthMap*> m_nodes;
-	TruthMap* m_head = nullptr;
+	Array<ReadOnlySnapshot> m_history;
+	i32 m_readIndex = 0;
 };
 
 inline const TruthElement* Truth::get(truth::Key key)
 {
-	return m_head->find(key);
+	ReadOnlySnapshot snap = head();
+
+	return snap.s->find(key);
 }
 
-inline void Truth::set(truth::Key key, TruthElement* element)
+inline bool Truth::set(truth::Key key, TruthElement* element)
 {
-	m_nodes.push_back(m_head);
-	m_head = TruthMap::writeValue(m_head, m_head, key, element);
+	Transaction tx = openTransaction();
+	tx.uncommitted.s = TruthMap::writeValue(tx.base.s, tx.uncommitted.s, key, element);
+
+	// todo: handle dropping
+
+	return commit(tx);
 }
 
-inline void Truth::erase(truth::Key key)
+inline bool Truth::erase(truth::Key key)
 {
-	m_nodes.push_back(m_head);
-	m_head = TruthMap::erase(m_head, m_head, key);
+	Transaction tx = openTransaction();
+	erase(tx, key);
+
+	// todo: handle dropping
+
+	return commit(tx);
+}
+
+inline ReadOnlySnapshot Truth::snap()
+{
+	return head();
 }
 
 inline Transaction Truth::openTransaction()
 {
-	return Transaction{ m_head, m_head };
+	ReadOnlySnapshot current_head = head();
+	
+	// Note: Initialize transaction with non const head. all write ops on compares base and head and wont overwrite values owned by base
+	return Transaction{ current_head, Snapshot{current_head.s} };
 }
 
-inline bool Truth::tryCommit(Transaction& tx)
+inline bool Truth::commit(Transaction& tx)
 {
-	if (m_head == tx.base)
+	ReadOnlySnapshot current_head = head();
+	assert(tx.uncommitted.s != nullptr);
+
+	// todo need exclusive head 
+	if (current_head.s == tx.base.s)
 	{
-		m_nodes.push_back(m_head);
-		m_head = tx.uncommitted;
+		push(tx.uncommitted);
+		tx.uncommitted.s = nullptr;
+		tx.base.s = nullptr;
 		return true;
 	}
 	else
@@ -122,28 +206,29 @@ inline bool Truth::tryCommit(Transaction& tx)
 	}
 }
 
+inline const TruthElement* Truth::read(ReadOnlySnapshot snap, truth::Key key)
+{
+	return snap.s->find(key);
+}
+
 inline const TruthElement* Truth::read(Transaction& tx, truth::Key key)
 {
-	return tx.uncommitted->find(key);
+	return tx.uncommitted.s->find(key);
 }
 
 inline void Truth::add(Transaction& tx, truth::Key key, TruthElement* element)
 {
-	if (key.asU64 == 14829735431805717965ull)
-	{
-		__debugbreak();
-	}
-	tx.uncommitted = TruthMap::writeValue(tx.base, tx.uncommitted, key, element);
+	tx.uncommitted.s = TruthMap::writeValue(tx.base.s, tx.uncommitted.s, key, element);
 }
 
 inline TruthElement* Truth::write(Transaction& tx, truth::Key key)
 {
 	TruthElement* element;
-	tx.uncommitted = TruthMap::lookupForWrite(tx.base, tx.uncommitted, key, &element);
+	tx.uncommitted.s = TruthMap::lookupForWrite(tx.base.s, tx.uncommitted.s, key, &element);
 	return element;
 }
 
 inline void Truth::erase(Transaction& tx, truth::Key key)
 {
-	tx.uncommitted = TruthMap::erase(tx.base, tx.uncommitted, key);
+	tx.uncommitted.s = TruthMap::erase(tx.base.s, tx.uncommitted.s, key);
 }

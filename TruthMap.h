@@ -5,6 +5,7 @@
 #include "Array.h"
 
 
+
 namespace truth
 {
 constexpr static int BlockBits = 8;
@@ -19,13 +20,13 @@ struct Key
 #pragma warning(disable: 4201)
 	union
 	{
+		u64 asU64;
 		struct
 		{
 			u64 Index : 64 - (BlockBits + EntryBits);
 			u64 Entry : EntryBits;
 			u64 Block : BlockBits;
 		};
-		u64 asU64;
 	};
 #pragma warning (pop)
 };
@@ -45,7 +46,7 @@ struct TruthElement
 {
 	virtual ~TruthElement() = default;
 	virtual u64 typeId() = 0;
-	virtual TruthElement* clone(Allocator& a) = 0;
+	virtual TruthElement* clone(Allocator& a) const = 0;
 };
 
 struct KeyEntry
@@ -77,6 +78,18 @@ struct KeyEntry
 	return left;
 }
 
+class TruthMap;
+
+struct ReadOnlySnapshot
+{
+	TruthMap* s;
+};
+
+struct Snapshot
+{
+	ReadOnlySnapshot asImmutable() { return ReadOnlySnapshot{ s }; }
+	TruthMap* s;
+};
 
 class TruthMap
 {
@@ -169,6 +182,11 @@ public:
 		InlineArray* array;
 		u32 slot;
 		TruthMap* update = getWritableEntryArray(base, head, key, false, &array, &slot);
+
+		if (array->data[slot].value == nullptr)
+		{
+			array->data[slot].value = base->find(key)->clone(head->m_allocator);
+		}
 		*outEntry = array->data[slot].value;
 
 		return update;
@@ -206,9 +224,9 @@ public:
 		return update;
 	}
 
-	const TruthElement* find(truth::Key key)
+	const TruthElement* find(truth::Key key) const
 	{
-		InlineArray* entries = getEntries(key);
+		const InlineArray* entries = getEntries(key);
 
 		if (entries)
 		{
@@ -399,7 +417,7 @@ private:
 		return updated;
 	}
 
-	InlineArray* getEntries(truth::Key key)
+	const InlineArray* getEntries(truth::Key key) const
 	{
 		Block& block = *m_root->blocks[key.Block];
 		return block.entries[key.Entry];
@@ -488,9 +506,7 @@ private:
 	};
 };
 
-
-
-inline void diff(TruthMap* base, TruthMap* compare, 
+inline void diff(const TruthMap* base, const TruthMap* compare, 
 Array<KeyEntry>& adds,
 Array<KeyEntry>& edits,
 Array<KeyEntry>& removes)
@@ -521,10 +537,6 @@ Array<KeyEntry>& removes)
 					{
 						for (KeyEntry entry : *compareEntries)
 						{
-							if (entry.key.asU64 == 14829735431805717965ull)
-							{
-								__debugbreak();
-							}
 							adds.push_back(entry);
 						}
 					}

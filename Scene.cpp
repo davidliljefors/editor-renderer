@@ -1,5 +1,6 @@
 #include "Scene.h"
 
+#include <cstdio>
 #include <stdlib.h>
 
 #include "ScratchAllocator.h"
@@ -65,16 +66,21 @@ Scene::Scene(EditorRenderer* renderer)
 	m_renderer = renderer;
 
 	g_truth = alloc<Truth>(ma, ma);
-	state = g_truth->m_head;
+	state = g_truth->head();
 
-	Transaction tx = g_truth->openTransaction();
+	m_undoWindow = alloc<UndoStackWindow>(ma, g_truth);
+	m_outlinerWindow = alloc<OutlinerWindow>(ma, g_truth);
+	addEditorWindow(renderer, m_undoWindow);
+	addEditorWindow(renderer, m_outlinerWindow);
+
 	Entity* rootEntity = alloc<Entity>(ma, ma);
-	g_truth->add(tx, rootKey, rootEntity);
+	g_truth->set(rootKey, rootEntity);
 
 	for (int x = -10; x < 10; x++)
 	{
 		for (int y = -10; y < 10; y++)
 		{
+			Transaction tx = g_truth->openTransaction();
 			for (int z = -10; z < 10; z++)
 			{
 				truth::Key childKey = nextKey();
@@ -83,10 +89,9 @@ Scene::Scene(EditorRenderer* renderer)
 				child->position = { (float)x * 5.0f, (float)y * 5.0f, (float)z * 5.0f };
 				g_truth->add(tx, childKey, child);
 			}
+			g_truth->commit(tx);
 		}
 	}
-
-	g_truth->tryCommit(tx);
 
 	m_lists[0].data = (Instance*)malloc(sizeof(Instance) * 1024);
 	m_lists[1].data = (Instance*)malloc(sizeof(Instance) * 1024);
@@ -99,53 +104,53 @@ Scene::Scene(EditorRenderer* renderer)
 
 void Scene::update()
 {
-	TempAllocator ta;
-	Array<KeyEntry> adds(ta);
-	Array<KeyEntry> removes(ta);
-	Array<KeyEntry> edits(ta);
-
-	diff(state, g_truth->m_head, adds, edits, removes);
-
-	for (i32 i = 0; i < adds.size(); ++i)
+	ReadOnlySnapshot newHead = g_truth->head();
+	if (state.s != newHead.s)
 	{
-		Entity* e = (Entity*)adds[i].value;
-		u64 key = adds[i].key.asU64;
-		(void)key;
-		addInstance(adds[i].key.asU64, e->position);
-	}
-
-	for (KeyEntry& edit : edits)
-	{
-		if (edit.key != rootKey)
+		PROF_SCOPE(Update_Scene_Instances);
 		{
-			Entity* i = (Entity*)edit.value;
-			updateInstance(edit.key.asU64, i->position);
+			TempAllocator ta;
+			Array<KeyEntry> adds(ta);
+			Array<KeyEntry> removes(ta);
+			Array<KeyEntry> edits(ta);
+
+			diff(state.s, newHead.s, adds, edits, removes);
+
+			for (i32 i = 0; i < adds.size(); ++i)
+			{
+				Entity* e = (Entity*)adds[i].value;
+				addInstance(adds[i].key.asU64, e->position);
+			}
+
+			for (const KeyEntry& edit : edits)
+			{
+				Entity* i = (Entity*)edit.value;
+				updateInstance(edit.key.asU64, i->position);
+			}
+
+			for (const KeyEntry& remove : removes)
+			{
+				popInstance(remove.key.asU64);
+			}
+
+			rebuildDrawList();
+
+			state = newHead;
 		}
 	}
-
-	for (KeyEntry& remove : removes)
-	{
-		if (remove.key != rootKey)
-		{
-			popInstance(remove.key.asU64);
-		}
-	}
-
-	state = g_truth->m_head;
 }
 
 void Scene::addInstance(u64 key, float3 pos)
 {
-    m_instances.insert_or_assign(key, Instance{ pos, 0});
+	m_instances.insert_or_assign(key, Instance{ {pos.x, pos.y, pos.z, 1.0f}, 0, key });
 }
 
 void Scene::updateInstance(u64 id, float3 pos)
 {
-    Instance* instance = m_instances.find(id);
-    if(instance)
-    {
-        instance->pos = pos;
-    }
+	if (Instance* instance = m_instances.find(id))
+	{
+		instance->pos.xyz() = pos;
+	}
 }
 
 void Scene::popInstance(u64 id)
@@ -158,13 +163,16 @@ void Scene::addViewport(const char* name)
 	SceneViewport* scv = new SceneViewport();
 	scv->scene = this;
 	scv->name = name;
+	scv->renderer = m_renderer;
 	m_viewports.push_back(scv);
 	::addViewport(m_renderer, scv);
 }
 
-DrawList Scene::getDrawList()
+void Scene::rebuildDrawList()
 {
-	DrawList& drawList = m_lists[writeSlot];
+	PROF_SCOPE(rebuildDrawList);
+
+	DrawList& drawList = m_lists[m_writeSlot];
 	
 	i32 count = m_instances.size();
 	
@@ -182,13 +190,45 @@ DrawList Scene::getDrawList()
 		drawList.data[idx++] = instance;
 	}
 
-	return m_lists[writeSlot];
+	int oldReadSlot = m_readSlot;
+	m_readSlot = m_writeSlot;
+	m_writeSlot = oldReadSlot;
+}
+
+DrawList Scene::getDrawList()
+{
+	return m_lists[m_readSlot];
 }
 
 void SceneViewport::onGui()
 {
 	ImGui::Begin(name);
+	ImVec2 textureCoords = ImVec2(-1, -1); // Default to invalid coords
 	ImGui::Image(ViewportTex, ImVec2(size.x, size.y));
+
+	if (ImGui::IsItemHovered()) {
+        // Get the top-left corner of the image in screen space
+        ImVec2 imagePos = ImGui::GetItemRectMin();
+
+        // Get the current mouse position in screen space
+        ImVec2 mousePos = ImGui::GetMousePos();
+
+        // Calculate mouse position relative to the image (0,0 at top-left)
+        textureCoords.x = mousePos.x - imagePos.x;
+        textureCoords.y = mousePos.y - imagePos.y;
+    }
+	if (ImGui::IsItemClicked())
+	{
+		u64 id = readId(renderer, this, (u32)textureCoords.x, (u32)textureCoords.y);
+
+		if (id != 0)
+		{
+			auto tx = g_truth->openTransaction();
+			g_truth->erase(tx, truth::Key{ id });
+			g_truth->commit(tx);
+		}
+	}
+
 	ImGuiIO& io = ImGui::GetIO();
 	static ImVec2 initialCursorPos = ImVec2(0, 0);
 	if (ImGui::IsItemHovered() && ImGui::IsMouseClicked(1)) 
@@ -228,6 +268,77 @@ void SceneViewport::onGui()
 	size.x = windowSize.x;
 	size.y = windowSize.y;
 	ImGui::End();
+}
+
+UndoStackWindow::UndoStackWindow(Truth* truth)
+	:m_truth(truth)
+{
+
+}
+
+void UndoStackWindow::onGui()
+{
+	ImGui::Begin("Undo Stack Window");
+
+	i32 history_size = m_truth->undoUnits() - 1;
+	i32 read_index = m_truth->getReadIndex();
+
+	if (ImGui::Button("Zero"))
+	{
+		m_truth->setReadIndex(0);
+	}
+	ImGui::SameLine();
+	if (ImGui::SliderInt("History", &read_index, 0, history_size))
+	{
+		m_truth->setReadIndex(read_index);
+	}
+
+	ImGui::End();
+}
+
+OutlinerWindow::OutlinerWindow(Truth* truth)
+	:m_truth(truth)
+{
+
+}
+
+void DrawEntityHierarchy(Truth* truth, ReadOnlySnapshot snap, truth::Key key)
+{
+	const Entity* entity = (const Entity*)truth->read(snap, key);
+
+	if (!entity)
+	{
+		return;
+	}
+
+	ImGui::PushID(key.asU64);
+	if (ImGui::TreeNode("Entity"))
+	{
+		float3 editPosition = entity->position;
+		if (ImGui::DragFloat3("Position", &editPosition.x))
+		{
+			auto tx = truth->openTransaction();
+			Entity* editEntity = (Entity*)truth->write(tx, key);
+			editEntity->position = editPosition;
+			truth->commit(tx);
+		}
+
+		for (truth::Key child : entity->m_children)
+		{
+			DrawEntityHierarchy(truth, snap, child);
+		}
+
+		ImGui::TreePop();
+	}
+
+	ImGui::PopID();
+}
+
+void OutlinerWindow::onGui()
+{
+	ReadOnlySnapshot snapshot = m_truth->head();
+
+	DrawEntityHierarchy(m_truth, snapshot, rootKey);
 }
 
 DrawList SceneViewport::getDrawList()

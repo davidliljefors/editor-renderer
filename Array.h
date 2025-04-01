@@ -156,7 +156,7 @@ public:
 		return *this;
 	}
 
-	Array clone();
+	Array clone() const;
 
 	void push_back(T val);
 	T& back();
@@ -183,6 +183,9 @@ public:
 	
 	T* begin();
 	T* end();
+
+	const T* begin() const;
+	const T* end() const;
 
 	Allocator& get_allocator();
 
@@ -221,7 +224,7 @@ Array<T>::~Array()
 }
 
 template <typename T>
-Array<T> Array<T>::clone()
+Array<T> Array<T>::clone() const
 {
 	Array<T> copy(m_allocator);
 	copy.resize(size());
@@ -366,6 +369,18 @@ T* Array<T>::begin()
 
 template <typename T>
 T* Array<T>::end()
+{
+	return m_data + m_size;
+}
+
+template <typename T>
+const T* Array<T>::begin() const
+{
+	return m_data;
+}
+
+template <typename T>
+const T* Array<T>::end() const
 {
 	return m_data + m_size;
 }

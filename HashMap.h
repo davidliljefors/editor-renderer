@@ -265,6 +265,8 @@ void HashMap<T>::erase_impl(HashFind find)
 	{
 		hash[last.hashIndex] = find.dataIndex;
 	}
+
+	data.resize(data.size() - 1);
 }
 
 template <typename T>
