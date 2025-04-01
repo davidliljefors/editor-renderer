@@ -19,8 +19,9 @@ struct Win32Timer
 
 struct Instance
 {
-	float3 pos;
+	float4 pos;
 	int model_id;
+	u64 key;
 
 	matrix get_model_matrix() const
 	{
@@ -31,6 +32,14 @@ struct Instance
 			float4{pos.x, pos.y, pos.z, 1}
 		};
 	}
+};
+
+struct alignas(16) PickingInstance
+{
+	float4 pos;
+	u32 idHigh;
+	u32 idLow;
+	u32 padding[2];
 };
 
 struct DrawList
@@ -85,12 +94,15 @@ public:
 void addViewport(EditorRenderer* rend, IViewport* viewport);
 void addEditorWindow(EditorRenderer* rend, IEditorWindow* window);
 
+u64 readId(EditorRenderer* rend, IViewport* vp, u32 x, u32 y);
+
 void preRenderSync(EditorRenderer* rend);
 void preRender(EditorRenderer* rend);
 void renderFrame(EditorRenderer* rend);
 void renderImgui(EditorRenderer* rend);
 void postRender(EditorRenderer* rend);
 void renderSynchronize(EditorRenderer* rend);
+
 
 void initRenderer(HWND hwnd, u32 w, u32 h, EditorRenderer*& rend);
 void createDevice(EditorRenderer* rend);

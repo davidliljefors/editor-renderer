@@ -122,4 +122,12 @@
       <Filter>Resource Files</Filter>
     </Natvis>
   </ItemGroup>
+  <ItemGroup>
+    <FxCompile Include="..\..\main.hlsl">
+      <Filter>Resource Files</Filter>
+    </FxCompile>
+    <FxCompile Include="..\..\picking.hlsl">
+      <Filter>Resource Files</Filter>
+    </FxCompile>
+  </ItemGroup>
 </Project>

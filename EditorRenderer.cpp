@@ -29,9 +29,17 @@ struct Mesh
 struct Model
 {
 	ID3D11VertexShader* vertexShader;
-	ID3D11PixelShader* pixelSHader;
+	ID3D11PixelShader* pixelShader;
 	ID3D11InputLayout* inputLayout;
 	ID3D11SamplerState* samplerState;
+
+    struct Picking
+    {
+	    ID3D11VertexShader* vertexShader;
+		ID3D11PixelShader* pixelShader;
+        ID3D11Buffer* instanceBuffer;
+        ID3D11InputLayout* inputLayout;
+    } picking;
 
 	ID3D11Texture2D* texture;
 	ID3D11ShaderResourceView* textureSrv;
@@ -40,7 +48,7 @@ struct Model
 	Mesh mesh;
 };
 
-static const int MAX_INSTANCES = 512; // 16K instances per batch - good balance between memory and draw call overhead
+static const int MAX_INSTANCES = 512;
 
 struct ViewportData
 {
@@ -49,6 +57,10 @@ struct ViewportData
 	ID3D11RenderTargetView* renderTargetView = nullptr;
     ID3D11DepthStencilView* depthStencilView = nullptr;
     ID3D11ShaderResourceView* shaderResourceView = nullptr;
+
+    ID3D11Texture2D* idRenderTargetTexture;
+    ID3D11RenderTargetView* idRenderTargetView;
+    ID3D11Texture2D* idStagingTexture;
     
     IViewport* usr;
 };
@@ -90,74 +102,6 @@ struct EditorRenderer
     u32 numWindows = 0;
 };
 
-
-
-const char* g_shaderSrc = R"(
-cbuffer constants : register(b0)
-{
-    row_major float4x4 view;
-    row_major float4x4 projection;
-    float3 lightvector;
-    float3 lightcolor;          // Light color (e.g., float3(1, 1, 1) for white)
-    float ambientStrength;      // Base illumination (e.g., 0.2)
-    float specularStrength;     // Specular intensity (e.g., 0.5)
-    float specularPower;        // Shininess (e.g., 32.0)
-}
-
-struct vertexdesc
-{
-    float3 position : POS;
-    float3 normal : NOR;
-    float2 texcoord : TEX;
-    float3 color : COL;
-};
-
-struct instancedesc
-{
-    float4 position : INSTANCE_POS;
-};
-
-struct pixeldesc
-{
-    float4 position     : SV_POSITION;
-    float2 texcoord     : TEX;
-    float4 color        : COL;
-    float3 worldnormal  : NORMAL;
-};
-
-Texture2D mytexture : register(t0);
-SamplerState mysampler : register(s0);
-
-pixeldesc vs_main(vertexdesc vertex, instancedesc instance)
-{
-    float4x4 model = {
-        1, 0, 0, 0,
-        0, 1, 0, 0,
-        0, 0, 1, 0,
-        instance.position.x, instance.position.y, instance.position.z, 1
-    };
-    
-    float4 worldPos = mul(float4(vertex.position, 1.0f), model);
-    float3 worldNormal = mul(vertex.normal, (float3x3)model);
-    
-    pixeldesc output;
-    output.position = mul(worldPos, mul(view, projection));
-    output.texcoord = vertex.texcoord;
-    output.worldnormal = worldNormal;
-    
-    float light = clamp(dot(normalize(worldNormal), normalize(-lightvector)), 0.0f, 1.0f) * 0.8f;
-    output.color = float4(vertex.color * light, 1.0f);
-
-    return output;
-}
-
-float4 ps_main(pixeldesc pixel) : SV_TARGET
-{
-    float light = clamp(dot(normalize(pixel.worldnormal), normalize(-lightvector)), 0.0f, 1.0f) * 0.8f + 0.6f;
-    return mytexture.Sample(mysampler, pixel.texcoord) * pixel.color * light;
-}
-)";
-
 #define TEXTURE_WIDTH  2
 #define TEXTURE_HEIGHT 2
 
@@ -171,7 +115,7 @@ void load_default_shaders(ID3D11Device* device, Model* model)
 {
     ID3DBlob* p_vertex_shader_cso;
     ID3DBlob* p_error_blob = nullptr;
-    D3DCompile(g_shaderSrc, strlen(g_shaderSrc), nullptr, nullptr, nullptr, "vs_main", "vs_5_0", 0, 0, &p_vertex_shader_cso, &p_error_blob);
+    D3DCompileFromFile(TEXT("../../main.hlsl"), nullptr, nullptr, "VS_Main", "vs_5_0", 0, 0, &p_vertex_shader_cso, &p_error_blob);
 
     if (p_error_blob)
     {
@@ -183,11 +127,11 @@ void load_default_shaders(ID3D11Device* device, Model* model)
 
     D3D11_INPUT_ELEMENT_DESC input_element_desc[] =
     {
-        { "POS", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D11_INPUT_PER_VERTEX_DATA, 0 },
-        { "NOR", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, D3D11_APPEND_ALIGNED_ELEMENT, D3D11_INPUT_PER_VERTEX_DATA, 0 },
-        { "TEX", 0, DXGI_FORMAT_R32G32_FLOAT, 0, D3D11_APPEND_ALIGNED_ELEMENT, D3D11_INPUT_PER_VERTEX_DATA, 0 },
-        { "COL", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, D3D11_APPEND_ALIGNED_ELEMENT, D3D11_INPUT_PER_VERTEX_DATA, 0 },
-        { "INSTANCE_POS", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 1, 0, D3D11_INPUT_PER_INSTANCE_DATA, 1 },
+        { "POS", 0,             DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D11_INPUT_PER_VERTEX_DATA, 0 },
+        { "NOR", 0,             DXGI_FORMAT_R32G32B32_FLOAT, 0, D3D11_APPEND_ALIGNED_ELEMENT, D3D11_INPUT_PER_VERTEX_DATA, 0 },
+        { "TEX", 0,             DXGI_FORMAT_R32G32_FLOAT, 0, D3D11_APPEND_ALIGNED_ELEMENT, D3D11_INPUT_PER_VERTEX_DATA, 0 },
+        { "COL", 0,             DXGI_FORMAT_R32G32B32_FLOAT, 0, D3D11_APPEND_ALIGNED_ELEMENT, D3D11_INPUT_PER_VERTEX_DATA, 0 },
+        { "INSTANCE_POS", 0,    DXGI_FORMAT_R32G32B32A32_FLOAT, 1, 0, D3D11_INPUT_PER_INSTANCE_DATA, 1 },
     };
 
     device->CreateInputLayout(input_element_desc, ARRAYSIZE(input_element_desc), p_vertex_shader_cso->GetBufferPointer(), p_vertex_shader_cso->GetBufferSize(), &model->inputLayout);
@@ -195,7 +139,7 @@ void load_default_shaders(ID3D11Device* device, Model* model)
     p_vertex_shader_cso->Release();
 
     ID3DBlob* p_pixel_shader_cso;
-    D3DCompile(g_shaderSrc, strlen(g_shaderSrc), nullptr, nullptr, nullptr, "ps_main", "ps_5_0", 0, 0, &p_pixel_shader_cso, &p_error_blob);
+    D3DCompileFromFile(TEXT("../../main.hlsl"), nullptr, nullptr, "PS_Main", "ps_5_0", 0, 0, &p_pixel_shader_cso, &p_error_blob);
 
     if (p_error_blob)
     {
@@ -203,7 +147,7 @@ void load_default_shaders(ID3D11Device* device, Model* model)
         p_error_blob->Release();
     }
 
-    device->CreatePixelShader(p_pixel_shader_cso->GetBufferPointer(), p_pixel_shader_cso->GetBufferSize(), nullptr, &model->pixelSHader);
+    device->CreatePixelShader(p_pixel_shader_cso->GetBufferPointer(), p_pixel_shader_cso->GetBufferSize(), nullptr, &model->pixelShader);
 
     p_pixel_shader_cso->Release();
 
@@ -253,6 +197,81 @@ void load_default_shaders(ID3D11Device* device, Model* model)
     instance_buffer_data.SysMemSlicePitch = 0;
 
     device->CreateBuffer(&instance_buffer_desc, &instance_buffer_data, &model->instanceBuffer);
+}
+
+void load_picking_shaders(ID3D11Device* device, Model::Picking* picking)
+{
+    ID3DBlob* p_vertex_shader_cso;
+    ID3DBlob* p_error_blob = nullptr;
+    D3DCompileFromFile(TEXT("../../picking.hlsl"), nullptr, nullptr, "VS_Picking", "vs_5_0", 0, 0, &p_vertex_shader_cso, &p_error_blob);
+
+    if (p_error_blob)
+    {
+        OutputDebugStringA((char*)p_error_blob->GetBufferPointer());
+        p_error_blob->Release();
+    }
+
+    device->CreateVertexShader(p_vertex_shader_cso->GetBufferPointer(), p_vertex_shader_cso->GetBufferSize(), nullptr, &picking->vertexShader);
+
+    ID3D11ShaderReflection* reflector;
+	D3DReflect(p_vertex_shader_cso->GetBufferPointer(), p_vertex_shader_cso->GetBufferSize(), __uuidof(ID3D11ShaderReflection), (void**)&reflector);
+	D3D11_SHADER_DESC desc;
+	reflector->GetDesc(&desc);
+
+	printf("Shader Inputs:\n");
+	for (UINT i = 0; i < desc.InputParameters; i++) {
+	    D3D11_SIGNATURE_PARAMETER_DESC param;
+	    reflector->GetInputParameterDesc(i, &param);
+	    printf("Input %u: Semantic=%s%d, Register=%u, ComponentType=%d, Mask=%u\n",
+	           i, param.SemanticName, param.SemanticIndex, param.Register,
+	           param.ComponentType, param.Mask);
+}
+
+    D3D11_INPUT_ELEMENT_DESC input_element_desc[] =
+	{
+		{ "POS", 0,             DXGI_FORMAT_R32G32B32_FLOAT, 0, 0,      D3D11_INPUT_PER_VERTEX_DATA,    0 },
+		{ "INSTANCE_POS", 0,    DXGI_FORMAT_R32G32B32A32_FLOAT, 1, 0,   D3D11_INPUT_PER_INSTANCE_DATA,  1 },
+		{ "IDHIGH", 0,          DXGI_FORMAT_R32_UINT, 1, 16,            D3D11_INPUT_PER_INSTANCE_DATA,  1 },
+		{ "IDLOW", 0,           DXGI_FORMAT_R32_UINT, 1, 20,            D3D11_INPUT_PER_INSTANCE_DATA,  1 },
+	};
+
+    device->CreateInputLayout(input_element_desc, ARRAYSIZE(input_element_desc), p_vertex_shader_cso->GetBufferPointer(), p_vertex_shader_cso->GetBufferSize(), &picking->inputLayout);
+
+    p_vertex_shader_cso->Release();
+
+    ID3DBlob* p_pixel_shader_cso;
+    D3DCompileFromFile(TEXT("../../picking.hlsl"), nullptr, nullptr, "PS_Picking", "ps_5_0", 0, 0, &p_pixel_shader_cso, &p_error_blob);
+
+    if (p_error_blob)
+    {
+        OutputDebugStringA((char*)p_error_blob->GetBufferPointer());
+        p_error_blob->Release();
+    }
+
+    device->CreatePixelShader(p_pixel_shader_cso->GetBufferPointer(), p_pixel_shader_cso->GetBufferSize(), nullptr, &picking->pixelShader);
+
+    p_pixel_shader_cso->Release();
+
+    float4 initial_instance_data[MAX_INSTANCES];
+    for (int i = 0; i < MAX_INSTANCES; i++)
+    {
+        initial_instance_data[i] = float4{0.0f, 0.0f, 0.0f, 1.0f};
+    }
+
+    D3D11_BUFFER_DESC instance_buffer_desc = {};
+    instance_buffer_desc.ByteWidth = sizeof(PickingInstance) * MAX_INSTANCES;
+    instance_buffer_desc.Usage = D3D11_USAGE_DYNAMIC;
+    instance_buffer_desc.BindFlags = D3D11_BIND_VERTEX_BUFFER;
+    instance_buffer_desc.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
+    instance_buffer_desc.MiscFlags = 0;
+    instance_buffer_desc.StructureByteStride = sizeof(PickingInstance);
+
+    D3D11_SUBRESOURCE_DATA instance_buffer_data = {};
+    instance_buffer_data.pSysMem = initial_instance_data;
+    instance_buffer_data.SysMemPitch = 0;
+    instance_buffer_data.SysMemSlicePitch = 0;
+
+    device->CreateBuffer(&instance_buffer_desc, &instance_buffer_data, &picking->instanceBuffer);
 }
 
 inline void generate_sphere_mesh(ID3D11Device* device, Mesh* mesh, int latitude_count = 8, int longitude_count = 8)
@@ -567,6 +586,7 @@ void createAssetResources(EditorRenderer* rend)
     {
         Model& model = rend->m_models[rend->m_model_count++];
         load_default_shaders(rend->device, &model);
+        load_picking_shaders(rend->device, &model.picking);
         generate_sphere_mesh(rend->device, &model.mesh);
     }
     
@@ -590,6 +610,15 @@ void destroyViewport(EditorRenderer*, ViewportData* data)
 
     if(data->renderTargetTexture)
         data->renderTargetTexture->Release();
+
+    if (data->idRenderTargetTexture)
+        data->idRenderTargetTexture->Release();
+
+    if (data->idRenderTargetView)
+        data->idRenderTargetView->Release();
+
+    if (data->idStagingTexture)
+        data->idStagingTexture->Release();
 }
 
 void createViewportResources(EditorRenderer* rend, ViewportData* vp)
@@ -623,6 +652,29 @@ void createViewportResources(EditorRenderer* rend, ViewportData* vp)
     depthStencil->Release();
     vp->txSize = vp->usr->size;
     vp->usr->ViewportTex = (u64)vp->shaderResourceView;
+
+
+	D3D11_TEXTURE2D_DESC rtDesc = {};
+	rtDesc.Width = (u32)vp->usr->size.x;
+	rtDesc.Height = (u32)vp->usr->size.y;
+	rtDesc.MipLevels = 1;
+	rtDesc.ArraySize = 1;
+	rtDesc.Format = DXGI_FORMAT_R32G32_UINT;
+	rtDesc.SampleDesc.Count = 1;
+	rtDesc.Usage = D3D11_USAGE_DEFAULT;
+	rtDesc.BindFlags = D3D11_BIND_RENDER_TARGET;
+
+    hr = rend->device->CreateTexture2D(&rtDesc, nullptr, &vp->idRenderTargetTexture);
+    breakIfFailed(hr, rend->device);
+	hr = rend-> device->CreateRenderTargetView(vp->idRenderTargetTexture, nullptr, &vp->idRenderTargetView);
+    breakIfFailed(hr, rend->device);
+
+    D3D11_TEXTURE2D_DESC stagingDesc = rtDesc;
+	stagingDesc.Usage = D3D11_USAGE_STAGING;
+	stagingDesc.BindFlags = 0;
+	stagingDesc.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+	hr = rend->device->CreateTexture2D(&stagingDesc, nullptr, &vp->idStagingTexture);
+    breakIfFailed(hr, rend->device);
 }
 
 void createResources(EditorRenderer* rend, u32 w, u32 h)
@@ -642,7 +694,6 @@ void createResources(EditorRenderer* rend, u32 w, u32 h)
 
     if(rend->imGuirenderTargetView)
         rend->imGuirenderTargetView->Release();
-
 
     rend->context->Flush();
 
@@ -782,10 +833,58 @@ void addViewport(EditorRenderer* rend, IViewport* viewport)
 
 void addEditorWindow(EditorRenderer* rend, IEditorWindow* window)
 {
-    u32 slot = rend->numViewports;
+    u32 slot = rend->numWindows;
 
     rend->numWindows += 1;
     rend->windows[slot] = window;
+}
+
+u64 readId(EditorRenderer* rend, IViewport* vp, u32 x, u32 y)
+{
+    ViewportData* vpd = nullptr;
+    for (u32 i = 0; i < rend->numViewports; ++i)
+    {
+        if (rend->viewports[i].usr == vp)
+        {
+            vpd = &rend->viewports[i];
+        }
+    }
+
+    if (!vpd)
+    {
+        __debugbreak();
+        return 0;
+    }
+
+    if (x > vpd->txSize.x || y > vpd->txSize.y)
+    {
+        __debugbreak();
+	}
+
+    D3D11_MAPPED_SUBRESOURCE mapped;
+    HRESULT hr = rend->context->Map(vpd->idStagingTexture, 0, D3D11_MAP_READ, 0, &mapped);
+    breakIfFailed(hr, rend->device);
+
+    struct uint2
+    {
+        u32 x;
+        u32 y;
+    };
+
+    uint2* pixels = (uint2*)mapped.pData;
+    UINT rowPitch = mapped.RowPitch / sizeof(uint2);
+    uint2 idParts = pixels[y * rowPitch + x];
+    uint64_t fullId = ((uint64_t)idParts.x << 32) | idParts.y;
+    
+    if (fullId > 0) {
+        printf("Object ID: %llu\n", fullId);
+    } else {
+        printf("No object\n");
+    }
+
+    rend->context->Unmap(vpd->idStagingTexture, 0);
+
+    return fullId;
 }
 
 void preRenderSync(EditorRenderer* rend)
@@ -829,6 +928,7 @@ void renderFrame(EditorRenderer* rend)
     FLOAT clearcolor[4] = { 0.015f, 0.015f, 0.315f, 1.0f };
 
     UINT stride[2] = { 11 * sizeof(float), sizeof(float4) };
+    UINT idStride[2] = { 11 * sizeof(float), sizeof(PickingInstance) };
     UINT offset[2] = { 0, 0 };
    
     auto& context = rend->context;
@@ -851,13 +951,13 @@ void renderFrame(EditorRenderer* rend)
             float4{0, 0, -(n * f) / (f - n), 0}
         };
 
-        context->ClearRenderTargetView(vpd->renderTargetView, clearcolor);
-        context->ClearDepthStencilView(vpd->depthStencilView, D3D11_CLEAR_DEPTH, 1.0f, 0);
+        context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+        context->OMSetRenderTargets(1, &vpd->renderTargetView, vpd->depthStencilView);
         context->RSSetViewports(1, &viewport);
         context->VSSetConstantBuffers(0, 1, &constantbuffer);
 
-        context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-        context->OMSetRenderTargets(1, &vpd->renderTargetView, vpd->depthStencilView);
+        context->ClearRenderTargetView(vpd->renderTargetView, clearcolor);
+        context->ClearDepthStencilView(vpd->depthStencilView, D3D11_CLEAR_DEPTH, 1.0f, 0);
         context->OMSetBlendState(nullptr, nullptr, 0xffffffff);
 
         auto& model = rend->m_models[0];
@@ -867,7 +967,7 @@ void renderFrame(EditorRenderer* rend)
         context->IASetVertexBuffers(0, 2, buffers, stride, offset);
         context->IASetIndexBuffer(model.mesh.indexBuffer, DXGI_FORMAT_R32_UINT, 0);
         context->VSSetShader(model.vertexShader, nullptr, 0);
-        context->PSSetShader(model.pixelSHader, nullptr, 0);
+        context->PSSetShader(model.pixelShader, nullptr, 0);
         context->PSSetShaderResources(0, 1, &model.textureSrv);
         context->PSSetSamplers(0, 1, &model.samplerState);
 
@@ -905,6 +1005,50 @@ void renderFrame(EditorRenderer* rend)
                 context->DrawIndexedInstanced(model.mesh.indices, batch_instance_count, 0, 0, 0);
             }
         }
+
+
+        context->IASetInputLayout(model.picking.inputLayout);
+        ID3D11Buffer* idBuffers[2] = { model.mesh.vertexBuffer, model.picking.instanceBuffer };
+        context->IASetVertexBuffers(0, 2, idBuffers, idStride, offset);
+
+        context->VSSetShader(model.picking.vertexShader, nullptr, 0);
+        context->PSSetShader(model.picking.pixelShader, nullptr, 0);
+
+		ID3D11ShaderResourceView* nullSRV = nullptr;
+		context->PSSetShaderResources(0, 1, &nullSRV);
+		ID3D11SamplerState* nullSampler = nullptr;
+		context->PSSetSamplers(0, 1, &nullSampler);
+
+        // draw picking content
+        context->OMSetRenderTargets(1, &vpd->idRenderTargetView, nullptr);
+        UINT idClearColor[2] = { 0, 0 };
+        context->ClearRenderTargetView(vpd->idRenderTargetView, (float*)idClearColor);
+
+        instancesDrawn = 0;
+        while (instancesDrawn != count)
+        {
+            D3D11_MAPPED_SUBRESOURCE instanceBufferMSR;
+            context->Map(model.picking.instanceBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &instanceBufferMSR);
+            {
+                PickingInstance* instance_data = (PickingInstance*)instanceBufferMSR.pData;
+                int batch_instance_count = 0;
+
+                while (instancesDrawn != count && batch_instance_count < MAX_INSTANCES)
+                {
+                    const Instance& instance = list.data[instancesDrawn];
+                    PickingInstance& pickingInstance = instance_data[batch_instance_count++];
+                    pickingInstance.pos = instance.pos;
+                    pickingInstance.idHigh = (u32)(instance.key >> 32);
+                    pickingInstance.idLow = (u32)(instance.key & 0xFFFFFFFF);
+                    ++instancesDrawn;
+                }
+
+                context->Unmap(model.picking.instanceBuffer, 0);
+                context->DrawIndexedInstanced(model.mesh.indices, batch_instance_count, 0, 0, 0);
+            }
+        }
+
+        context->CopyResource(vpd->idStagingTexture, vpd->idRenderTargetTexture);
     }
 
     renderImgui(rend);

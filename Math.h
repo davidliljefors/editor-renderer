@@ -52,6 +52,11 @@ struct float3
 struct alignas(16) float4
 {
 	float x, y, z, w;
+
+    float3& xyz()
+	{
+        return *reinterpret_cast<float3*>(this);
+    }
 };
 
 struct alignas(16) matrix

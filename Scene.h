@@ -23,7 +23,7 @@ struct SceneViewport : IViewport
 
 	const char* name;
 	Scene* scene;
-
+	EditorRenderer* renderer;
 	bool dragging = false;
 };
 
@@ -36,6 +36,14 @@ public:
 	Truth* m_truth;
 };
 
+class OutlinerWindow : public IEditorWindow
+{
+public:
+	OutlinerWindow(Truth* truth);
+	void onGui() override;
+
+	Truth* m_truth;
+};
 
 class Scene
 {
@@ -55,9 +63,10 @@ public:
 	DrawList getDrawList();
 
 private:
-	TruthMap* state = nullptr;
+	ReadOnlySnapshot state;
 	EditorRenderer* m_renderer;
 	UndoStackWindow* m_undoWindow;
+	OutlinerWindow* m_outlinerWindow;
 	Array<SceneViewport*> m_viewports;
 	HashMap<Instance> m_instances;
 	DrawList m_lists[2];
