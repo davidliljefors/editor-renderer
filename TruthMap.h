@@ -1,17 +1,14 @@
 #pragma once
 
-#include "Core.h"
-#include "Allocator.h"
-#include "Array.h"
-
-
+#include "Core/Allocator.h"
+#include "Core/Array.h"
 
 namespace truth
 {
-constexpr static int BlockBits = 8;
+constexpr static int BlockBits = 2;
 constexpr static int NumBlocks = (1 << BlockBits);
 
-constexpr static int EntryBits = 8;
+constexpr static int EntryBits = 2;
 constexpr static int NumEntries = (1 << EntryBits);
 
 struct Key
@@ -159,15 +156,15 @@ public:
 		}
 	}
 
-	static TruthMap* create(Allocator& allocator)
+	static TruthMap* makeRoot(Allocator& allocator)
 	{
-		TruthMap* instance = alloc<TruthMap>(allocator, allocator);
+		TruthMap* instance = create<TruthMap>(allocator, allocator);
 
-		instance->m_root = alloc<BigBlock>(allocator);
+		instance->m_root = create<BigBlock>(allocator);
 
 		for (Block*& block : instance->m_root->blocks)
 		{
-			block = alloc<Block>(allocator);
+			block = create<Block>(allocator);
 		}
 
 		return instance;
@@ -263,7 +260,7 @@ private:
 
 		if (updated == base)
 		{
-			updated = alloc<TruthMap>(allocator, allocator);
+			updated = create<TruthMap>(allocator, allocator);
 			updated->m_size = head->size();
 			updated->m_root = head->m_root;
 		}
@@ -272,7 +269,7 @@ private:
 		const BigBlock* baseBigBlock = base->m_root;
 		if (bigBlockUpdate == baseBigBlock)
 		{
-			bigBlockUpdate = alloc<BigBlock>(allocator);
+			bigBlockUpdate = create<BigBlock>(allocator);
 			memcpy(bigBlockUpdate, baseBigBlock, sizeof(BigBlock));
 			updated->m_root = bigBlockUpdate;
 		}
@@ -281,7 +278,7 @@ private:
 		const Block* baseBlock = baseBigBlock->blocks[key.Block];
 		if (blockUpdate == baseBlock)
 		{
-			blockUpdate = alloc<Block>(allocator);
+			blockUpdate = create<Block>(allocator);
 			memcpy(blockUpdate, baseBlock, sizeof(Block));
 			bigBlockUpdate->blocks[key.Block] = blockUpdate;
 		}

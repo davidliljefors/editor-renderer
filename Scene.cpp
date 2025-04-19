@@ -3,7 +3,7 @@
 #include <cstdio>
 #include <stdlib.h>
 
-#include "ScratchAllocator.h"
+#include "TempAllocator.h"
 #include "EditorRenderer.h"
 #include "imgui.h"
 #include "TruthView.h"
@@ -36,7 +36,7 @@ struct Xoshiro256
 
 Xoshiro256 g_rand;
 
-MallocAllocator ma;
+HeapAllocator ma;
 
 Truth* g_truth;
 
@@ -65,31 +65,31 @@ Scene::Scene(EditorRenderer* renderer)
 
 	m_renderer = renderer;
 
-	g_truth = alloc<Truth>(ma, ma);
+	g_truth = create<Truth>(ma, ma);
 	state = g_truth->head();
 
-	m_undoWindow = alloc<UndoStackWindow>(ma, g_truth);
-	m_outlinerWindow = alloc<OutlinerWindow>(ma, g_truth);
+	m_undoWindow = create<UndoStackWindow>(ma, g_truth);
+	m_outlinerWindow = create<OutlinerWindow>(ma, g_truth);
 	addEditorWindow(renderer, m_undoWindow);
 	addEditorWindow(renderer, m_outlinerWindow);
 
-	Entity* rootEntity = alloc<Entity>(ma, ma);
+	Entity* rootEntity = create<Entity>(ma, ma);
 	g_truth->set(rootKey, rootEntity);
 
-	for (int x = -10; x < 10; x++)
+	for (int x = -1; x < 2; x++)
 	{
-		for (int y = -10; y < 10; y++)
+		for (int y = -1; y < 2; y++)
 		{
-			Transaction tx = g_truth->openTransaction();
-			for (int z = -10; z < 10; z++)
+			for (int z = -1; z < 2; z++)
 			{
+				Transaction tx = g_truth->openTransaction();
 				truth::Key childKey = nextKey();
 				rootEntity->m_children.push_back(childKey);
-				Entity* child = alloc<Entity>(ma, ma);
+				Entity* child = create<Entity>(ma, ma);
 				child->position = { (float)x * 5.0f, (float)y * 5.0f, (float)z * 5.0f };
 				g_truth->add(tx, childKey, child);
+				g_truth->commit(tx);
 			}
-			g_truth->commit(tx);
 		}
 	}
 
@@ -125,7 +125,11 @@ void Scene::update()
 			for (const KeyEntry& edit : edits)
 			{
 				Entity* i = (Entity*)edit.value;
-				updateInstance(edit.key.asU64, i->position);
+				constexpr float3 defaultColor =		{0.5f, 0.5f, 0.5f};
+				constexpr float3 hoverColor =		{1.0f, 1.0f, 0.7f};
+				constexpr float3 selectedColor =	{1.0f, 1.0f, 1.0f};
+
+				updateInstance(edit.key.asU64, i->position, i->isFlagSet(Selected) ? selectedColor : i->isFlagSet(Hovered) ? hoverColor : defaultColor);
 			}
 
 			for (const KeyEntry& remove : removes)
@@ -142,14 +146,15 @@ void Scene::update()
 
 void Scene::addInstance(u64 key, float3 pos)
 {
-	m_instances.insert_or_assign(key, Instance{ {pos.x, pos.y, pos.z, 1.0f}, 0, key });
+	m_instances.insert_or_assign(key, Instance{ {pos.x, pos.y, pos.z}, {0.5f, 0.5f, 0.5f}, 0, key });
 }
 
-void Scene::updateInstance(u64 id, float3 pos)
+void Scene::updateInstance(u64 id, float3 pos, float3 color)
 {
 	if (Instance* instance = m_instances.find(id))
 	{
-		instance->pos.xyz() = pos;
+		instance->pos = pos;
+		instance->color = color;
 	}
 }
 
@@ -173,10 +178,10 @@ void Scene::rebuildDrawList()
 	PROF_SCOPE(rebuildDrawList);
 
 	DrawList& drawList = m_lists[m_writeSlot];
-	
+
 	i32 count = m_instances.size();
-	
-	if(count > drawList.capacity)
+
+	if (count > drawList.capacity)
 	{
 		drawList.data = (Instance*)realloc(drawList.data, sizeof(Instance) * count);
 		drawList.capacity = count;
@@ -185,7 +190,7 @@ void Scene::rebuildDrawList()
 	drawList.count = count;
 	u64 idx = 0;
 
-	for(Instance& instance : m_instances)
+	for (Instance& instance : m_instances)
 	{
 		drawList.data[idx++] = instance;
 	}
@@ -202,44 +207,63 @@ DrawList Scene::getDrawList()
 
 void SceneViewport::onGui()
 {
+	ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {0,0});
+
 	ImGui::Begin(name);
-	ImVec2 textureCoords = ImVec2(-1, -1); // Default to invalid coords
+	ImVec2 textureCoords = ImVec2(-1, -1);
+
+	ImVec2 viewportSize = ImGui::GetContentRegionAvail();
+	size.x = clamp(viewportSize.x, 1.0f, 4096.0f);
+	size.y = clamp(viewportSize.y, 1.0f, 4096.0f);
 	ImGui::Image(ViewportTex, ImVec2(size.x, size.y));
 
-	if (ImGui::IsItemHovered()) {
-        // Get the top-left corner of the image in screen space
-        ImVec2 imagePos = ImGui::GetItemRectMin();
-
-        // Get the current mouse position in screen space
-        ImVec2 mousePos = ImGui::GetMousePos();
-
-        // Calculate mouse position relative to the image (0,0 at top-left)
-        textureCoords.x = mousePos.x - imagePos.x;
-        textureCoords.y = mousePos.y - imagePos.y;
-    }
-	if (ImGui::IsItemClicked())
+	if (ImGui::IsItemHovered()) 
 	{
-		u64 id = readId(renderer, this, (u32)textureCoords.x, (u32)textureCoords.y);
+		ImVec2 imagePos = ImGui::GetItemRectMin();
+		ImVec2 mousePos = ImGui::GetMousePos();
 
-		if (id != 0)
+		textureCoords.x = mousePos.x - imagePos.x;
+		textureCoords.y = mousePos.y - imagePos.y;
+		u64 id = readId(renderer, this, (u32)textureCoords.x, (u32)textureCoords.y);
+		if (lastHover != id && lastHover != 0)
 		{
 			auto tx = g_truth->openTransaction();
-			g_truth->erase(tx, truth::Key{ id });
+			Entity* oldHover = (Entity*)g_truth->write(tx, truth::Key{ lastHover });
+			oldHover->setFlag(Hovered, false);
 			g_truth->commit(tx);
+		}
+		if (id != 0 && lastHover != id)
+		{
+			auto tx = g_truth->openTransaction();
+			Entity* newHover = (Entity*)g_truth->write(tx, truth::Key{ id });
+			newHover->setFlag(Hovered, true);
+			g_truth->commit(tx);
+		}
+
+		lastHover = id;
+
+		if (ImGui::IsItemClicked())
+		{
+			if (id != 0)
+			{
+				auto tx = g_truth->openTransaction();
+				Entity* entity = (Entity*)g_truth->write(tx, truth::Key{ id });
+				entity->setFlag(EntityFlag::Selected, true);
+				g_truth->commit(tx);
+			}
 		}
 	}
 
+
 	ImGuiIO& io = ImGui::GetIO();
-	static ImVec2 initialCursorPos = ImVec2(0, 0);
-	if (ImGui::IsItemHovered() && ImGui::IsMouseClicked(1)) 
+	if (ImGui::IsItemHovered() && ImGui::IsMouseClicked(1))
 	{
-		if (!dragging) 
+		if (!dragging)
 		{
-			initialCursorPos = ImGui::GetMousePos();
 			dragging = true;
 		}
 	}
-	if (dragging) 
+	if (dragging)
 	{
 		float2 mouseDelta(io.MouseDelta.x, io.MouseDelta.y);
 		float sensitivity = 0.3f * io.DeltaTime;
@@ -248,12 +272,12 @@ void SceneViewport::onGui()
 		camera.m_pitch = clamp(camera.m_pitch, -3.14f / 2.0f, 3.14f / 2.0f);
 	}
 
-	if (!ImGui::IsMouseDown(1) && dragging) {
+	if (!ImGui::IsMouseDown(1) && dragging) 
+	{
 		dragging = false;
-		ImGui::SetMouseCursor(ImGuiMouseCursor_Arrow);
 	}
 
-	if(ImGui::IsItemHovered())
+	if (ImGui::IsItemHovered())
 	{
 		bool w = ImGui::IsKeyDown(ImGuiKey_W);
 		bool s = ImGui::IsKeyDown(ImGuiKey_S);
@@ -264,10 +288,10 @@ void SceneViewport::onGui()
 		camera.update_movement(w, a, s, d, boost, io.DeltaTime);
 	}
 
-	ImVec2 windowSize = ImGui::GetWindowSize();
-	size.x = windowSize.x;
-	size.y = windowSize.y;
+
 	ImGui::End();
+
+	ImGui::PopStyleVar();
 }
 
 UndoStackWindow::UndoStackWindow(Truth* truth)
@@ -302,6 +326,72 @@ OutlinerWindow::OutlinerWindow(Truth* truth)
 
 }
 
+static char nameBuffer[256] = "";
+static bool isRenaming = false;
+
+void DoEntityContextMenu(Truth* truth, truth::Key key, const Entity* entity) {
+
+	if (ImGui::BeginPopupContextItem())
+	{
+		if (ImGui::MenuItem("Rename"))
+		{
+			strncpy_s(nameBuffer, entity->m_name.data(), sizeof(nameBuffer) - 1);
+			nameBuffer[sizeof(nameBuffer) - 1] = '\0';
+			isRenaming = true;
+			ImGui::OpenPopup("Rename Entity");
+		}
+		ImGui::EndPopup();
+	}
+
+	if (isRenaming) 
+	{
+		ImGui::SetNextWindowSize(ImVec2(300, 150), ImGuiCond_Appearing);
+
+		if (ImGui::BeginPopupModal("Rename Entity", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) 
+		{
+			ImGui::Text("Enter new name:");
+			ImGui::InputText("##Name", nameBuffer, sizeof(nameBuffer));
+
+			if (isRenaming && ImGui::IsWindowAppearing())
+			{
+				ImGui::SetKeyboardFocusHere(-1); // Focus on the InputText
+			}
+
+			if (ImGui::IsKeyPressed(ImGuiKey_Enter) && !ImGui::IsItemDeactivated())
+			{
+				auto tx = truth->openTransaction();
+				Entity* writing = (Entity*)truth->write(tx, key);
+				alloc_str(writing->m_name, nameBuffer); // Update the entity name
+
+				truth->commit(tx);
+				isRenaming = false;
+				ImGui::CloseCurrentPopup();
+			}
+
+			if (ImGui::Button("OK", ImVec2(120, 0)))
+			{
+				auto tx = truth->openTransaction();
+				Entity* writing = (Entity*)truth->write(tx, key);
+
+				alloc_str(writing->m_name, nameBuffer); // Update the entity name
+				truth->commit(tx);
+				isRenaming = false;
+				ImGui::CloseCurrentPopup();
+			}
+
+			ImGui::SameLine();
+
+			if (ImGui::Button("Cancel", ImVec2(120, 0))) 
+			{
+				isRenaming = false;
+				ImGui::CloseCurrentPopup();
+			}
+
+			ImGui::EndPopup();
+		}
+	}
+}
+
 void DrawEntityHierarchy(Truth* truth, ReadOnlySnapshot snap, truth::Key key)
 {
 	const Entity* entity = (const Entity*)truth->read(snap, key);
@@ -312,8 +402,10 @@ void DrawEntityHierarchy(Truth* truth, ReadOnlySnapshot snap, truth::Key key)
 	}
 
 	ImGui::PushID(key.asU64);
-	if (ImGui::TreeNode("Entity"))
+	if (ImGui::TreeNode(entity->m_name.begin()))
 	{
+		DoEntityContextMenu(truth, key, entity);
+
 		float3 editPosition = entity->position;
 		if (ImGui::DragFloat3("Position", &editPosition.x))
 		{

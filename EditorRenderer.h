@@ -19,7 +19,8 @@ struct Win32Timer
 
 struct Instance
 {
-	float4 pos;
+	float3 pos;
+	float3 color;
 	int model_id;
 	u64 key;
 
@@ -32,6 +33,12 @@ struct Instance
 			float4{pos.x, pos.y, pos.z, 1}
 		};
 	}
+};
+
+struct GpuInstance
+{
+	float4 pos;
+	float4 color;
 };
 
 struct alignas(16) PickingInstance

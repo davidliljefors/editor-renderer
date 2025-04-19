@@ -7,14 +7,14 @@
 #include <dxgi.h>
 #include <dxgi1_6.h>
 
-#include "ScratchAllocator.h"
-#include "Array.h"
+#include "Core/Array.h"
 #include "Math.h"
 
 #include "imgui.h"
 #include "imgui_internal.h"
 #include "imgui_impl_win32.h"
 #include "imgui_impl_dx11.h"
+#include "TempAllocator.h"
 
 #pragma comment(lib, "d3d11.lib")
 #pragma comment(lib, "d3dcompiler.lib")
@@ -111,11 +111,49 @@ UINT texturedata[] = // 2x2 pixel checkerboard pattern, 0xAARRGGBB
     0xff7f7f7f, 0xffffffff,
 };
 
+
+void breakIfFailed(HRESULT hr, ID3D11Device* device)
+{
+	if (FAILED(hr))
+	{
+		// If we have a debug device, query the info queue for detailed messages
+		if (device)
+		{
+			ID3D11InfoQueue* infoQueue = nullptr;
+			HRESULT hrInfo = device->QueryInterface(__uuidof(ID3D11InfoQueue), (void**)&infoQueue);
+			if (SUCCEEDED(hrInfo) && infoQueue)
+			{
+				UINT64 messageCount = infoQueue->GetNumStoredMessages();
+				OutputDebugStringA("Debug Layer Messages:\n");
+
+				for (UINT64 i = 0; i < messageCount; ++i)
+				{
+					SIZE_T messageLength = 0;
+					infoQueue->GetMessage(i, nullptr, &messageLength);	// Get size first
+
+					D3D11_MESSAGE* d3dMessage = (D3D11_MESSAGE*)malloc(messageLength);
+					if (d3dMessage)
+					{
+						infoQueue->GetMessage(i, d3dMessage, &messageLength);
+						OutputDebugStringA(d3dMessage->pDescription);
+						OutputDebugStringA("\n");
+						free(d3dMessage);
+					}
+				}
+				infoQueue->Release();
+			}
+		}
+		__debugbreak();
+	}
+}
+
 void load_default_shaders(ID3D11Device* device, Model* model)
 {
+    HRESULT hr;
     ID3DBlob* p_vertex_shader_cso;
     ID3DBlob* p_error_blob = nullptr;
-    D3DCompileFromFile(TEXT("../../main.hlsl"), nullptr, nullptr, "VS_Main", "vs_5_0", 0, 0, &p_vertex_shader_cso, &p_error_blob);
+    hr = D3DCompileFromFile(TEXT("../../main.hlsl"), nullptr, nullptr, "VS_Main", "vs_5_0", 0, 0, &p_vertex_shader_cso, &p_error_blob);
+    breakIfFailed(hr, device);
 
     if (p_error_blob)
     {
@@ -123,7 +161,8 @@ void load_default_shaders(ID3D11Device* device, Model* model)
         p_error_blob->Release();
     }
 
-    device->CreateVertexShader(p_vertex_shader_cso->GetBufferPointer(), p_vertex_shader_cso->GetBufferSize(), nullptr, &model->vertexShader);
+    hr = device->CreateVertexShader(p_vertex_shader_cso->GetBufferPointer(), p_vertex_shader_cso->GetBufferSize(), nullptr, &model->vertexShader);
+    breakIfFailed(hr, device);
 
     D3D11_INPUT_ELEMENT_DESC input_element_desc[] =
     {
@@ -132,14 +171,17 @@ void load_default_shaders(ID3D11Device* device, Model* model)
         { "TEX", 0,             DXGI_FORMAT_R32G32_FLOAT, 0, D3D11_APPEND_ALIGNED_ELEMENT, D3D11_INPUT_PER_VERTEX_DATA, 0 },
         { "COL", 0,             DXGI_FORMAT_R32G32B32_FLOAT, 0, D3D11_APPEND_ALIGNED_ELEMENT, D3D11_INPUT_PER_VERTEX_DATA, 0 },
         { "INSTANCE_POS", 0,    DXGI_FORMAT_R32G32B32A32_FLOAT, 1, 0, D3D11_INPUT_PER_INSTANCE_DATA, 1 },
+        { "INSTANCE_COLOR", 0,  DXGI_FORMAT_R32G32B32_FLOAT, 1, D3D11_APPEND_ALIGNED_ELEMENT, D3D11_INPUT_PER_INSTANCE_DATA, 1 },
     };
 
-    device->CreateInputLayout(input_element_desc, ARRAYSIZE(input_element_desc), p_vertex_shader_cso->GetBufferPointer(), p_vertex_shader_cso->GetBufferSize(), &model->inputLayout);
+    hr = device->CreateInputLayout(input_element_desc, ARRAYSIZE(input_element_desc), p_vertex_shader_cso->GetBufferPointer(), p_vertex_shader_cso->GetBufferSize(), &model->inputLayout);
+    breakIfFailed(hr, device);
 
     p_vertex_shader_cso->Release();
 
     ID3DBlob* p_pixel_shader_cso;
-    D3DCompileFromFile(TEXT("../../main.hlsl"), nullptr, nullptr, "PS_Main", "ps_5_0", 0, 0, &p_pixel_shader_cso, &p_error_blob);
+    hr = D3DCompileFromFile(TEXT("../../main.hlsl"), nullptr, nullptr, "PS_Main", "ps_5_0", 0, 0, &p_pixel_shader_cso, &p_error_blob);
+    breakIfFailed(hr, device);
 
     if (p_error_blob)
     {
@@ -147,7 +189,8 @@ void load_default_shaders(ID3D11Device* device, Model* model)
         p_error_blob->Release();
     }
 
-    device->CreatePixelShader(p_pixel_shader_cso->GetBufferPointer(), p_pixel_shader_cso->GetBufferSize(), nullptr, &model->pixelShader);
+    hr = device->CreatePixelShader(p_pixel_shader_cso->GetBufferPointer(), p_pixel_shader_cso->GetBufferSize(), nullptr, &model->pixelShader);
+    breakIfFailed(hr, device);
 
     p_pixel_shader_cso->Release();
 
@@ -158,7 +201,8 @@ void load_default_shaders(ID3D11Device* device, Model* model)
     sampler_desc.AddressW = D3D11_TEXTURE_ADDRESS_WRAP;
     sampler_desc.ComparisonFunc = D3D11_COMPARISON_NEVER;
 
-    device->CreateSamplerState(&sampler_desc, &model->samplerState);
+    hr = device->CreateSamplerState(&sampler_desc, &model->samplerState);
+    breakIfFailed(hr, device);
 
     D3D11_TEXTURE2D_DESC texture_desc = {};
     texture_desc.Width = TEXTURE_WIDTH;
@@ -174,36 +218,38 @@ void load_default_shaders(ID3D11Device* device, Model* model)
     texture_srd.pSysMem = texturedata;
     texture_srd.SysMemPitch = TEXTURE_WIDTH * sizeof(UINT);
 
-    device->CreateTexture2D(&texture_desc, &texture_srd, &model->texture);
-    device->CreateShaderResourceView(model->texture, nullptr, &model->textureSrv);
+    hr = device->CreateTexture2D(&texture_desc, &texture_srd, &model->texture);
+    breakIfFailed(hr, device);
 
-    float4 initial_instance_data[MAX_INSTANCES];
-    for (int i = 0; i < MAX_INSTANCES; i++)
-    {
-        initial_instance_data[i] = float4{0.0f, 0.0f, 0.0f, 1.0f};
-    }
+    hr =device->CreateShaderResourceView(model->texture, nullptr, &model->textureSrv);
+    breakIfFailed(hr, device);
+
+    GpuInstance initial_instance_data[MAX_INSTANCES] = {};
 
     D3D11_BUFFER_DESC instance_buffer_desc = {};
-    instance_buffer_desc.ByteWidth = sizeof(float4) * MAX_INSTANCES;
+    instance_buffer_desc.ByteWidth = sizeof(GpuInstance) * MAX_INSTANCES;
     instance_buffer_desc.Usage = D3D11_USAGE_DYNAMIC;
     instance_buffer_desc.BindFlags = D3D11_BIND_VERTEX_BUFFER;
     instance_buffer_desc.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
     instance_buffer_desc.MiscFlags = 0;
-    instance_buffer_desc.StructureByteStride = sizeof(float4);
+    instance_buffer_desc.StructureByteStride = sizeof(GpuInstance);
 
     D3D11_SUBRESOURCE_DATA instance_buffer_data = {};
     instance_buffer_data.pSysMem = initial_instance_data;
     instance_buffer_data.SysMemPitch = 0;
     instance_buffer_data.SysMemSlicePitch = 0;
 
-    device->CreateBuffer(&instance_buffer_desc, &instance_buffer_data, &model->instanceBuffer);
+    hr = device->CreateBuffer(&instance_buffer_desc, &instance_buffer_data, &model->instanceBuffer);
+    breakIfFailed(hr, device);
 }
 
 void load_picking_shaders(ID3D11Device* device, Model::Picking* picking)
 {
+    HRESULT hr;
     ID3DBlob* p_vertex_shader_cso;
     ID3DBlob* p_error_blob = nullptr;
-    D3DCompileFromFile(TEXT("../../picking.hlsl"), nullptr, nullptr, "VS_Picking", "vs_5_0", 0, 0, &p_vertex_shader_cso, &p_error_blob);
+    hr = D3DCompileFromFile(TEXT("../../picking.hlsl"), nullptr, nullptr, "VS_Picking", "vs_5_0", 0, 0, &p_vertex_shader_cso, &p_error_blob);
+    breakIfFailed(hr, device);
 
     if (p_error_blob)
     {
@@ -211,11 +257,14 @@ void load_picking_shaders(ID3D11Device* device, Model::Picking* picking)
         p_error_blob->Release();
     }
 
-    device->CreateVertexShader(p_vertex_shader_cso->GetBufferPointer(), p_vertex_shader_cso->GetBufferSize(), nullptr, &picking->vertexShader);
+    hr = device->CreateVertexShader(p_vertex_shader_cso->GetBufferPointer(), p_vertex_shader_cso->GetBufferSize(), nullptr, &picking->vertexShader);
+    breakIfFailed(hr, device);
 
     ID3D11ShaderReflection* reflector;
-	D3DReflect(p_vertex_shader_cso->GetBufferPointer(), p_vertex_shader_cso->GetBufferSize(), __uuidof(ID3D11ShaderReflection), (void**)&reflector);
-	D3D11_SHADER_DESC desc;
+	hr = D3DReflect(p_vertex_shader_cso->GetBufferPointer(), p_vertex_shader_cso->GetBufferSize(), __uuidof(ID3D11ShaderReflection), (void**)&reflector);
+    breakIfFailed(hr, device);
+	
+    D3D11_SHADER_DESC desc;
 	reflector->GetDesc(&desc);
 
 	printf("Shader Inputs:\n");
@@ -235,12 +284,14 @@ void load_picking_shaders(ID3D11Device* device, Model::Picking* picking)
 		{ "IDLOW", 0,           DXGI_FORMAT_R32_UINT, 1, 20,            D3D11_INPUT_PER_INSTANCE_DATA,  1 },
 	};
 
-    device->CreateInputLayout(input_element_desc, ARRAYSIZE(input_element_desc), p_vertex_shader_cso->GetBufferPointer(), p_vertex_shader_cso->GetBufferSize(), &picking->inputLayout);
+    hr = device->CreateInputLayout(input_element_desc, ARRAYSIZE(input_element_desc), p_vertex_shader_cso->GetBufferPointer(), p_vertex_shader_cso->GetBufferSize(), &picking->inputLayout);
+    breakIfFailed(hr, device);
 
     p_vertex_shader_cso->Release();
 
     ID3DBlob* p_pixel_shader_cso;
-    D3DCompileFromFile(TEXT("../../picking.hlsl"), nullptr, nullptr, "PS_Picking", "ps_5_0", 0, 0, &p_pixel_shader_cso, &p_error_blob);
+    hr = D3DCompileFromFile(TEXT("../../picking.hlsl"), nullptr, nullptr, "PS_Picking", "ps_5_0", 0, 0, &p_pixel_shader_cso, &p_error_blob);
+    breakIfFailed(hr, device);
 
     if (p_error_blob)
     {
@@ -248,14 +299,15 @@ void load_picking_shaders(ID3D11Device* device, Model::Picking* picking)
         p_error_blob->Release();
     }
 
-    device->CreatePixelShader(p_pixel_shader_cso->GetBufferPointer(), p_pixel_shader_cso->GetBufferSize(), nullptr, &picking->pixelShader);
+    hr = device->CreatePixelShader(p_pixel_shader_cso->GetBufferPointer(), p_pixel_shader_cso->GetBufferSize(), nullptr, &picking->pixelShader);
+    breakIfFailed(hr, device);
 
     p_pixel_shader_cso->Release();
 
-    float4 initial_instance_data[MAX_INSTANCES];
+    PickingInstance initial_instance_data[MAX_INSTANCES];
     for (int i = 0; i < MAX_INSTANCES; i++)
     {
-        initial_instance_data[i] = float4{0.0f, 0.0f, 0.0f, 1.0f};
+        initial_instance_data[i] = {};
     }
 
     D3D11_BUFFER_DESC instance_buffer_desc = {};
@@ -271,7 +323,8 @@ void load_picking_shaders(ID3D11Device* device, Model::Picking* picking)
     instance_buffer_data.SysMemPitch = 0;
     instance_buffer_data.SysMemSlicePitch = 0;
 
-    device->CreateBuffer(&instance_buffer_desc, &instance_buffer_data, &picking->instanceBuffer);
+    hr = device->CreateBuffer(&instance_buffer_desc, &instance_buffer_data, &picking->instanceBuffer);
+    breakIfFailed(hr, device);
 }
 
 inline void generate_sphere_mesh(ID3D11Device* device, Mesh* mesh, int latitude_count = 8, int longitude_count = 8)
@@ -359,40 +412,6 @@ inline void generate_sphere_mesh(ID3D11Device* device, Mesh* mesh, int latitude_
     mesh->indices = indices.size();
 }
 
-void breakIfFailed(HRESULT hr, ID3D11Device* device)
-{
-	if (FAILED(hr))
-	{
-		// If we have a debug device, query the info queue for detailed messages
-		if (device)
-		{
-			ID3D11InfoQueue* infoQueue = nullptr;
-			HRESULT hrInfo = device->QueryInterface(__uuidof(ID3D11InfoQueue), (void**)&infoQueue);
-			if (SUCCEEDED(hrInfo) && infoQueue)
-			{
-				UINT64 messageCount = infoQueue->GetNumStoredMessages();
-				OutputDebugStringA("Debug Layer Messages:\n");
-
-				for (UINT64 i = 0; i < messageCount; ++i)
-				{
-					SIZE_T messageLength = 0;
-					infoQueue->GetMessage(i, nullptr, &messageLength);	// Get size first
-
-					D3D11_MESSAGE* d3dMessage = (D3D11_MESSAGE*)malloc(messageLength);
-					if (d3dMessage)
-					{
-						infoQueue->GetMessage(i, d3dMessage, &messageLength);
-						OutputDebugStringA(d3dMessage->pDescription);
-						OutputDebugStringA("\n");
-						free(d3dMessage);
-					}
-				}
-				infoQueue->Release();
-			}
-		}
-		__debugbreak();
-	}
-}
 
 void initRenderer(HWND hwnd, u32 w, u32 h, EditorRenderer*& rend)
 {
@@ -418,83 +437,54 @@ void initRenderer(HWND hwnd, u32 w, u32 h, EditorRenderer*& rend)
     ImGui_ImplDX11_Init(rend->device, rend->context);
 
     ImGuiStyle& style = ImGui::GetStyle();
+	auto& colors = style.Colors;
+
 	style.Alpha = 1.0f;
 	style.FrameRounding = 3.0f;
 	style.ChildRounding = 3.0f;
 	style.PopupRounding = 3.0f;
 	style.WindowRounding = 3.0f;
 	style.GrabRounding = 3.0f;
+	style.GrabMinSize = 20.0f;
 	style.TabRounding = 3.0f;
 
-	ImVec4* colors = ImGui::GetStyle().Colors;
-    colors[ImGuiCol_Text]                   = ImVec4(0.90f, 0.96f, 0.99f, 1.00f);
-    colors[ImGuiCol_TextDisabled]           = ImVec4(0.50f, 0.50f, 0.50f, 1.00f);
-    colors[ImGuiCol_WindowBg]               = ImVec4(0.11f, 0.11f, 0.12f, 1.00f);
-    colors[ImGuiCol_ChildBg]                = ImVec4(0.00f, 0.00f, 0.00f, 0.00f);
-    colors[ImGuiCol_PopupBg]                = ImVec4(0.08f, 0.08f, 0.08f, 0.94f);
-    colors[ImGuiCol_Border]                 = ImVec4(0.43f, 0.43f, 0.50f, 0.50f);
-    colors[ImGuiCol_BorderShadow]           = ImVec4(0.00f, 0.00f, 0.00f, 0.00f);
-    colors[ImGuiCol_FrameBg]                = ImVec4(0.22f, 0.22f, 0.22f, 1.00f);
-    colors[ImGuiCol_FrameBgHovered]         = ImVec4(0.40f, 0.40f, 0.40f, 1.00f);
-    colors[ImGuiCol_FrameBgActive]          = ImVec4(0.39f, 0.39f, 0.39f, 1.00f);
-    colors[ImGuiCol_TitleBg]                = ImVec4(0.21f, 0.21f, 0.21f, 1.00f);
-    colors[ImGuiCol_TitleBgActive]          = ImVec4(0.68f, 0.68f, 0.68f, 1.00f);
-    colors[ImGuiCol_TitleBgCollapsed]       = ImVec4(0.00f, 0.00f, 0.00f, 0.51f);
-    colors[ImGuiCol_MenuBarBg]              = ImVec4(0.14f, 0.14f, 0.14f, 1.00f);
-    colors[ImGuiCol_ScrollbarBg]            = ImVec4(0.02f, 0.02f, 0.02f, 0.53f);
-    colors[ImGuiCol_ScrollbarGrab]          = ImVec4(0.31f, 0.31f, 0.31f, 1.00f);
-    colors[ImGuiCol_ScrollbarGrabHovered]   = ImVec4(0.41f, 0.41f, 0.41f, 1.00f);
-    colors[ImGuiCol_ScrollbarGrabActive]    = ImVec4(0.51f, 0.51f, 0.51f, 1.00f);
-    colors[ImGuiCol_CheckMark]              = ImVec4(0.59f, 0.59f, 0.59f, 1.00f);
-    colors[ImGuiCol_SliderGrab]             = ImVec4(0.12f, 0.12f, 0.12f, 1.00f);
-    colors[ImGuiCol_SliderGrabActive]       = ImVec4(0.53f, 0.53f, 0.53f, 1.00f);
-    colors[ImGuiCol_Button]                 = ImVec4(0.31f, 0.31f, 0.31f, 1.00f);
-    colors[ImGuiCol_ButtonHovered]          = ImVec4(0.26f, 0.59f, 0.98f, 1.00f);
-    colors[ImGuiCol_ButtonActive]           = ImVec4(0.51f, 0.51f, 0.51f, 1.00f);
-    colors[ImGuiCol_Header]                 = ImVec4(0.60f, 0.60f, 0.60f, 1.00f);
-    colors[ImGuiCol_HeaderHovered]          = ImVec4(0.73f, 0.73f, 0.73f, 1.00f);
-    colors[ImGuiCol_HeaderActive]           = ImVec4(0.26f, 0.59f, 0.98f, 1.00f);
-    colors[ImGuiCol_Separator]              = ImVec4(0.60f, 0.60f, 0.60f, 0.50f);
-    colors[ImGuiCol_SeparatorHovered]       = ImVec4(0.10f, 0.40f, 0.75f, 0.78f);
-    colors[ImGuiCol_SeparatorActive]        = ImVec4(0.10f, 0.40f, 0.75f, 1.00f);
-    colors[ImGuiCol_ResizeGrip]             = ImVec4(0.31f, 0.31f, 0.31f, 0.20f);
-    colors[ImGuiCol_ResizeGripHovered]      = ImVec4(0.79f, 0.79f, 0.79f, 0.67f);
-    colors[ImGuiCol_ResizeGripActive]       = ImVec4(1.00f, 1.00f, 1.00f, 0.95f);
-    colors[ImGuiCol_TabHovered]             = ImVec4(0.69f, 0.69f, 0.69f, 0.80f);
-    colors[ImGuiCol_Tab]                    = ImVec4(0.36f, 0.36f, 0.36f, 0.86f);
-    colors[ImGuiCol_TabSelected]            = ImVec4(0.47f, 0.47f, 0.47f, 1.00f);
-    colors[ImGuiCol_TabSelectedOverline]    = ImVec4(0.66f, 0.66f, 0.66f, 1.00f);
-    colors[ImGuiCol_TabDimmed]              = ImVec4(0.18f, 0.18f, 0.18f, 0.97f);
-    colors[ImGuiCol_TabDimmedSelected]      = ImVec4(0.34f, 0.34f, 0.34f, 1.00f);
-    colors[ImGuiCol_TabDimmedSelectedOverline]  = ImVec4(1.00f, 1.00f, 1.00f, 0.00f);
-    colors[ImGuiCol_DockingPreview]         = ImVec4(0.27f, 0.27f, 0.27f, 0.70f);
-    colors[ImGuiCol_DockingEmptyBg]         = ImVec4(0.20f, 0.20f, 0.20f, 1.00f);
-    colors[ImGuiCol_PlotLines]              = ImVec4(0.61f, 0.61f, 0.61f, 1.00f);
-    colors[ImGuiCol_PlotLinesHovered]       = ImVec4(1.00f, 0.43f, 0.35f, 1.00f);
-    colors[ImGuiCol_PlotHistogram]          = ImVec4(0.90f, 0.70f, 0.00f, 1.00f);
-    colors[ImGuiCol_PlotHistogramHovered]   = ImVec4(1.00f, 0.60f, 0.00f, 1.00f);
-    colors[ImGuiCol_TableHeaderBg]          = ImVec4(0.19f, 0.19f, 0.20f, 1.00f);
-    colors[ImGuiCol_TableBorderStrong]      = ImVec4(0.31f, 0.31f, 0.35f, 1.00f);
-    colors[ImGuiCol_TableBorderLight]       = ImVec4(0.23f, 0.23f, 0.25f, 1.00f);
-    colors[ImGuiCol_TableRowBg]             = ImVec4(0.00f, 0.00f, 0.00f, 0.00f);
-    colors[ImGuiCol_TableRowBgAlt]          = ImVec4(1.00f, 1.00f, 1.00f, 0.06f);
-    colors[ImGuiCol_TextLink]               = ImVec4(0.26f, 0.59f, 0.98f, 1.00f);
-    colors[ImGuiCol_TextSelectedBg]         = ImVec4(0.26f, 0.59f, 0.98f, 0.35f);
-    colors[ImGuiCol_DragDropTarget]         = ImVec4(1.00f, 1.00f, 0.00f, 0.90f);
-    colors[ImGuiCol_NavCursor]              = ImVec4(0.26f, 0.59f, 0.98f, 1.00f);
-    colors[ImGuiCol_NavWindowingHighlight]  = ImVec4(1.00f, 1.00f, 1.00f, 0.70f);
-    colors[ImGuiCol_NavWindowingDimBg]      = ImVec4(0.80f, 0.80f, 0.80f, 0.20f);
-    colors[ImGuiCol_ModalWindowDimBg]       = ImVec4(0.80f, 0.80f, 0.80f, 0.35f);
+	colors[ImGuiCol_WindowBg] = { 0.11f, 0.10f, 0.10f, 1.0f };
+	colors[ImGuiCol_NavCursor] = ImVec4(0.63f, 0.91f, 0.60f, 1.00f);
+
+	colors[ImGuiCol_Header] = ImVec4(0.26f, 0.39f, 0.26f, 0.69f);
+	colors[ImGuiCol_HeaderHovered] = { 0.4f, 0.5f, 0.4f, 1.0f };
+	colors[ImGuiCol_HeaderActive] = { 0.5f, 0.6f, 0.5f, 1.0f };
 
 
+	colors[ImGuiCol_Button] = { 0.3f, 0.4f, 0.3f, 1.0f };
+	colors[ImGuiCol_ButtonActive] = { 0.4f, 0.5f, 0.4f, 1.0f };
+	colors[ImGuiCol_ButtonHovered] = { 0.5f, 0.6f, 0.5f, 1.0f };
+	colors[ImGuiCol_SliderGrab] = { 0.4f, 0.7f, 0.3f, 1.0f };
+	colors[ImGuiCol_SliderGrabActive] = { 0.6f, 0.9f, 0.2f, 1.0f };
+	colors[ImGuiCol_FrameBg] = { 0.22f, 0.33f, 0.22f, 1.0f };
+	colors[ImGuiCol_FrameBgHovered] = { 0.33f, 0.44f, 0.33f, 1.0f };
+	colors[ImGuiCol_FrameBgActive] = { 0.33f, 0.44f, 0.33f, 1.0f };
+	colors[ImGuiCol_MenuBarBg] = { 0.08f, 0.08f, 0.08f, 1.0f };
+	colors[ImGuiCol_HeaderActive] = { 0.08f, 0.08f, 0.08f, 1.0f };
+	colors[ImGuiCol_SeparatorHovered]       = ImVec4(0.53f, 0.84f, 0.56f, 0.78f);
+
+	// radio
+	colors[ImGuiCol_CheckMark] = { 0.6f, 0.9f, 0.2f, 1.0f };
+
+	// floating window title
+	colors[ImGuiCol_TitleBg] = { 0.22f, 0.28f, 0.24f, 1.0f };
+	colors[ImGuiCol_TitleBgActive] = { 0.26f, 0.32f, 0.28f, 1.0f };
+	colors[ImGuiCol_TitleBgCollapsed] = { 0.44f, 0.44f, 0.44f, 1.0f };
 
 	// item size
-	style.FramePadding = ImVec2(3.0f, 6.0f);
-	style.WindowPadding = ImVec2(0.0f, 0.0f);
+	style.FramePadding = ImVec2(4.0f, 4.0f);
+
 	// item padding
-	style.ItemSpacing = {10, 10};
+	style.ItemSpacing = { 4, 4 };
 	style.ScrollbarSize = 20.0f;
 	style.ScrollbarRounding = 3.0f;
+
+	style.CellPadding = { 2, 3 };
 
     io.Fonts->AddFontFromFileTTF("NotoSans-Medium.ttf", 18.0f);
 }
@@ -910,7 +900,7 @@ void renderFrame(EditorRenderer* rend)
     
     FLOAT clearcolor[4] = { 0.015f, 0.015f, 0.315f, 1.0f };
 
-    UINT stride[2] = { 11 * sizeof(float), sizeof(float4) };
+    UINT stride[2] = { 11 * sizeof(float), sizeof(GpuInstance) };
     UINT idStride[2] = { 11 * sizeof(float), sizeof(PickingInstance) };
     UINT offset[2] = { 0, 0 };
    
@@ -974,13 +964,13 @@ void renderFrame(EditorRenderer* rend)
             D3D11_MAPPED_SUBRESOURCE instanceBufferMSR;
             context->Map(model.instanceBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &instanceBufferMSR);
             {
-                float4* instance_data = (float4*)instanceBufferMSR.pData;
+                GpuInstance* instance_data = (GpuInstance*)instanceBufferMSR.pData;
                 int batch_instance_count = 0;
 
                 while (instancesDrawn != count && batch_instance_count < MAX_INSTANCES)
                 {
                     const Instance& instance = list.data[instancesDrawn];
-                    instance_data[batch_instance_count++] = float4{instance.pos.x, instance.pos.y, instance.pos.z, 1.0f};
+                    instance_data[batch_instance_count++] = GpuInstance{as_float4(instance.pos, 1.0f), as_float4(instance.color, 1.0f)};
                     ++instancesDrawn;
                 }
 
@@ -1021,7 +1011,7 @@ void renderFrame(EditorRenderer* rend)
                 {
                     const Instance& instance = list.data[instancesDrawn];
                     PickingInstance& pickingInstance = instance_data[batch_instance_count++];
-                    pickingInstance.pos = instance.pos;
+                    pickingInstance.pos = as_float4(instance.pos, 1.0f);
                     pickingInstance.idHigh = (u32)(instance.key >> 32);
                     pickingInstance.idLow = (u32)(instance.key & 0xFFFFFFFF);
                     ++instancesDrawn;

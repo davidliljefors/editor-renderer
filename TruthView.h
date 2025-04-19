@@ -1,10 +1,22 @@
 #pragma once
 
-#include "Array.h"
+#include "Core/Array.h"
 #include "Math.h"
 #include "mh64.h"
 #include "TruthMap.h"
 
+inline void alloc_str(Array<char>& a, const char* input)
+{
+	i32 len = strlen(input);
+	a.resize(len+1);
+	strcpy_s(a.data(), len+1, input);
+}
+
+enum EntityFlag : u32
+{
+	Hovered = 1 << 0,
+	Selected = 1 << 1,
+};
 
 struct Entity : TruthElement
 {
@@ -13,8 +25,9 @@ struct Entity : TruthElement
 
 	Entity(Allocator& a)
 		: m_children(a)
+		, m_name(a)
 	{
-
+		alloc_str(m_name, "New Entity");
 	}
 
 	~Entity() override = default;
@@ -26,14 +39,35 @@ struct Entity : TruthElement
 
 	TruthElement* clone(Allocator& a) const override
 	{
-		Entity* entityClone = alloc<Entity>(a, a);
+		Entity* entityClone = create<Entity>(a, a);
 		entityClone->m_children = m_children.clone();
 		entityClone->position = position;
+		entityClone->flags = flags;
 		return entityClone;
 	}
 
+	void setFlag(EntityFlag flag, bool set)
+	{
+		if (set)
+		{
+			flags |= (u32)flag;
+		}
+		else
+		{
+			flags &= ~flag;
+		}
+	}
+
+	bool isFlagSet(EntityFlag flag) const
+	{
+		return (flags & flag) != 0;
+	}
+
 	Array<truth::Key> m_children;
+	Array<char> m_name;
 	float3 position = {};
+
+	u32 flags = 0;
 };
 
 struct Transaction
@@ -55,7 +89,7 @@ public:
 		: m_allocator(allocator)
 		, m_history(allocator)
 	{
-		TruthMap* emptyState = TruthMap::create(allocator);
+		TruthMap* emptyState = TruthMap::makeRoot(allocator);
 		m_history.push_back(Snapshot{ emptyState }.asImmutable());
 		m_readIndex = 0;
 	}

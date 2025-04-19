@@ -2,8 +2,6 @@
 
 #include <math.h>
 
-#include "Core.h"
-
 struct float2
 {
 	float x, y;
@@ -58,6 +56,11 @@ struct alignas(16) float4
         return *reinterpret_cast<float3*>(this);
     }
 };
+
+inline float4 as_float4(float3 v, float a)
+{
+    return {v.x, v.y, v.z, a};
+}
 
 struct alignas(16) matrix
 {

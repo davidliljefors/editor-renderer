@@ -1,7 +1,7 @@
 #pragma once
 
-#include "Allocator.h"
-#include "Array.h"
+#include "Core/Allocator.h"
+#include "Core/Array.h"
 
 
 extern class JobManager* g_jobManager;
@@ -66,7 +66,7 @@ public:
 
 	Signal push(JobFunc func, void* userData)
 	{
-		JobData* jobData = alloc<JobData>(m_allocator);
+		JobData* jobData = create<JobData>(m_allocator);
 		jobData->userFn = func;
 		jobData->userData = userData;
 		jobData->done = {};

@@ -15,8 +15,8 @@ struct VSInput
 	float3 vertexPos : POS;
 	float3 normal : NOR;
 	float2 texcoord : TEX;
-	float3 color : COL;
 	float4 instancePos : INSTANCE_POS;
+	float3 instanceColor : INSTANCE_COLOR;
 };
 
 struct VSOutput
@@ -48,8 +48,8 @@ VSOutput VS_Main(VSInput input)
 	output.texcoord = input.texcoord;
 	output.worldnormal = worldNormal;
 	
-	float light = clamp(dot(normalize(worldNormal), normalize(-lightvector)), 0.0f, 1.0f) * 0.8f;
-	output.color = float4(input.color * light, 1.0f);
+	float light = clamp(dot(normalize(worldNormal), normalize(-lightvector)), 0.0f, 1.0f) * 1.2f;
+    output.color = float4(input.instanceColor * light, 1.0f);
 
 	return output;
 }
