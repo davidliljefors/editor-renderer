@@ -7,7 +7,7 @@
 
 inline void alloc_str(Array<char>& a, const char* input)
 {
-	i32 len = strlen(input);
+	i32 len = (i32)strlen(input);
 	a.resize(len+1);
 	strcpy_s(a.data(), len+1, input);
 }
@@ -44,23 +44,6 @@ struct Entity : TruthElement
 		entityClone->position = position;
 		entityClone->flags = flags;
 		return entityClone;
-	}
-
-	void setFlag(EntityFlag flag, bool set)
-	{
-		if (set)
-		{
-			flags |= (u32)flag;
-		}
-		else
-		{
-			flags &= ~flag;
-		}
-	}
-
-	bool isFlagSet(EntityFlag flag) const
-	{
-		return (flags & flag) != 0;
 	}
 
 	Array<truth::Key> m_children;

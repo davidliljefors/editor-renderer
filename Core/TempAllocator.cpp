@@ -1,6 +1,9 @@
 #include "TempAllocator.h"
 
+#include <cstdlib>
 #include <string.h>
+
+#include "Types.h"
 
 static Block* s_freeBlocks = nullptr;
 

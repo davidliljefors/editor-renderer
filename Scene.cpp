@@ -3,7 +3,7 @@
 #include <cstdio>
 #include <stdlib.h>
 
-#include "TempAllocator.h"
+#include "Core/TempAllocator.h"
 #include "EditorRenderer.h"
 #include "imgui.h"
 #include "TruthView.h"
@@ -36,10 +36,6 @@ struct Xoshiro256
 
 Xoshiro256 g_rand;
 
-HeapAllocator ma;
-
-Truth* g_truth;
-
 truth::Key nextKey()
 {
 	truth::Key key;
@@ -58,22 +54,21 @@ const truth::Key rootKey = getNameHash("root_node");
 
 
 Scene::Scene(EditorRenderer* renderer)
-	: m_viewports(ma)
-	, m_instances(ma)
+	: m_viewports(*GLOBAL_HEAP)
+	, m_instances(*GLOBAL_HEAP)
 {
-	PROF_SCOPE(Scene_Constructor);
-
 	m_renderer = renderer;
 
-	g_truth = create<Truth>(ma, ma);
+	
 	state = g_truth->head();
 
-	m_undoWindow = create<UndoStackWindow>(ma, g_truth);
-	m_outlinerWindow = create<OutlinerWindow>(ma, g_truth);
-	addEditorWindow(renderer, m_undoWindow);
-	addEditorWindow(renderer, m_outlinerWindow);
+	//m_undoWindow = create<UndoStackWindow>(*GLOBAL_HEAP, g_truth);
+	//m_outlinerWindow = create<OutlinerWindow>(*GLOBAL_HEAP, g_truth);
+	
+	//addEditorWindow(renderer, m_undoWindow);
+	//addEditorWindow(renderer, m_outlinerWindow);
 
-	Entity* rootEntity = create<Entity>(ma, ma);
+	Entity* rootEntity = create<Entity>(*GLOBAL_HEAP, *GLOBAL_HEAP);
 	g_truth->set(rootKey, rootEntity);
 
 	for (int x = -1; x < 2; x++)
@@ -85,7 +80,7 @@ Scene::Scene(EditorRenderer* renderer)
 				Transaction tx = g_truth->openTransaction();
 				truth::Key childKey = nextKey();
 				rootEntity->m_children.push_back(childKey);
-				Entity* child = create<Entity>(ma, ma);
+				Entity* child = create<Entity>(*GLOBAL_HEAP, *GLOBAL_HEAP);
 				child->position = { (float)x * 5.0f, (float)y * 5.0f, (float)z * 5.0f };
 				g_truth->add(tx, childKey, child);
 				g_truth->commit(tx);
@@ -107,7 +102,6 @@ void Scene::update()
 	ReadOnlySnapshot newHead = g_truth->head();
 	if (state.s != newHead.s)
 	{
-		PROF_SCOPE(Update_Scene_Instances);
 		{
 			TempAllocator ta;
 			Array<KeyEntry> adds(ta);
@@ -126,10 +120,8 @@ void Scene::update()
 			{
 				Entity* i = (Entity*)edit.value;
 				constexpr float3 defaultColor =		{0.5f, 0.5f, 0.5f};
-				constexpr float3 hoverColor =		{1.0f, 1.0f, 0.7f};
-				constexpr float3 selectedColor =	{1.0f, 1.0f, 1.0f};
 
-				updateInstance(edit.key.asU64, i->position, i->isFlagSet(Selected) ? selectedColor : i->isFlagSet(Hovered) ? hoverColor : defaultColor);
+				updateInstance(edit.key.asU64, i->position, defaultColor);
 			}
 
 			for (const KeyEntry& remove : removes)
@@ -170,13 +162,10 @@ void Scene::addViewport(const char* name)
 	scv->name = name;
 	scv->renderer = m_renderer;
 	m_viewports.push_back(scv);
-	::addViewport(m_renderer, scv);
 }
 
 void Scene::rebuildDrawList()
 {
-	PROF_SCOPE(rebuildDrawList);
-
 	DrawList& drawList = m_lists[m_writeSlot];
 
 	i32 count = m_instances.size();
@@ -205,7 +194,7 @@ DrawList Scene::getDrawList()
 	return m_lists[m_readSlot];
 }
 
-void SceneViewport::onGui()
+void SceneViewport::update()
 {
 	ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {0,0});
 
@@ -225,7 +214,7 @@ void SceneViewport::onGui()
 		textureCoords.x = mousePos.x - imagePos.x;
 		textureCoords.y = mousePos.y - imagePos.y;
 		u64 id = readId(renderer, this, (u32)textureCoords.x, (u32)textureCoords.y);
-		if (lastHover != id && lastHover != 0)
+		/*if (lastHover != id && lastHover != 0)
 		{
 			auto tx = g_truth->openTransaction();
 			Entity* oldHover = (Entity*)g_truth->write(tx, truth::Key{ lastHover });
@@ -238,11 +227,11 @@ void SceneViewport::onGui()
 			Entity* newHover = (Entity*)g_truth->write(tx, truth::Key{ id });
 			newHover->setFlag(Hovered, true);
 			g_truth->commit(tx);
-		}
+		}*/
 
 		lastHover = id;
 
-		if (ImGui::IsItemClicked())
+		/*if (ImGui::IsItemClicked())
 		{
 			if (id != 0)
 			{
@@ -251,7 +240,7 @@ void SceneViewport::onGui()
 				entity->setFlag(EntityFlag::Selected, true);
 				g_truth->commit(tx);
 			}
-		}
+		}*/
 	}
 
 
@@ -300,7 +289,7 @@ UndoStackWindow::UndoStackWindow(Truth* truth)
 
 }
 
-void UndoStackWindow::onGui()
+void UndoStackWindow::update()
 {
 	ImGui::Begin("Undo Stack Window");
 
@@ -320,8 +309,9 @@ void UndoStackWindow::onGui()
 	ImGui::End();
 }
 
-OutlinerWindow::OutlinerWindow(Truth* truth)
-	:m_truth(truth)
+OutlinerWindow::OutlinerWindow(Truth* truth, truth::Key root)
+	: m_truth(truth)
+	, m_root(root)
 {
 
 }
@@ -426,7 +416,7 @@ void DrawEntityHierarchy(Truth* truth, ReadOnlySnapshot snap, truth::Key key)
 	ImGui::PopID();
 }
 
-void OutlinerWindow::onGui()
+void OutlinerWindow::update()
 {
 	ReadOnlySnapshot snapshot = m_truth->head();
 

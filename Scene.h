@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Editor.h"
 #include "Core/Types.h"
 #include "EditorRenderer.h"
 #include "Core/Array.h"
@@ -39,8 +40,8 @@ class Scene;
 
 struct SceneViewport : IViewport
 {
-	virtual DrawList getDrawList();
-	virtual void onGui();
+	DrawList getDrawList() override;
+	void update() override;
 
 	const char* name;
 	Scene* scene;
@@ -53,7 +54,7 @@ class UndoStackWindow : public IEditorWindow
 {
 public:
 	UndoStackWindow(Truth* truth);
-	void onGui() override;
+	void update() override;
 
 	Truth* m_truth;
 };
@@ -61,10 +62,11 @@ public:
 class OutlinerWindow : public IEditorWindow
 {
 public:
-	OutlinerWindow(Truth* truth);
-	void onGui() override;
+	OutlinerWindow(Truth* truth, truth::Key root);
+	void update() override;
 
 	Truth* m_truth;
+	truth::Key m_root;
 };
 
 class Scene

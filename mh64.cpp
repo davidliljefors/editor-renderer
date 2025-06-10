@@ -269,3 +269,9 @@ uint64_t MetroHash64::Hash(const char* buffer, uint64_t length, uint64_t seed)
 {
     return Hash((const uint8_t*)buffer, length, seed);
 }
+
+uint64_t MetroHash64::HashStr(const char* buffer)
+{
+    uint64_t len = strlen(buffer);
+    return Hash(buffer, len);
+}

@@ -14,7 +14,7 @@
 #include "imgui_internal.h"
 #include "imgui_impl_win32.h"
 #include "imgui_impl_dx11.h"
-#include "TempAllocator.h"
+#include "Core/TempAllocator.h"
 
 #pragma comment(lib, "d3d11.lib")
 #pragma comment(lib, "d3dcompiler.lib")
@@ -24,6 +24,39 @@ struct Mesh
 	ID3D11Buffer* vertexBuffer;
 	ID3D11Buffer* indexBuffer;
 	UINT indices;
+};
+
+struct alignas(16) GpuInstance
+{
+	float4 pos;
+	float4 color;
+};
+
+struct alignas(16) PickingInstance
+{
+	float4 pos;
+	u32 idHigh;
+	u32 idLow;
+	u32 padding[2];
+};
+
+struct alignas(16) CBufferCpu
+{
+	matrix view;
+	matrix projection;
+	
+	float3 lightvector;
+	float _pad0;
+	
+	float3 lightColor;
+	float _pad1;
+	
+
+	float ambientStr;
+	float specularStr;
+	float specularPow;
+
+	float _pad2;
 };
 
 struct Model
@@ -97,9 +130,6 @@ struct EditorRenderer
 
     ViewportData viewports[1024];
     u32 numViewports = 0;
-
-    IEditorWindow* windows[256];
-    u32 numWindows = 0;
 };
 
 #define TEXTURE_WIDTH  2
@@ -747,6 +777,7 @@ void createResources(EditorRenderer* rend, u32 w, u32 h)
         swapChainDesc.SampleDesc.Quality = 0;
         swapChainDesc.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
         swapChainDesc.BufferCount = backBufferCount;
+        swapChainDesc.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
 
         DXGI_SWAP_CHAIN_FULLSCREEN_DESC fsSwapChainDesc = {};
         fsSwapChainDesc.Windowed = TRUE;
@@ -787,48 +818,6 @@ void createResources(EditorRenderer* rend, u32 w, u32 h)
     backBuffer->Release();
 }
 
-Win32Timer::Win32Timer(const char* name)
-	:name(name)
-{
-    LARGE_INTEGER f;
-    LARGE_INTEGER s;
-
-    QueryPerformanceFrequency(&f);
-    QueryPerformanceCounter(&s);
-
-    freq = f.QuadPart;
-    start = s.QuadPart;
-}
-
-Win32Timer::~Win32Timer()
-{
-    LARGE_INTEGER endTime;
-    QueryPerformanceCounter(&endTime);
-
-    double elapsedMs = ((endTime.QuadPart - start) * 1000.0) / freq;
-    
-    char buffer[256];
-    sprintf_s(buffer, "Timer (%s) took %.3fms\n", name, elapsedMs);
-    OutputDebugStringA(buffer);
-}
-
-void addViewport(EditorRenderer* rend, IViewport* viewport)
-{
-    u32 slot = rend->numViewports;
-    rend->numViewports += 1;
-    rend->viewports[slot].usr = viewport;
-
-    createViewportResources(rend, &rend->viewports[slot]);
-}
-
-void addEditorWindow(EditorRenderer* rend, IEditorWindow* window)
-{
-    u32 slot = rend->numWindows;
-
-    rend->numWindows += 1;
-    rend->windows[slot] = window;
-}
-
 u64 readId(EditorRenderer* rend, IViewport* vp, u32 x, u32 y)
 {
     ViewportData* vpd = nullptr;
@@ -860,8 +849,28 @@ u64 readId(EditorRenderer* rend, IViewport* vp, u32 x, u32 y)
     return fullId;
 }
 
+void registerViewport(EditorRenderer* rend, IViewport* viewport)
+{
+    u32 slot = rend->numViewports;
+    rend->numViewports += 1;
+    rend->viewports[slot].usr = viewport;
+
+    createViewportResources(rend, &rend->viewports[slot]);
+}
+
 void preRenderSync(EditorRenderer* rend)
 {
+    if(rend->width != rend->newWidth || rend->height != rend->newHeight)
+    {
+        createResources(rend, rend->newWidth, rend->newHeight);
+    }
+
+    if (ImGui::GetIO().ConfigFlags & ImGuiConfigFlags_ViewportsEnable) 
+    {
+        ImGui::UpdatePlatformWindows();
+        ImGui::RenderPlatformWindowsDefault();
+    }
+
     for(u32 i = 0; i < rend->numViewports; ++i)
     {
         ViewportData* vpd = &rend->viewports[i];
@@ -875,11 +884,6 @@ void preRenderSync(EditorRenderer* rend)
     ImGui_ImplDX11_NewFrame();
     ImGui_ImplWin32_NewFrame();
     ImGui::NewFrame();
-}
-
-void preRender(EditorRenderer*)
-{
-
 }
 
 void renderFrame(EditorRenderer* rend)
@@ -1030,60 +1034,6 @@ void renderFrame(EditorRenderer* rend)
 
 void renderImgui(EditorRenderer *rend)
 {
-    ImGuiIO& io = ImGui::GetIO();
-    ImGui::SetNextWindowPos(ImVec2(0, 0));           // Position at top-left
-    ImGui::SetNextWindowSize(io.DisplaySize);        // Use full window size
-    ImGuiWindowFlags window_flags = 
-        ImGuiWindowFlags_NoTitleBar | 
-        ImGuiWindowFlags_NoResize | 
-        ImGuiWindowFlags_NoMove | 
-        ImGuiWindowFlags_NoCollapse |
-        ImGuiWindowFlags_NoDocking |
-        ImGuiWindowFlags_NoBringToFrontOnFocus |
-        ImGuiWindowFlags_MenuBar;
-
-    ImGui::Begin("MainWindow", nullptr, window_flags);
-
-    // Add menu bar
-    if (ImGui::BeginMenuBar())
-    {
-        if (ImGui::BeginMenu("File"))
-        {
-            if (ImGui::MenuItem("New")) {}
-            if (ImGui::MenuItem("Open")) {}
-            if (ImGui::MenuItem("Save")) {}
-            ImGui::EndMenu();
-        }
-        if (ImGui::BeginMenu("Edit"))
-        {
-            if (ImGui::MenuItem("Undo")) {}
-            if (ImGui::MenuItem("Redo")) {}
-            ImGui::EndMenu();
-        }
-        ImGui::EndMenuBar();
-    }
-
-
-    ImVec2 available_size = ImGui::GetContentRegionAvail();
-
-    ImGui::BeginChild("MainContent", available_size, true);
-    {
-        ImGuiID dockspace_id = ImGui::GetID("MainContentDockSpace");
-        ImGui::DockSpace(dockspace_id, ImVec2(0, 0), ImGuiDockNodeFlags_PassthruCentralNode);
-    }
-    ImGui::EndChild();
-    ImGui::End();
-
-    for(u32 i = 0; i < rend->numViewports; ++i)
-    {
-        rend->viewports[i].usr->onGui();
-    }
-
-    for (u32 i = 0; i < rend->numWindows; ++i)
-    {
-        rend->windows[i]->onGui();
-    }
-
     // Render ImGui to the swap chain
     rend->context->OMSetRenderTargets(1, &rend->imGuirenderTargetView, nullptr);
     float clearColor[] = { 0.2f, 0.2f, 0.2f, 1.0f }; // Dark gray for ImGui background
@@ -1092,24 +1042,10 @@ void renderImgui(EditorRenderer *rend)
     ImGui_ImplDX11_RenderDrawData(ImGui::GetDrawData());
 }
 
-void postRender(EditorRenderer* rend)
+void present(EditorRenderer* rend)
 {
     HRESULT hr = rend->swapChain->Present(1, 0);
     breakIfFailed(hr, rend->device);
-}
-
-void renderSynchronize(EditorRenderer* rend)
-{
-    if(rend->width != rend->newWidth || rend->height != rend->newHeight)
-    {
-        createResources(rend, rend->newWidth, rend->newHeight);
-    }
-
-    if (ImGui::GetIO().ConfigFlags & ImGuiConfigFlags_ViewportsEnable) 
-    {
-        ImGui::UpdatePlatformWindows();
-        ImGui::RenderPlatformWindowsDefault();
-    }
 }
 
 void onWindowResize(EditorRenderer *rend, u32 w, u32 h)

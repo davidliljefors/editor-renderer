@@ -1,7 +1,7 @@
 #pragma once
 
-#include "Core/Allocator.h"
-#include "Core/Types.h"
+#include "Allocator.h"
+#include "Types.h"
 
 struct Block
 {

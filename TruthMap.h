@@ -1,7 +1,10 @@
 #pragma once
 
+#include <cassert>
+
 #include "Core/Allocator.h"
 #include "Core/Array.h"
+#include "Core/Types.h"
 
 namespace truth
 {

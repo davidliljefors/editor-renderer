@@ -48,6 +48,7 @@ public:
 
     static uint64_t Hash(const uint8_t* buffer, uint64_t length, uint64_t seed=0);
     static uint64_t Hash(const char* buffer, uint64_t length, uint64_t seed=0);
+    static uint64_t HashStr(const char* buffer);
 
     // test vectors -- Hash(test_string, seed=0) => test_seed_0
 private:
