@@ -13,13 +13,14 @@ struct Entity : TruthElement
 
 	Entity(Allocator& a)
 		: m_children(a)
+		, m_name(a)
 	{
-
+		setName("New Entity");
 	}
 
 	~Entity() override = default;
 
-	u64 typeId() override
+	u64 typeId() const override
 	{
 		return kTypeId;
 	}
@@ -28,12 +29,29 @@ struct Entity : TruthElement
 	{
 		Entity* entityClone = alloc<Entity>(a, a);
 		entityClone->m_children = m_children.clone();
+		entityClone->m_name = m_name.clone();
 		entityClone->position = position;
 		return entityClone;
 	}
 
+	void setName(const char* name)
+	{
+		u64 len = strlen(name);
+		m_name.resize((i32)len + 1);
+		memcpy(m_name.data(), name, len);
+		m_name[m_name.size()-1] = 0;
+	}
+
+	const char* getName() const
+	{
+		return m_name.begin();
+	}
+
 	Array<truth::Key> m_children;
+	Array<char> m_name;
+
 	float3 position = {};
+	float3 color = {1.0f, 1.0f, 1.0f};
 };
 
 struct Transaction
@@ -73,6 +91,7 @@ public:
 	Transaction openTransaction();
 	bool commit(Transaction& tx);
 	void drop(Transaction& tx);
+	void dropHistory();
 
 	void getConflicts(Transaction& tx, Array<Conflict>& outConflicts);
 
@@ -108,11 +127,24 @@ public:
 		return m_readIndex > 0;
 	}
 
+	bool canRedo()
+	{
+		return m_readIndex < m_history.size();
+	}
+
 	void undo()
 	{
 		if (canUndo())
 		{
 			--m_readIndex;
+		}
+	}
+
+	void redo()
+	{
+		if (canRedo())
+		{
+			++m_readIndex;
 		}
 	}
 
@@ -204,6 +236,14 @@ inline bool Truth::commit(Transaction& tx)
 	{
 		return false;
 	}
+}
+
+inline void Truth::dropHistory()
+{
+	auto h = head();
+	m_history.resize(1);
+	m_history[0] = h;
+	m_readIndex = 0;
 }
 
 inline const TruthElement* Truth::read(ReadOnlySnapshot snap, truth::Key key)

@@ -13,7 +13,6 @@ struct Camera;
 struct SceneInstance;
 struct Instance;
 
-
 class Scene;
 
 struct SceneViewport : IViewport
@@ -43,6 +42,7 @@ public:
 	void onGui() override;
 
 	Truth* m_truth;
+	truth::Key m_selected;
 };
 
 class Scene

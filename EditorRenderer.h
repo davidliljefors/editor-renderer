@@ -15,6 +15,9 @@ struct Win32Timer
 	const char* name;
 };
 
+void save();
+void load();
+
 #define PROF_SCOPE(name) Win32Timer timer_##name(#name)
 
 struct Instance
@@ -77,7 +80,7 @@ public:
 	virtual DrawList getDrawList() = 0;
 	virtual void onGui() = 0;
 
-	Camera camera;
+	Camera camera {{-15.0f, 0.0f, -5.0f}, 45.0f, 0.0f};
 	bool open = true;
 	u64 ViewportTex;
 	float2 size = {100, 100};

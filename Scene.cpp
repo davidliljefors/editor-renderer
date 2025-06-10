@@ -3,10 +3,19 @@
 #include <cstdio>
 #include <stdlib.h>
 
+#include <windows.h>
+#include <wincrypt.h>
+
 #include "ScratchAllocator.h"
 #include "EditorRenderer.h"
 #include "imgui.h"
 #include "TruthView.h"
+
+#include "yyjson.h"
+
+#include "ppltasks.h"
+
+#pragma comment(lib, "advapi32.lib")
 
 struct Xoshiro256
 {
@@ -34,6 +43,34 @@ struct Xoshiro256
 	uint64_t s[4]{ 0x180ec6d33cfd0aba, 0xd5a61266f0c9392c, 0xa9582618e03fc9aa, 0x39abdc4529b1661c };
 };
 
+int InitializeRandomContext(Xoshiro256* rand)
+{
+	HCRYPTPROV hCryptProv = 0;
+
+	if (!CryptAcquireContext(
+		&hCryptProv,
+		NULL,
+		NULL,
+		PROV_RSA_FULL,
+		CRYPT_VERIFYCONTEXT))
+	{
+		return 1;
+	}
+
+	if (!CryptGenRandom(hCryptProv, sizeof(Xoshiro256), reinterpret_cast<u8*>(rand)))
+	{
+		CryptReleaseContext(hCryptProv, 0);
+		return 1;
+	}
+
+	if (!CryptReleaseContext(hCryptProv, 0))
+	{
+		return 1;
+	}
+
+	return 0;
+}
+
 Xoshiro256 g_rand;
 
 MallocAllocator ma;
@@ -56,6 +93,152 @@ truth::Key getNameHash(const char* str)
 
 const truth::Key rootKey = getNameHash("root_node");
 
+const char* kRootEntityKey = "root_entity";
+const char* kEntitiesKey = "entities";
+const char* kEntityIdKey = "entity_id";
+const char* kEntityNameKey = "entity_name";
+const char* kChildrenKey = "children";
+const char* kPositionKey = "position";
+const char* kColorKey = "color";
+
+void writeEntity(yyjson_mut_doc* jDoc, yyjson_mut_val* jArray, Truth* truth, ReadOnlySnapshot snap, truth::Key key)
+{
+	const Entity* entity = (const Entity*)truth->read(snap, key);
+
+	if (entity)
+	{
+		yyjson_mut_val* jObject = yyjson_mut_arr_add_obj(jDoc, jArray);
+		yyjson_mut_obj_add_uint(jDoc, jObject, kEntityIdKey, key.asU64);
+		yyjson_mut_obj_add_str(jDoc, jObject, kEntityNameKey, entity->getName());
+
+		yyjson_mut_val* jChildren = yyjson_mut_obj_add_arr(jDoc, jObject, kChildrenKey);
+		for (truth::Key child : entity->m_children)
+		{
+			yyjson_mut_arr_add_uint(jDoc, jChildren, child.asU64);
+		}
+
+		yyjson_mut_val* jPosition = yyjson_mut_obj_add_arr(jDoc, jObject, kPositionKey);
+		yyjson_mut_arr_add_float(jDoc, jPosition, entity->position.x);
+		yyjson_mut_arr_add_float(jDoc, jPosition, entity->position.y);
+		yyjson_mut_arr_add_float(jDoc, jPosition, entity->position.z);
+
+		yyjson_mut_val* jColor = yyjson_mut_obj_add_arr(jDoc, jObject, kColorKey);
+		yyjson_mut_arr_add_float(jDoc, jColor, entity->color.x);
+		yyjson_mut_arr_add_float(jDoc, jColor, entity->color.y);
+		yyjson_mut_arr_add_float(jDoc, jColor, entity->color.z);
+
+		for (truth::Key child : entity->m_children)
+		{
+			writeEntity(jDoc, jArray, truth, snap, child);
+		}
+	}
+}
+
+void writeJsonFile(Truth* truth, ReadOnlySnapshot snap, truth::Key rootNode)
+{
+	yyjson_mut_doc* jDoc = yyjson_mut_doc_new(nullptr);
+	yyjson_mut_val* jRoot = yyjson_mut_obj(jDoc);
+	yyjson_mut_doc_set_root(jDoc, jRoot);
+
+	yyjson_mut_obj_add_uint(jDoc, jRoot, kRootEntityKey, rootNode.asU64);
+	yyjson_mut_val* jArray = yyjson_mut_obj_add_arr(jDoc, jRoot, kEntitiesKey);
+	writeEntity(jDoc, jArray, truth, snap, rootNode);
+
+
+	yyjson_write_flag flg = YYJSON_WRITE_PRETTY | YYJSON_WRITE_ESCAPE_UNICODE;
+	yyjson_write_err err;
+	yyjson_mut_write_file("level.json", jDoc, flg, nullptr, &err);
+
+	if (err.code) 
+	{
+		printf("write error (%u): %s\n", err.code, err.msg);
+	}
+
+	yyjson_mut_doc_free(jDoc);
+}
+
+
+float3 readFloat3(yyjson_val* val)
+{
+	float3 value{};
+	if (yyjson_is_arr(val))
+	{
+		if (yyjson_arr_size(val) == 3)
+		{
+			yyjson_val* xval = yyjson_arr_get(val, 0);
+			yyjson_val* yval = yyjson_arr_get(val, 1);
+			yyjson_val* zval = yyjson_arr_get(val, 2);
+
+			value.x = (float)(yyjson_is_real(xval) ? yyjson_get_real(xval) : 0.0);
+			value.y = (float)(yyjson_is_real(yval) ? yyjson_get_real(yval) : 0.0);
+			value.z = (float)(yyjson_is_real(zval) ? yyjson_get_real(zval) : 0.0);
+		}
+	}
+	return value;
+}
+
+void loadJsonFile(Truth* truth)
+{
+	yyjson_read_flag flg = YYJSON_READ_ALLOW_COMMENTS | YYJSON_READ_ALLOW_TRAILING_COMMAS;
+	yyjson_read_err err;
+	yyjson_doc* jDoc = yyjson_read_file("level.json", flg, nullptr, &err);
+
+	Transaction tx = truth->openTransaction();
+	Allocator& a = truth->allocator();
+
+	if (jDoc)
+	{
+		yyjson_val* jRoot = yyjson_doc_get_root(jDoc);
+
+		yyjson_val* jArray = yyjson_obj_get(jRoot, kEntitiesKey);
+		yyjson_arr_iter iter = yyjson_arr_iter_with(jArray);
+		yyjson_val* jEntity;
+		while ((jEntity = yyjson_arr_iter_next(&iter)))
+		{
+			if (yyjson_is_obj(jEntity))
+			{
+				u64 entityId = yyjson_get_uint(yyjson_obj_get(jEntity, kEntityIdKey));
+				Entity* entity = alloc<Entity>(a, a);
+				entity->setName(yyjson_get_str(yyjson_obj_get(jEntity, kEntityNameKey)));
+				entity->position = readFloat3(yyjson_obj_get(jEntity, kPositionKey));
+				entity->color = readFloat3(yyjson_obj_get(jEntity, kColorKey));
+
+				yyjson_val* jChildren = yyjson_obj_get(jEntity, kChildrenKey);
+				u64 childCount = yyjson_arr_size(jChildren);
+				entity->m_children.reserve((i32)childCount);
+
+				for (u64 y = 0; y < childCount; ++y)
+				{
+					yyjson_val* jChild = yyjson_arr_get(jChildren, y);
+					u64 childId = yyjson_get_uint(jChild);
+
+					entity->m_children.push_back(truth::Key{childId});
+				}
+
+				truth->add(tx, truth::Key{entityId}, entity);
+			}
+		}
+
+		truth->commit(tx);
+	}
+}
+
+void save()
+{
+	concurrency::create_task([]
+	{
+		writeJsonFile(g_truth, g_truth->snap(), rootKey);
+	});
+}
+
+void load()
+{
+	concurrency::create_task([]
+	{
+		loadJsonFile(g_truth);
+	});
+
+}
 
 Scene::Scene(EditorRenderer* renderer)
 	: m_viewports(ma)
@@ -64,6 +247,8 @@ Scene::Scene(EditorRenderer* renderer)
 	PROF_SCOPE(Scene_Constructor);
 
 	m_renderer = renderer;
+
+	InitializeRandomContext(&g_rand);
 
 	g_truth = alloc<Truth>(ma, ma);
 	state = g_truth->head();
@@ -74,14 +259,15 @@ Scene::Scene(EditorRenderer* renderer)
 	addEditorWindow(renderer, m_outlinerWindow);
 
 	Entity* rootEntity = alloc<Entity>(ma, ma);
+	rootEntity->position = {3.0f, 3.0f, 3.0f};
 	g_truth->set(rootKey, rootEntity);
 
-	for (int x = -10; x < 10; x++)
+	Transaction tx = g_truth->openTransaction();
+	for (int x = -30; x < 30; x++)
 	{
-		for (int y = -10; y < 10; y++)
+		for (int y = -30; y < 30; y++)
 		{
-			Transaction tx = g_truth->openTransaction();
-			for (int z = -10; z < 10; z++)
+			for (int z = -30; z < 30; z++)
 			{
 				truth::Key childKey = nextKey();
 				rootEntity->m_children.push_back(childKey);
@@ -89,9 +275,11 @@ Scene::Scene(EditorRenderer* renderer)
 				child->position = { (float)x * 5.0f, (float)y * 5.0f, (float)z * 5.0f };
 				g_truth->add(tx, childKey, child);
 			}
-			g_truth->commit(tx);
 		}
 	}
+
+	g_truth->commit(tx);
+	g_truth->dropHistory();
 
 	m_lists[0].data = (Instance*)malloc(sizeof(Instance) * 1024);
 	m_lists[1].data = (Instance*)malloc(sizeof(Instance) * 1024);
@@ -99,11 +287,19 @@ Scene::Scene(EditorRenderer* renderer)
 	m_lists[1].capacity = 1024;
 
 	addViewport("View 1");
-	addViewport("View 2");
 }
 
 void Scene::update()
 {
+	if (ImGui::GetIO().KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_Z))
+	{
+		if (ImGui::GetIO().KeyShift)
+		{
+			g_truth->redo();
+		}
+		g_truth->undo();
+	}
+
 	ReadOnlySnapshot newHead = g_truth->head();
 	if (state.s != newHead.s)
 	{
@@ -200,6 +396,19 @@ DrawList Scene::getDrawList()
 	return m_lists[m_readSlot];
 }
 
+void recursiveErase(Transaction& tx, truth::Key id)
+{
+	const Entity* e = (const Entity*)g_truth->read(tx.base, id);
+	if (e)
+	{
+		g_truth->erase(tx, id);
+		for (truth::Key childKey : e->m_children)
+		{
+			recursiveErase(tx, childKey);
+		}
+	}
+}
+
 void SceneViewport::onGui()
 {
 	ImGui::Begin(name);
@@ -224,7 +433,7 @@ void SceneViewport::onGui()
 		if (id != 0)
 		{
 			auto tx = g_truth->openTransaction();
-			g_truth->erase(tx, truth::Key{ id });
+			recursiveErase(tx, truth::Key{id});
 			g_truth->commit(tx);
 		}
 	}
@@ -302,7 +511,7 @@ OutlinerWindow::OutlinerWindow(Truth* truth)
 
 }
 
-void DrawEntityHierarchy(Truth* truth, ReadOnlySnapshot snap, truth::Key key)
+void DrawEntityHierarchy(Truth* truth, ReadOnlySnapshot snap, truth::Key key, truth::Key* selected)
 {
 	const Entity* entity = (const Entity*)truth->read(snap, key);
 
@@ -312,20 +521,37 @@ void DrawEntityHierarchy(Truth* truth, ReadOnlySnapshot snap, truth::Key key)
 	}
 
 	ImGui::PushID(key.asU64);
-	if (ImGui::TreeNode("Entity"))
+
+	ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_OpenOnArrow | ImGuiTreeNodeFlags_OpenOnDoubleClick;
+	if (entity->m_children.empty())
 	{
-		float3 editPosition = entity->position;
-		if (ImGui::DragFloat3("Position", &editPosition.x))
+		flags |= ImGuiTreeNodeFlags_Leaf;
+	}
+
+	if (key == *selected)
+	{
+		flags |= ImGuiTreeNodeFlags_Selected;
+	}
+
+	char buf[64];
+	if (entity->m_children.empty())
+	{
+		sprintf_s(buf, "%s", entity->getName());
+	}
+	else
+	{
+		sprintf_s(buf, "%s [%d]", entity->getName(), entity->m_children.size());
+	}
+	if (ImGui::TreeNodeEx(buf, flags))
+	{
+		if (ImGui::IsItemClicked())
 		{
-			auto tx = truth->openTransaction();
-			Entity* editEntity = (Entity*)truth->write(tx, key);
-			editEntity->position = editPosition;
-			truth->commit(tx);
+			*selected = key;
 		}
 
 		for (truth::Key child : entity->m_children)
 		{
-			DrawEntityHierarchy(truth, snap, child);
+			DrawEntityHierarchy(truth, snap, child, selected);
 		}
 
 		ImGui::TreePop();
@@ -338,7 +564,31 @@ void OutlinerWindow::onGui()
 {
 	ReadOnlySnapshot snapshot = m_truth->head();
 
-	DrawEntityHierarchy(m_truth, snapshot, rootKey);
+	ImGui::Begin("Outliner");
+	ImGui::Text("Outliner");
+	DrawEntityHierarchy(m_truth, snapshot, rootKey, &m_selected);
+	ImGui::End();
+
+	ImGui::Begin("Inspector");
+	ImGui::Text("Inspector");
+	const TruthElement* selectedElement = m_truth->read(snapshot, m_selected);
+	if (selectedElement)
+	{
+		if (selectedElement->typeId() == Entity::kTypeId)
+		{
+			const Entity* e = (const Entity*)selectedElement;
+			float3 value = e->position;
+			ImGui::DragFloat3("Entity Position", &value.x);
+			if (ImGui::IsItemDeactivatedAfterEdit())
+			{
+				Transaction tx = m_truth->openTransaction();
+				Entity* writable = (Entity*)m_truth->write(tx, m_selected);
+				writable->position = value;
+				m_truth->commit(tx);
+			}
+		}
+	}
+	ImGui::End();
 }
 
 DrawList SceneViewport::getDrawList()

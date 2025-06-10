@@ -45,7 +45,7 @@ inline bool operator!=(truth::Key a, truth::Key b)
 struct TruthElement
 {
 	virtual ~TruthElement() = default;
-	virtual u64 typeId() = 0;
+	virtual u64 typeId() const = 0;
 	virtual TruthElement* clone(Allocator& a) const = 0;
 };
 

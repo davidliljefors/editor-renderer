@@ -19,6 +19,8 @@
 #pragma comment(lib, "d3d11.lib")
 #pragma comment(lib, "d3dcompiler.lib")
 
+#define DEBUG_DEVICE 1
+
 struct Mesh
 {
 	ID3D11Buffer* vertexBuffer;
@@ -199,6 +201,7 @@ void load_default_shaders(ID3D11Device* device, Model* model)
     device->CreateBuffer(&instance_buffer_desc, &instance_buffer_data, &model->instanceBuffer);
 }
 
+#pragma (optimize "", off)
 void load_picking_shaders(ID3D11Device* device, Model::Picking* picking)
 {
     ID3DBlob* p_vertex_shader_cso;
@@ -252,10 +255,10 @@ void load_picking_shaders(ID3D11Device* device, Model::Picking* picking)
 
     p_pixel_shader_cso->Release();
 
-    float4 initial_instance_data[MAX_INSTANCES];
+    PickingInstance initial_instance_data[MAX_INSTANCES];
     for (int i = 0; i < MAX_INSTANCES; i++)
     {
-        initial_instance_data[i] = float4{0.0f, 0.0f, 0.0f, 1.0f};
+        initial_instance_data[i] = PickingInstance{};
     }
 
     D3D11_BUFFER_DESC instance_buffer_desc = {};
@@ -503,7 +506,7 @@ void createDevice(EditorRenderer* rend)
 {
     UINT creationFlags = 0;
 
-#ifdef _DEBUG
+#ifdef DEBUG_DEVICE
     creationFlags |= D3D11_CREATE_DEVICE_DEBUG;
 #endif
 
@@ -539,7 +542,7 @@ void createDevice(EditorRenderer* rend)
 
     HRESULT hr;
 
-#ifndef NDEBUG
+#ifdef DEBUG_DEVICE
     ID3D11Debug* d3dDebug;
     hr = device->QueryInterface(__uuidof(ID3D11Debug), (void**)&d3dDebug);
     if (SUCCEEDED(hr))
@@ -548,10 +551,8 @@ void createDevice(EditorRenderer* rend)
         hr = d3dDebug->QueryInterface(__uuidof(ID3D11InfoQueue), (void**)&d3dInfoQueue);
         if (SUCCEEDED(hr))
         {
-#ifdef _DEBUG
             d3dInfoQueue->SetBreakOnSeverity(D3D11_MESSAGE_SEVERITY_CORRUPTION, true);
             d3dInfoQueue->SetBreakOnSeverity(D3D11_MESSAGE_SEVERITY_ERROR, true);
-#endif
             D3D11_MESSAGE_ID hide [] =
             {
                 D3D11_MESSAGE_ID_SETPRIVATEDATA_CHANGINGPARAMS,
@@ -710,10 +711,7 @@ void createResources(EditorRenderer* rend, u32 w, u32 h)
 
         if (hr == DXGI_ERROR_DEVICE_REMOVED || hr == DXGI_ERROR_DEVICE_RESET)
         {
-            // If the device was removed for any reason, a new device and swap chain will need to be created.
             onDeviceLost(rend);
-            // Everything is set up now. Do not continue execution of this method. OnDeviceLost will reenter this method 
-            // and correctly set up the new device.
             return;
         }
         else
@@ -723,13 +721,13 @@ void createResources(EditorRenderer* rend, u32 w, u32 h)
     }
     else
     {
-        // First, retrieve the underlying DXGI Device from the D3D Device.
         IDXGIDevice1* dxgiDevice;
         HRESULT hr = rend->device->QueryInterface(__uuidof(IDXGIDevice1), (void**)&dxgiDevice);
         if (hr != S_OK)
             return;
 
-        // Identify the physical adapter (GPU or card) this device is running on.
+        dxgiDevice->SetMaximumFrameLatency(1);
+
         IDXGIAdapter* dxgiAdapter;
         hr = dxgiDevice->GetAdapter(&dxgiAdapter);
         if (hr != S_OK)
@@ -738,7 +736,6 @@ void createResources(EditorRenderer* rend, u32 w, u32 h)
             return;
         }
 
-        // And obtain the factory object that created it.
         IDXGIFactory2* dxgiFactory;
         hr = dxgiAdapter->GetParent(__uuidof(IDXGIFactory2), (void**)&dxgiFactory);
         if (hr != S_OK)
@@ -748,7 +745,6 @@ void createResources(EditorRenderer* rend, u32 w, u32 h)
             return;
         }
 
-        // Create a descriptor for the swap chain.
         DXGI_SWAP_CHAIN_DESC1 swapChainDesc = {};
         swapChainDesc.Width = w;
         swapChainDesc.Height = h;
@@ -761,7 +757,6 @@ void createResources(EditorRenderer* rend, u32 w, u32 h)
         DXGI_SWAP_CHAIN_FULLSCREEN_DESC fsSwapChainDesc = {};
         fsSwapChainDesc.Windowed = TRUE;
 
-        // Create a SwapChain from a Win32 window.
         hr = dxgiFactory->CreateSwapChainForHwnd(
             rend->device,
             rend->hwnd,
@@ -1060,8 +1055,14 @@ void renderImgui(EditorRenderer *rend)
         if (ImGui::BeginMenu("File"))
         {
             if (ImGui::MenuItem("New")) {}
-            if (ImGui::MenuItem("Open")) {}
-            if (ImGui::MenuItem("Save")) {}
+            if (ImGui::MenuItem("Open"))
+            {
+	            load();
+            }
+            if (ImGui::MenuItem("Save"))
+            {
+                save();
+            }
             ImGui::EndMenu();
         }
         if (ImGui::BeginMenu("Edit"))

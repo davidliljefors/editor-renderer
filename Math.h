@@ -49,6 +49,7 @@ struct float3
 	float x, y, z;
 };
 
+
 struct alignas(16) float4
 {
 	float x, y, z, w;

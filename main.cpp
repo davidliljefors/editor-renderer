@@ -7,6 +7,7 @@
 
 #pragma comment(lib, "user32.lib")
 #define WIN32_LEAN_AND_MEAN
+#include <cstdio>
 #include <windows.h>
 
 #include "TruthView.h"
@@ -220,6 +221,30 @@ struct BoxedValue
 
 MallocAllocator gMalloc;
 
+void LoadWindowSize(const char* configFile, int* width, int* height) {
+    FILE* file;
+	int ret = fopen_s(&file, configFile, "r");
+    if (file) {
+        ret = fscanf_s(file, "%d %d", width, height);
+        ret = fclose(file);
+    }
+    (void)ret;
+}
+
+void SaveWindowSize(const char* configFile, int width, int height) {
+    FILE* file;
+    if (width < 1 || height < 1)
+    {
+	    return;
+    }
+
+	int ret = fopen_s(&file, configFile, "w");
+    if (file) {
+        ret = fprintf(file, "%d %d", width, height);
+        ret = fclose(file);
+    }
+}
+
 int main()
 {
     HashMap < int > hm(gMalloc);
@@ -250,6 +275,8 @@ int main()
     int screen_width = 1600;
     int screen_height = 900;
 
+    LoadWindowSize("window_config.txt", &screen_width, &screen_height);
+
     DWORD windowStyle = isFullscreen ? WS_VISIBLE|WS_POPUP : (WS_OVERLAPPEDWINDOW);
     DWORD windowExStyle = isFullscreen ? WS_EX_APPWINDOW : WS_EX_APPWINDOW;
 
@@ -272,9 +299,6 @@ int main()
         nullptr
     );
 
-    ShowWindow(hwnd, SW_SHOW);
-    UpdateWindow(hwnd);
-
     EditorRenderer* rend = nullptr;
     initRenderer(hwnd, screen_width, screen_height, rend);
     Scene scene = {rend};
@@ -282,6 +306,9 @@ int main()
     g_threadData.renderer = rend;
     g_threadData.scene = &scene;
     g_threadData.shouldExit = false;
+
+    ShowWindow(hwnd, SW_SHOW);
+    UpdateWindow(hwnd);
 
     g_renderThread = CreateThread(
         nullptr,
@@ -315,6 +342,9 @@ int main()
                 WaitForSingleObject(g_updateThread, INFINITE);
                 CloseHandle(g_renderThread);
                 CloseHandle(g_updateThread);
+                RECT rect;
+                GetWindowRect(hwnd, &rect);
+                SaveWindowSize("window_config.txt", rect.right, rect.bottom);
                 return static_cast<int>(msg.wParam);
             }
             if (msg.message == WM_KEYDOWN && msg.wParam == VK_ESCAPE)
