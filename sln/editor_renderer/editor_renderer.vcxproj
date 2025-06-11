@@ -159,6 +159,7 @@
     <ClInclude Include="..\..\ScratchAllocator.h" />
     <ClInclude Include="..\..\TruthMap.h" />
     <ClInclude Include="..\..\TruthView.h" />
+    <ClInclude Include="..\..\yyjson.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="..\..\EditorRenderer.cpp" />
@@ -174,6 +175,7 @@
     <ClCompile Include="..\..\mh64.cpp" />
     <ClCompile Include="..\..\Scene.cpp" />
     <ClCompile Include="..\..\ScratchAllocator.cpp" />
+    <ClCompile Include="..\..\yyjson.c" />
   </ItemGroup>
   <ItemGroup>
     <Natvis Include="Types.natvis" />
