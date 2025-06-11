@@ -33,7 +33,7 @@ struct EditorTab
 {
 	EditorTab(Allocator& a);
 
-	static EditorTab* openEmpty(Allocator& a, const char* name, EditorRenderer* renderer);
+	static EditorTab* openEmpty(Allocator& a, EditorRenderer* renderer, i32 id);
 	static EditorTab* openExisting(Allocator& a, const char* name, truth::Key root, EditorRenderer* renderer);
 
 	void save();
@@ -47,8 +47,6 @@ struct EditorTab
 	void updateInstance(u64 id, float3 pos, float3 color);
 	void popInstance(u64 id);
 
-	const char* name() const { return m_name; }
-
 	void buildDrawList();
 
 	EditorRenderer* m_renderer;
@@ -57,8 +55,11 @@ struct EditorTab
 
 	HashMap<Instance> m_instances;
 	DrawList m_drawList;
+	u64 m_id;
 
-	const char* m_name;
+	ReadOnlySnapshot m_state;
+
+	char m_name[32];
 	truth::Key m_root;
 };
 

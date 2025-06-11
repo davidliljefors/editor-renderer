@@ -11,6 +11,8 @@
 
 #include <wincrypt.h>
 
+#include "Core/TempAllocator.h"
+
 #pragma comment(lib, "advapi32.lib")
 
 static EditorApp* s_app;
@@ -206,13 +208,13 @@ void EditorViewport::update()
 	ImGui::PopStyleVar();
 }
 
-EditorTab* EditorTab::openEmpty(Allocator& a, const char* name, EditorRenderer* renderer)
+EditorTab* EditorTab::openEmpty(Allocator& a, EditorRenderer* renderer, i32 id)
 {
     EditorTab* tab = create<EditorTab>(a, a);
-    tab->m_name = name;
-
+	tab->m_state = g_truth->head();
 	tab->m_renderer = renderer;
-    tab->m_name = "";
+
+	sprintf_s(tab->m_name, "New (%d)", id);
 
 	tab->addViewport();
 
@@ -233,7 +235,8 @@ EditorTab* EditorTab::openEmpty(Allocator& a, const char* name, EditorRenderer* 
 EditorTab* EditorTab::openExisting(Allocator& a, const char* name, truth::Key root, EditorRenderer* renderer)
 {
     EditorTab* tab = create<EditorTab>(a, a);
-    tab->m_name = name;
+
+	sprintf_s(tab->m_name, "%s", name);
     return tab;
 }
 
@@ -244,7 +247,41 @@ void EditorTab::save()
 
 void EditorTab::update()
 {
-	buildDrawList();
+	ReadOnlySnapshot newHead = g_truth->head();
+	if (m_state.s != newHead.s)
+	{
+		{
+			TempAllocator ta;
+			Array<KeyEntry> adds(ta);
+			Array<KeyEntry> removes(ta);
+			Array<KeyEntry> edits(ta);
+
+			diff(m_state.s, newHead.s, adds, edits, removes);
+
+			for (i32 i = 0; i < adds.size(); ++i)
+			{
+				Entity* e = (Entity*)adds[i].value;
+				addInstance(adds[i].key.asU64, e->position);
+			}
+
+			for (const KeyEntry& edit : edits)
+			{
+				Entity* i = (Entity*)edit.value;
+				constexpr float3 defaultColor =		{0.5f, 0.5f, 0.5f};
+
+				updateInstance(edit.key.asU64, i->position, defaultColor);
+			}
+
+			for (const KeyEntry& remove : removes)
+			{
+				popInstance(remove.key.asU64);
+			}
+
+			buildDrawList();
+
+			m_state = newHead;
+		}
+	}
 
     for (EditorViewport* vp : m_viewports)
     {
@@ -318,7 +355,6 @@ void EditorTab::buildDrawList()
 EditorTab::EditorTab(Allocator& a)
 	: m_windows(a), m_viewports(a), m_instances(a)
 {
-
 }
 
 void EditorApp::run()
@@ -365,7 +401,9 @@ void EditorApp::update()
 
     ImGui::Begin("MainWindow", nullptr, window_flags);
 
-    EditorTab** focusedTab = m_openTabs.find(m_hFocusedTab);
+
+    EditorTab** focusedTabFind = m_openTabs.find(m_hFocusedTab);
+	EditorTab* focusedTab = focusedTabFind ? *focusedTabFind : nullptr;
 
     if (ImGui::BeginMenuBar())
     {
@@ -374,12 +412,12 @@ void EditorApp::update()
 
             if (ImGui::MenuItem("New")) 
             {
-				static int nextDocuemntId = 0;
+				static int nextId = 0;
 
-				int newDocumentId = nextDocuemntId++;
+				int newId = nextId++;
 
-                m_openTabs[newDocumentId] = EditorTab::openEmpty(*GLOBAL_HEAP, "New", m_renderer);
-                m_hFocusedTab = newDocumentId;
+                m_openTabs[newId] = EditorTab::openEmpty(*GLOBAL_HEAP, m_renderer, newId);
+                m_hFocusedTab = newId;
             }
 
             if (ImGui::MenuItem("Open")) 
@@ -390,7 +428,7 @@ void EditorApp::update()
             ImGui::BeginDisabled(focusedTab == nullptr);
             if (ImGui::MenuItem("Save")) 
             {
-                (*focusedTab)->save();
+                focusedTab->save();
             }
             ImGui::EndDisabled();
 
@@ -400,10 +438,15 @@ void EditorApp::update()
 
     	if (ImGui::BeginMenu("   Tabs   "))
 		{
-            for (auto& tab : m_openTabs)
-            {
-                ImGui::MenuItem("Some Tab");
-            }
+			for (i32 i = 0; i<m_openTabs.size(); ++i)
+			{
+				char buf[64];
+				sprintf_s(buf, "%s", m_openTabs.data()[i].value->m_name);
+                if (ImGui::MenuItem(buf))
+                {
+					m_hFocusedTab = m_openTabs.data()[i].key;
+				}
+			}
             ImGui::EndMenu();
         }
 
@@ -411,7 +454,7 @@ void EditorApp::update()
 		{
             if (focusedTab && ImGui::MenuItem("Add Viewport"))
             {
-				(*focusedTab)->addViewport();
+				focusedTab->addViewport();
 			}
             ImGui::EndMenu();
         }
@@ -431,7 +474,7 @@ void EditorApp::update()
 
     if (focusedTab)
     {
-        (*focusedTab)->update();
+        focusedTab->update();
     }
 }
 

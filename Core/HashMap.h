@@ -63,8 +63,8 @@ public:
 	};	
 
 	explicit HashMap(Allocator& allocator)
-		: hash(allocator)
-		, data(allocator)
+		: m_hash(allocator)
+		, m_data(allocator)
 	{
 
 	}
@@ -88,6 +88,8 @@ public:
 
 	Iterator end();
 
+	Entry* data();
+
 private:
 	HashFind find_impl(u64 key);
 
@@ -103,8 +105,8 @@ private:
 
 	void rehash(i32 new_size);
 
-	Array<u32> hash;
-	Array<Entry> data;
+	Array<u32> m_hash;
+	Array<Entry> m_data;
 };
 
 template <typename T>
@@ -116,13 +118,13 @@ T* HashMap<T>::find(u64 key)
 		return nullptr;
 	}
 
-	return &data[find.dataIndex].value;
+	return &m_data[find.dataIndex].value;
 }
 
 template <typename T>
 void HashMap<T>::add(u64 key, T value)
 {
-	if (hash.empty())
+	if (m_hash.empty())
 		grow();
 
 	const HashFind fr = find_impl(key);
@@ -132,14 +134,14 @@ void HashMap<T>::add(u64 key, T value)
 	u32 i = add_entry(key);
 	if (fr.dataPrev == END_OF_CHAIN)
 	{
-		hash[fr.hashIndex] = i;
+		m_hash[fr.hashIndex] = i;
 	}
 	else
 	{
-		data[fr.dataPrev].next = i;
+		m_data[fr.dataPrev].next = i;
 	}
 
-	memcpy(&data[i].value, &value, sizeof(T));
+	memcpy(&m_data[i].value, &value, sizeof(T));
 	memset(&value, 0, sizeof(T));
 
 	if (is_full())
@@ -158,12 +160,12 @@ void HashMap<T>::insert_or_assign(u64 key, const T& value)
 template <typename T>
 void HashMap<T>::insert_or_assign(u64 key, T&& value)
 {
-	if (hash.empty())
+	if (m_hash.empty())
 		grow();
 
 	const u32 i = find_or_make(key);
 
-	memcpy(&data[i].value, &value, sizeof(T));
+	memcpy(&m_data[i].value, &value, sizeof(T));
 	memset(&value, 0, sizeof(T));
 
 	if (is_full())
@@ -183,7 +185,7 @@ void HashMap<T>::erase(u64 key)
 template <typename T>
 T& HashMap<T>::operator[](u64 key)
 {
-	if (hash.empty())
+	if (m_hash.empty())
 		grow();
 
 	i32 i = find_or_make(key);
@@ -194,25 +196,31 @@ T& HashMap<T>::operator[](u64 key)
 		i = find_or_make(key);
 	}
 
-	return data[i].value;
+	return m_data[i].value;
 }
 
 template <typename T>
 i32 HashMap<T>::size() const
 {
-	return data.size();
+	return m_data.size();
 }
 
 template <typename T>
 typename HashMap<T>::Iterator HashMap<T>::begin()
 {
-	return Iterator{&data, 0};
+	return Iterator{&m_data, 0};
 }
 
 template <typename T>
 typename HashMap<T>::Iterator HashMap<T>::end()
 {
-	return Iterator{&data, data.size()};
+	return Iterator{&m_data, m_data.size()};
+}
+
+template <typename T>
+typename HashMap<T>::Entry* HashMap<T>::data()
+{
+	return m_data.data();
 }
 
 
@@ -224,19 +232,19 @@ typename HashMap<T>::HashFind HashMap<T>::find_impl(u64 key)
 	find.dataPrev = END_OF_CHAIN;
 	find.dataIndex = END_OF_CHAIN;
 
-	if (hash.empty())
+	if (m_hash.empty())
 		return find;
 
-	find.hashIndex = key & (hash.size() - 1);
-	find.dataIndex = hash[find.hashIndex];
+	find.hashIndex = key & (m_hash.size() - 1);
+	find.dataIndex = m_hash[find.hashIndex];
 	while (find.dataIndex != END_OF_CHAIN)
 	{
-		if (data[find.dataIndex].key == key)
+		if (m_data[find.dataIndex].key == key)
 		{
 			return find;
 		}
 		find.dataPrev = find.dataIndex;
-		find.dataIndex = data[find.dataIndex].next;
+		find.dataIndex = m_data[find.dataIndex].next;
 	}
 
 	return find;
@@ -246,29 +254,29 @@ template <typename T>
 void HashMap<T>::erase_impl(HashFind find)
 {
 	if (find.dataPrev == END_OF_CHAIN)
-		hash[find.hashIndex] = data[find.dataIndex].next;
+		m_hash[find.hashIndex] = m_data[find.dataIndex].next;
 	else
-		data[find.dataPrev].next = data[find.dataIndex].next;
+		m_data[find.dataPrev].next = m_data[find.dataIndex].next;
 
-	if (find.dataIndex == u32(data.size() - 1))
+	if (find.dataIndex == u32(m_data.size() - 1))
 	{
-		data.resize(data.size() - 1);
+		m_data.resize(m_data.size() - 1);
 		return;
 	}
 
-	data[find.dataIndex] = data[data.size() - 1];
-	HashFind last = find_impl(data[find.dataIndex].key);
+	m_data[find.dataIndex] = m_data[m_data.size() - 1];
+	HashFind last = find_impl(m_data[find.dataIndex].key);
 
 	if (last.dataPrev != END_OF_CHAIN)
 	{
-		data[last.dataPrev].next = find.dataIndex;
+		m_data[last.dataPrev].next = find.dataIndex;
 	}
 	else
 	{
-		hash[last.hashIndex] = find.dataIndex;
+		m_hash[last.hashIndex] = find.dataIndex;
 	}
 
-	data.resize(data.size() - 1);
+	m_data.resize(m_data.size() - 1);
 }
 
 template <typename T>
@@ -277,8 +285,8 @@ i32 HashMap<T>::add_entry(u64 key)
 	typename HashMap<T>::Entry e;
 	e.key = key;
 	e.next = END_OF_CHAIN;
-	u32 ei = data.size();
-	data.push_back(e);
+	u32 ei = m_data.size();
+	m_data.push_back(e);
 	return ei;
 }
 
@@ -292,11 +300,11 @@ i32 HashMap<T>::find_or_make(u64 key)
 	u32 i = add_entry(key);
 	if (fr.dataPrev == END_OF_CHAIN)
 	{
-		hash[fr.hashIndex] = i;
+		m_hash[fr.hashIndex] = i;
 	}
 	else
 	{
-		data[fr.dataPrev].next = i;
+		m_data[fr.dataPrev].next = i;
 	}
 
 	return i;
@@ -306,19 +314,19 @@ template <typename T>
 bool HashMap<T>::is_full()
 {
 	constexpr float kMaxLoadFactor = 0.7f;
-	return (float)data.size() >= (float)hash.size() * kMaxLoadFactor;
+	return (float)m_data.size() >= (float)m_hash.size() * kMaxLoadFactor;
 }
 
 template <typename T>
 void HashMap<T>::grow()
 {
-	if (hash.size() == 0)
+	if (m_hash.size() == 0)
 	{
 		rehash(16);
 	}
 	else
 	{
-		const u32 newSize = hash.size() * 2;
+		const u32 newSize = m_hash.size() * 2;
 		rehash(newSize);
 	}
 }
@@ -326,29 +334,29 @@ void HashMap<T>::grow()
 template <typename T>
 void HashMap<T>::rehash(i32 new_size)
 {
-	HashMap<T> nh(data.get_allocator());
+	HashMap<T> nh(m_data.get_allocator());
 
-	nh.hash.resize(new_size);
-	nh.data.reserve(data.size());
+	nh.m_hash.resize(new_size);
+	nh.m_hash.reserve(m_data.size());
 
 	for (i32 i = 0; i < new_size; ++i)
 	{
-		nh.hash[i] = END_OF_CHAIN;
+		nh.m_hash[i] = END_OF_CHAIN;
 	}
 
-	for (i32 i = 0; i < data.size(); ++i)
+	for (i32 i = 0; i < m_data.size(); ++i)
 	{
-		auto& e = data[i];
+		auto& e = m_data[i];
 		nh.insert_or_assign(e.key, static_cast<T&&>(e.value));
 	}
 
-	if (hash.empty())
+	if (m_hash.empty())
 	{
-		hash.swap(nh.hash);
+		m_hash.swap(nh.m_hash);
 	}
 	else
 	{
-		data.swap(nh.data);
-		hash.swap(nh.hash);
+		m_data.swap(nh.m_data);
+		m_hash.swap(nh.m_hash);
 	}
 }
