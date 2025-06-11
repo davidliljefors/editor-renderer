@@ -7,7 +7,7 @@
 #include "TruthView.h"
 #include "Core/HashMap.h"
 
-class EditorTab;
+struct EditorTab;
 
 class IEditorWindow
 {
@@ -29,10 +29,9 @@ struct EditorViewport : IViewport
 	u64 id = 0;
 };
 
-class EditorTab
+struct EditorTab
 {
-public:
-	EditorTab(Allocator& a, EditorRenderer* renderer);
+	EditorTab(Allocator& a);
 
 	static EditorTab* openEmpty(Allocator& a, const char* name, EditorRenderer* renderer);
 	static EditorTab* openExisting(Allocator& a, const char* name, truth::Key root, EditorRenderer* renderer);
@@ -50,7 +49,6 @@ public:
 
 	const char* name() const { return m_name; }
 
-private:
 	void buildDrawList();
 
 	EditorRenderer* m_renderer;

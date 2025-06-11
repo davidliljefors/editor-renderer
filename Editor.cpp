@@ -9,7 +9,75 @@
 #include "Scene.h"
 #include "Core/HashMap.h"
 
+#include <wincrypt.h>
+
+#pragma comment(lib, "advapi32.lib")
+
 static EditorApp* s_app;
+
+struct Xoshiro256
+{
+	static uint64_t rotl(const uint64_t x, int k) 
+	{
+		return (x << k) | (x >> (64 - k));
+	}
+
+	uint64_t next()
+	{
+		const uint64_t result = rotl(s[0] + s[3], 23) + s[0];
+		const uint64_t t = s[1] << 17;
+
+		s[2] ^= s[0];
+		s[3] ^= s[1];
+		s[1] ^= s[2];
+		s[0] ^= s[3];
+
+		s[2] ^= t;
+
+		s[3] = rotl(s[3], 45);
+
+		return result;
+	}
+
+	uint64_t s[4]{ 0x180ec6d33cfd0aba, 0xd5a61266f0c9392c, 0xa9582618e03fc9aa, 0x39abdc4529b1661c };
+};
+
+Xoshiro256 g_rand;
+
+truth::Key nextKey()
+{
+	truth::Key key;
+	key.asU64 = g_rand.next();
+	return key;
+}
+
+int InitializeRandomContext(Xoshiro256* rand)
+{
+	HCRYPTPROV hCryptProv = 0;
+
+	if (!CryptAcquireContext(
+		&hCryptProv,
+		NULL,
+		NULL,
+		PROV_RSA_FULL,
+		CRYPT_VERIFYCONTEXT))
+	{
+		return 1;
+	}
+
+	if (!CryptGenRandom(hCryptProv, sizeof(Xoshiro256), reinterpret_cast<u8*>(rand)))
+	{
+		CryptReleaseContext(hCryptProv, 0);
+		return 1;
+	}
+
+	if (!CryptReleaseContext(hCryptProv, 0))
+	{
+		return 1;
+	}
+
+	return 0;
+}
 
 extern LRESULT ImGui_ImplWin32_WndProcHandler(HWND hwnd, UINT msg, WPARAM uint, LPARAM long_);
 
@@ -140,14 +208,31 @@ void EditorViewport::update()
 
 EditorTab* EditorTab::openEmpty(Allocator& a, const char* name, EditorRenderer* renderer)
 {
-    EditorTab* tab = create<EditorTab>(a, a, renderer);
+    EditorTab* tab = create<EditorTab>(a, a);
     tab->m_name = name;
+
+	tab->m_renderer = renderer;
+    tab->m_name = "";
+
+	tab->addViewport();
+
+	truth::Key root = nextKey();
+
+	tab->m_root = root;
+	Allocator& ta = g_truth->allocator();
+	Entity* rootEntity = create<Entity>(ta, ta);
+
+	g_truth->set(tab->m_root, rootEntity);
+
+	OutlinerWindow* window = create<OutlinerWindow>(*GLOBAL_HEAP, g_truth, root);
+	tab->m_windows.push_back(window);
+
     return tab;
 }
 
 EditorTab* EditorTab::openExisting(Allocator& a, const char* name, truth::Key root, EditorRenderer* renderer)
 {
-    EditorTab* tab = create<EditorTab>(a, a, renderer);
+    EditorTab* tab = create<EditorTab>(a, a);
     tab->m_name = name;
     return tab;
 }
@@ -230,22 +315,10 @@ void EditorTab::buildDrawList()
 	}
 }
 
-EditorTab::EditorTab(Allocator& a, EditorRenderer* renderer)
+EditorTab::EditorTab(Allocator& a)
 	: m_windows(a), m_viewports(a), m_instances(a)
 {
-    m_root = {};
-    m_renderer = renderer;
-    m_name = "";
 
-	addViewport();
-
-	addInstance(0, {0.0f, 0.0f, 0.0f});
-	addInstance(1, {5.0f, 0.0f, 5.0f});
-	addInstance(2, {-5.0f, 0.0f, -5.0f});
-
-	OutlinerWindow* window = create<OutlinerWindow>(*GLOBAL_HEAP, g_truth, m_root);
-
-	m_windows.push_back(window);
 }
 
 void EditorApp::run()
@@ -377,6 +450,8 @@ Truth* g_truth;
 EditorApp::EditorApp(Allocator& a)
 	:m_openTabs(a)
 {
+	InitializeRandomContext(&g_rand);
+
     m_renderer = nullptr;
     m_hFocusedTab = 0;
 
