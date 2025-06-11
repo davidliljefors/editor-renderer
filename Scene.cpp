@@ -5,6 +5,7 @@
 
 #include "Core/TempAllocator.h"
 #include "EditorRenderer.h"
+#include "Entity.h"
 #include "imgui.h"
 #include "TruthView.h"
 //
@@ -297,7 +298,7 @@ void DoEntityContextMenu(Truth* truth, truth::Key key, const Entity* entity) {
 	{
 		if (ImGui::MenuItem("Rename"))
 		{
-			strncpy_s(nameBuffer, entity->m_name.data(), sizeof(nameBuffer) - 1);
+			strncpy_s(nameBuffer, entity->name, sizeof(nameBuffer) - 1);
 			nameBuffer[sizeof(nameBuffer) - 1] = '\0';
 			isRenaming = true;
 			ImGui::OpenPopup("Rename Entity");
@@ -319,11 +320,11 @@ void DoEntityContextMenu(Truth* truth, truth::Key key, const Entity* entity) {
 				ImGui::SetKeyboardFocusHere(-1); // Focus on the InputText
 			}
 
-			if (ImGui::IsKeyPressed(ImGuiKey_Enter) && !ImGui::IsItemDeactivated())
+			/*if (ImGui::IsKeyPressed(ImGuiKey_Enter) && !ImGui::IsItemDeactivated())
 			{
 				auto tx = truth->openTransaction();
 				Entity* writing = (Entity*)truth->write(tx, key);
-				alloc_str(writing->m_name, nameBuffer); // Update the entity name
+				alloc_str(writing->m_name, nameBuffer);
 
 				truth->commit(tx);
 				isRenaming = false;
@@ -335,11 +336,11 @@ void DoEntityContextMenu(Truth* truth, truth::Key key, const Entity* entity) {
 				auto tx = truth->openTransaction();
 				Entity* writing = (Entity*)truth->write(tx, key);
 
-				alloc_str(writing->m_name, nameBuffer); // Update the entity name
+				alloc_str(writing->m_name, nameBuffer);
 				truth->commit(tx);
 				isRenaming = false;
 				ImGui::CloseCurrentPopup();
-			}
+			}*/
 
 			ImGui::SameLine();
 
@@ -354,7 +355,7 @@ void DoEntityContextMenu(Truth* truth, truth::Key key, const Entity* entity) {
 	}
 }
 
-void DrawEntityHierarchy(Truth* truth, ReadOnlySnapshot snap, truth::Key key)
+void DrawEntityHierarchy(Truth* truth, ReadOnlySnapshot snap, truth::Key key, truth::Key* selected)
 {
 	const Entity* entity = (const Entity*)truth->read(snap, key);
 
@@ -363,23 +364,38 @@ void DrawEntityHierarchy(Truth* truth, ReadOnlySnapshot snap, truth::Key key)
 		return;
 	}
 
-	ImGui::PushID(key.asU64);
-	if (ImGui::TreeNode(entity->m_name.begin()))
-	{
-		DoEntityContextMenu(truth, key, entity);
+	ImGui::PushID((int)key.asU64);
 
-		float3 editPosition = entity->position;
-		if (ImGui::DragFloat3("Position", &editPosition.x))
+	ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_OpenOnArrow | ImGuiTreeNodeFlags_OpenOnDoubleClick;
+	if (entity->children.empty())
+	{
+		flags |= ImGuiTreeNodeFlags_Leaf;
+	}
+
+	if (key == *selected)
+	{
+		flags |= ImGuiTreeNodeFlags_Selected;
+	}
+
+	char buf[64];
+	if (entity->children.empty())
+	{
+		sprintf_s(buf, "%s", entity->name);
+	}
+	else
+	{
+		sprintf_s(buf, "%s [%d]", entity->name, entity->children.size());
+	}
+	if (ImGui::TreeNodeEx(buf, flags))
+	{
+		if (ImGui::IsItemClicked())
 		{
-			auto tx = truth->openTransaction();
-			Entity* editEntity = (Entity*)truth->write(tx, key);
-			editEntity->position = editPosition;
-			truth->commit(tx);
+			*selected = key;
 		}
 
-		for (truth::Key child : entity->m_children)
+		for (truth::Key child : entity->children)
 		{
-			DrawEntityHierarchy(truth, snap, child);
+			DrawEntityHierarchy(truth, snap, child, selected);
 		}
 
 		ImGui::TreePop();
@@ -388,12 +404,87 @@ void DrawEntityHierarchy(Truth* truth, ReadOnlySnapshot snap, truth::Key key)
 	ImGui::PopID();
 }
 
+
 void OutlinerWindow::update()
 {
 	ReadOnlySnapshot snapshot = m_truth->head();
 
-	DrawEntityHierarchy(m_truth, snapshot, m_root);
+	ImGui::Begin("Outliner");
+	ImGui::Text("Outliner");
+	DrawEntityHierarchy(m_truth, snapshot, m_root, &m_selected);
+	ImGui::End();
+
+	ImGui::Begin("Inspector");
+	ImGui::Text("Inspector");
+	const TruthElement* selectedElement = m_truth->read(snapshot, m_selected);
+
+	if (selectedElement)
+	{
+		if (selectedElement->typeId() == Entity::kTypeId)
+		{
+			const Entity* e = (const Entity*)selectedElement;
+			float3 value = e->position;
+			ImGui::DragFloat3("Entity Position", &value.x);
+			if (ImGui::IsItemDeactivatedAfterEdit())
+			{
+				Transaction tx = m_truth->openTransaction();
+				Entity* writable = (Entity*)m_truth->edit(tx, m_selected);
+				writable->position = value;
+				m_truth->commit(tx);
+			}
+		}
+	}
+
+	if (ImGui::Button("Add Entity"))
+	{
+		truth::Key newEntityId = nextKey();
+		Entity* newEntity = Entity::create(m_truth->allocator());
+		newEntity->root = m_root;
+
+		Transaction tx = m_truth->openTransaction();
+
+		Entity* parent = (Entity*)m_truth->edit(tx, m_root);
+		
+		parent->children.push_back(newEntityId);
+		newEntity->root = m_root;
+
+		m_truth->add(tx, newEntityId, newEntity);
+
+		m_truth->commit(tx);
+	}
+	ImGui::End();
 }
+
+static AssetBrowserWindow* s_instance;
+
+AssetBrowserWindow::AssetBrowserWindow()
+{
+	roots.set_allocator(GLOBAL_HEAP);
+	s_instance = this;
+}
+
+void AssetBrowserWindow::update(truth::Key* outClicked)
+{
+	ImGui::Begin("AssetBrowserWindow");
+	auto s = g_truth->snap();
+
+	for (truth::Key root : roots)
+	{
+		const Entity* entity = (const Entity*)g_truth->read(s, root);
+		if (ImGui::Button(entity->name))
+		{
+			*outClicked = root;
+		}
+	}
+
+	ImGui::End();
+}
+
+void AssetBrowserWindow::registerRoot(truth::Key id)
+{
+	s_instance->roots.push_back(id);
+}
+
 //
 //DrawList SceneViewport::getDrawList()
 //{

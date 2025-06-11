@@ -67,7 +67,20 @@ public:
 
 	Truth* m_truth;
 	truth::Key m_root;
+	truth::Key m_selected;
 };
+
+
+class AssetBrowserWindow
+{
+public:
+	AssetBrowserWindow();
+
+	void update(truth::Key* outClicked);
+	static void registerRoot(truth::Key id);
+	Array<truth::Key> roots;
+};
+
 //
 //class Scene
 //{

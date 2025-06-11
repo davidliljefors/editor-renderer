@@ -16,9 +16,16 @@ struct Allocator
 };
 
 template <typename T, typename... Args>
-T* create(Allocator& allocator, Args&&... args)
+T* alloc(Allocator* allocator)
 {
-	void* mem = allocator.alloc(sizeof(T));
+	void* mem = allocator->alloc(sizeof(T));
+	return new (mem) T();
+}
+
+template <typename T, typename... Args>
+T* create(Allocator* allocator, Args&&... args)
+{
+	void* mem = allocator->alloc(sizeof(T));
 	return new (mem) T(args...);
 }
 

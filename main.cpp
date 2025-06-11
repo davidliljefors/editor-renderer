@@ -13,7 +13,7 @@ i32 main()
 
 	block_memory_init();
 
-	EditorApp* app = create<EditorApp>(gHeap, gHeap);
+	EditorApp* app = create<EditorApp>(GLOBAL_HEAP, GLOBAL_HEAP);
 	app->run();
 
 	block_memory_shutdown();

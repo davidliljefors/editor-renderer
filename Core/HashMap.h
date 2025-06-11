@@ -62,15 +62,23 @@ public:
 		i32 index;
 	};	
 
-	explicit HashMap(Allocator& allocator)
+	explicit HashMap(Allocator* allocator)
 		: m_hash(allocator)
 		, m_data(allocator)
 	{
 
 	}
 
+	explicit HashMap()
+	{
+
+	}
+
+	void set_allocator(Allocator* a);
 
 	T* find(u64 key);
+
+	bool contains(u64 key) const;
 
 	void add(u64 key, T value);
 
@@ -84,11 +92,13 @@ public:
 
 	i32 size() const;
 
-	Iterator begin();
+	Entry* begin();
 
-	Iterator end();
+	Entry* end();
 
 	Entry* data();
+
+	HashMap clone() const;
 
 private:
 	HashFind find_impl(u64 key);
@@ -110,6 +120,16 @@ private:
 };
 
 template <typename T>
+void HashMap<T>::set_allocator(Allocator* a)
+{
+	assert(m_data.get_allocator() == nullptr);
+	assert(m_hash.get_allocator() == nullptr);
+
+	m_data.set_allocator(a);
+	m_hash.set_allocator(a);
+}
+
+template <typename T>
 T* HashMap<T>::find(u64 key)
 {
 	HashFind find = find_impl(key);
@@ -119,6 +139,14 @@ T* HashMap<T>::find(u64 key)
 	}
 
 	return &m_data[find.dataIndex].value;
+}
+
+template <typename T>
+bool HashMap<T>::contains(u64 key) const
+{
+	HashMap* self = (HashMap*)this;
+	HashFind find = self->find_impl(key);
+	return find.dataIndex != END_OF_CHAIN;
 }
 
 template <typename T>
@@ -206,21 +234,31 @@ i32 HashMap<T>::size() const
 }
 
 template <typename T>
-typename HashMap<T>::Iterator HashMap<T>::begin()
+typename HashMap<T>::Entry* HashMap<T>::begin()
 {
-	return Iterator{&m_data, 0};
+	return m_data.begin();
 }
 
 template <typename T>
-typename HashMap<T>::Iterator HashMap<T>::end()
+typename HashMap<T>::Entry* HashMap<T>::end()
 {
-	return Iterator{&m_data, m_data.size()};
+	return m_data.end();
 }
 
 template <typename T>
 typename HashMap<T>::Entry* HashMap<T>::data()
 {
 	return m_data.data();
+}
+
+template <typename T>
+HashMap<T> HashMap<T>::clone() const
+{
+	HashMap clone(m_hash.get_allocator());
+	clone.m_data = m_data.clone();
+	clone.m_hash = m_hash.clone();
+
+	return clone;
 }
 
 

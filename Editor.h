@@ -7,6 +7,7 @@
 #include "TruthView.h"
 #include "Core/HashMap.h"
 
+class AssetBrowserWindow;
 struct EditorTab;
 
 class IEditorWindow
@@ -31,10 +32,8 @@ struct EditorViewport : IViewport
 
 struct EditorTab
 {
-	EditorTab(Allocator& a);
-
-	static EditorTab* openEmpty(Allocator& a, EditorRenderer* renderer, i32 id);
-	static EditorTab* openExisting(Allocator& a, const char* name, truth::Key root, EditorRenderer* renderer);
+	static EditorTab* openEmpty(Allocator* a, EditorRenderer* renderer, i32 id);
+	static EditorTab* openExisting(Allocator* a, const char* name, truth::Key root, EditorRenderer* renderer);
 
 	void save();
 	void update();
@@ -42,6 +41,7 @@ struct EditorTab
 	void addViewport();
 	DrawList getDrawList();
 
+	void addPrototype(truth::Key prototype);
 
 	void addInstance(u64 id, float3 pos);
 	void updateInstance(u64 id, float3 pos, float3 color);
@@ -66,7 +66,7 @@ struct EditorTab
 class EditorApp
 {
 public:
-	EditorApp(Allocator& a);
+	EditorApp(Allocator* a);
 
 	void run();
 
@@ -76,6 +76,7 @@ public:
 
 private:
 	EditorRenderer* m_renderer;
+	AssetBrowserWindow* m_assetWindow;
 	HashMap<EditorTab*> m_openTabs;
 	u64 m_hFocusedTab;
 

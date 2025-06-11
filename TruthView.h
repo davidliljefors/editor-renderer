@@ -5,59 +5,13 @@
 #include "mh64.h"
 #include "TruthMap.h"
 
-inline void alloc_str(Array<char>& a, const char* input)
-{
-	i32 len = (i32)strlen(input);
-	a.resize(len+1);
-	strcpy_s(a.data(), len+1, input);
-}
-
-enum EntityFlag : u32
-{
-	Hovered = 1 << 0,
-	Selected = 1 << 1,
-};
-
-struct Entity : TruthElement
-{
-	inline static const char* kName = "Entity";
-	inline static const u64 kTypeId = MetroHash64::Hash(kName, strlen(kName));
-
-	Entity(Allocator& a)
-		: m_children(a)
-		, m_name(a)
-	{
-		alloc_str(m_name, "New Entity");
-	}
-
-	~Entity() override = default;
-
-	u64 typeId() override
-	{
-		return kTypeId;
-	}
-
-	TruthElement* clone(Allocator& a) const override
-	{
-		Entity* entityClone = create<Entity>(a, a);
-		entityClone->m_children = m_children.clone();
-		entityClone->position = position;
-		entityClone->flags = flags;
-		return entityClone;
-	}
-
-	Array<truth::Key> m_children;
-	Array<char> m_name;
-	float3 position = {};
-
-	u32 flags = 0;
-};
-
 struct Transaction
 {
 	ReadOnlySnapshot base;
 	Snapshot uncommitted;
 };
+
+truth::Key nextKey();
 
 class Truth
 {
@@ -68,7 +22,7 @@ public:
 		
 	};
 
-	explicit Truth(Allocator& allocator)
+	explicit Truth(Allocator* allocator)
 		: m_allocator(allocator)
 		, m_history(allocator)
 	{
@@ -96,11 +50,11 @@ public:
 	const TruthElement* read(ReadOnlySnapshot snap, truth::Key key);
 	const TruthElement* read(Transaction& tx, truth::Key key);
 	void add(Transaction& tx, truth::Key key, TruthElement* element);
-	TruthElement* write(Transaction& tx, truth::Key key);
+	TruthElement* edit(Transaction& tx, truth::Key key);
 	void erase(Transaction& tx, truth::Key key);
 
 
-	Allocator& allocator() const { return m_allocator; }
+	Allocator* allocator() const { return m_allocator; }
 
 	/// Undo Stack API
 	
@@ -159,7 +113,7 @@ public:
 	}
 
 private:
-	Allocator& m_allocator;
+	Allocator* m_allocator;
 	Array<ReadOnlySnapshot> m_history;
 	i32 m_readIndex = 0;
 };
@@ -238,7 +192,7 @@ inline void Truth::add(Transaction& tx, truth::Key key, TruthElement* element)
 	tx.uncommitted.s = TruthMap::writeValue(tx.base.s, tx.uncommitted.s, key, element);
 }
 
-inline TruthElement* Truth::write(Transaction& tx, truth::Key key)
+inline TruthElement* Truth::edit(Transaction& tx, truth::Key key)
 {
 	TruthElement* element;
 	tx.uncommitted.s = TruthMap::lookupForWrite(tx.base.s, tx.uncommitted.s, key, &element);

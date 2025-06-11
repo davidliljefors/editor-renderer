@@ -45,8 +45,10 @@ inline bool operator!=(truth::Key a, truth::Key b)
 struct TruthElement
 {
 	virtual ~TruthElement() = default;
-	virtual u64 typeId() = 0;
-	virtual TruthElement* clone(Allocator& a) const = 0;
+	virtual u64 typeId() const = 0;
+	virtual TruthElement* clone(Allocator* a) const = 0;
+
+	truth::Key root;
 };
 
 struct KeyEntry
@@ -94,7 +96,7 @@ struct Snapshot
 class TruthMap
 {
 public:
-	explicit TruthMap(Allocator& allocator)
+	explicit TruthMap(Allocator* allocator)
 		: m_allocator(allocator)
 	{}
 
@@ -111,11 +113,11 @@ public:
 		KeyEntry* begin() { return data; }
 		KeyEntry* end() { return data + size; }
 
-		static InlineArray* alloc(Allocator& arena, i32 capacity)
+		static InlineArray* alloc(Allocator* arena, i32 capacity)
 		{
 			i32 structSize = sizeof(InlineArray);
 			i32 dynamicArraySize = i32(sizeof(KeyEntry) * capacity);
-			InlineArray* arr = (InlineArray*)arena.alloc(structSize + dynamicArraySize);
+			InlineArray* arr = (InlineArray*)arena->alloc(structSize + dynamicArraySize);
 			arr->size = 0;
 			return arr;
 		}
@@ -159,7 +161,7 @@ public:
 		}
 	}
 
-	static TruthMap* makeRoot(Allocator& allocator)
+	static TruthMap* makeRoot(Allocator* allocator)
 	{
 		TruthMap* instance = create<TruthMap>(allocator, allocator);
 
@@ -259,7 +261,7 @@ private:
 		u32* outSlot)
 	{
 		TruthMap* updated = head;
-		Allocator& allocator = head->m_allocator;
+		Allocator* allocator = head->m_allocator;
 
 		if (updated == base)
 		{
@@ -382,7 +384,7 @@ private:
 				InlineArray* temp = InlineArray::alloc(allocator, entriesUpdate->size + 1);
 				temp->size = entriesUpdate->size;
 				memcpy(temp->data, entriesUpdate->data, entriesUpdate->size * sizeof(KeyEntry));
-				allocator.free(entriesUpdate);
+				allocator->free(entriesUpdate);
 				entriesUpdate = temp;
 				blockUpdate->entries[key.Entry] = entriesUpdate;
 			}
@@ -498,7 +500,7 @@ private:
 
 	BigBlock* m_root = nullptr;
 	u32 m_size = 0;
-	Allocator& m_allocator;
+	Allocator* m_allocator;
 
 	struct EntryComparer
 	{

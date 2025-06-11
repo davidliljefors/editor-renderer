@@ -11,6 +11,7 @@
 
 #include <wincrypt.h>
 
+#include "Entity.h"
 #include "Core/TempAllocator.h"
 
 #pragma comment(lib, "advapi32.lib")
@@ -208,9 +209,15 @@ void EditorViewport::update()
 	ImGui::PopStyleVar();
 }
 
-EditorTab* EditorTab::openEmpty(Allocator& a, EditorRenderer* renderer, i32 id)
+EditorTab* EditorTab::openEmpty(Allocator* a, EditorRenderer* renderer, i32 id)
 {
-    EditorTab* tab = create<EditorTab>(a, a);
+    EditorTab* tab = alloc<EditorTab>(a);
+
+	tab->m_instances.set_allocator(a);
+	tab->m_viewports.set_allocator(a);
+	tab->m_windows.set_allocator(a);
+
+
 	tab->m_state = g_truth->head();
 	tab->m_renderer = renderer;
 
@@ -219,22 +226,28 @@ EditorTab* EditorTab::openEmpty(Allocator& a, EditorRenderer* renderer, i32 id)
 	tab->addViewport();
 
 	truth::Key root = nextKey();
+	AssetBrowserWindow::registerRoot(root);
 
 	tab->m_root = root;
-	Allocator& ta = g_truth->allocator();
-	Entity* rootEntity = create<Entity>(ta, ta);
+	Allocator* ta = g_truth->allocator();
+	Entity* rootEntity = Entity::create(ta);
+	rootEntity->root = root;
 
 	g_truth->set(tab->m_root, rootEntity);
 
-	OutlinerWindow* window = create<OutlinerWindow>(*GLOBAL_HEAP, g_truth, root);
+	OutlinerWindow* window = create<OutlinerWindow>(GLOBAL_HEAP, g_truth, root);
 	tab->m_windows.push_back(window);
 
     return tab;
 }
 
-EditorTab* EditorTab::openExisting(Allocator& a, const char* name, truth::Key root, EditorRenderer* renderer)
+EditorTab* EditorTab::openExisting(Allocator* a, const char* name, truth::Key root, EditorRenderer* renderer)
 {
-    EditorTab* tab = create<EditorTab>(a, a);
+    EditorTab* tab = alloc<EditorTab>(a);
+
+	tab->m_instances.set_allocator(a);
+	tab->m_viewports.set_allocator(a);
+	tab->m_windows.set_allocator(a);
 
 	sprintf_s(tab->m_name, "%s", name);
     return tab;
@@ -245,42 +258,62 @@ void EditorTab::save()
 
 }
 
+bool isReferenced(const Entity* referee, const TruthElement* candidate)
+{
+	return referee->instantiatedRoots.contains(candidate->root.asU64);
+}
+
 void EditorTab::update()
 {
 	ReadOnlySnapshot newHead = g_truth->head();
+
 	if (m_state.s != newHead.s)
 	{
+		const Entity* rootEntity = (const Entity*)g_truth->read(m_state, m_root);
+
+		TempAllocator ta;
+		Array<KeyEntry> adds(&ta);
+		Array<KeyEntry> removes(&ta);
+		Array<KeyEntry> edits(&ta);
+
+		diff(m_state.s, newHead.s, adds, edits, removes);
+
+		for (auto& add : adds)
 		{
-			TempAllocator ta;
-			Array<KeyEntry> adds(ta);
-			Array<KeyEntry> removes(ta);
-			Array<KeyEntry> edits(ta);
-
-			diff(m_state.s, newHead.s, adds, edits, removes);
-
-			for (i32 i = 0; i < adds.size(); ++i)
+			if (add.value->root == m_root || isReferenced(rootEntity, add.value))
 			{
-				Entity* e = (Entity*)adds[i].value;
-				addInstance(adds[i].key.asU64, e->position);
+				Entity* e = (Entity*)add.value;
+				addInstance(add.key.asU64, e->position);
 			}
+		}
 
-			for (const KeyEntry& edit : edits)
+		for (const KeyEntry& edit : edits)
+		{
+			if (edit.value->root == m_root || isReferenced(rootEntity, edit.value))
 			{
 				Entity* i = (Entity*)edit.value;
-				constexpr float3 defaultColor =		{0.5f, 0.5f, 0.5f};
+				constexpr float3 defaultColor =	{0.5f, 0.5f, 0.5f};
 
 				updateInstance(edit.key.asU64, i->position, defaultColor);
 			}
+		}
 
-			for (const KeyEntry& remove : removes)
+		for (const KeyEntry& remove : removes)
+		{
+			if (remove.value->root == m_root || isReferenced(rootEntity, remove.value))
 			{
 				popInstance(remove.key.asU64);
+				Entity* i = (Entity*)remove.value;
+				for (auto& instantiated : i->instantiatedRoots)
+				{
+					
+				}
 			}
-
-			buildDrawList();
-
-			m_state = newHead;
 		}
+
+		buildDrawList();
+
+		m_state = newHead;
 	}
 
     for (EditorViewport* vp : m_viewports)
@@ -300,10 +333,16 @@ void EditorTab::addViewport()
 {
 	static u64 s_nextViewportId = 0;
 
-    EditorViewport* vp = create<EditorViewport>(*GLOBAL_HEAP);
+    EditorViewport* vp = create<EditorViewport>(GLOBAL_HEAP);
 	vp->tab = this;
 	vp->renderer = m_renderer;
 	vp->id = s_nextViewportId++;
+	vp->camera.m_position.x = -15;
+	vp->camera.m_position.y = 3;
+	vp->camera.m_position.z = -15;
+	vp->camera.m_yaw = 0.8f;
+	vp->camera.m_pitch = 0.25f;
+
 	registerViewport(m_renderer, vp);
 
 	m_viewports.push_back(vp);
@@ -312,6 +351,25 @@ void EditorTab::addViewport()
 DrawList EditorTab::getDrawList()
 {
 	return m_drawList;
+}
+
+void EditorTab::addPrototype(truth::Key prototype)
+{
+	const Entity* prototypeEntity = (const Entity*)g_truth->read(m_state, prototype);
+
+	if (prototypeEntity->root == m_root)
+	{
+		return;
+	}
+
+	Transaction tx = g_truth->openTransaction();
+	Entity* rootEntity = (Entity*)g_truth->edit(tx, m_root);
+
+	rootEntity->instantiatedRoots[prototype.asU64] += 1;
+
+	rootEntity->children.push_back(prototype);
+
+	g_truth->commit(tx);
 }
 
 void EditorTab::addInstance(u64 id, float3 pos)
@@ -350,11 +408,6 @@ void EditorTab::buildDrawList()
 	{
 		m_drawList.data[idx++] = instance;
 	}
-}
-
-EditorTab::EditorTab(Allocator& a)
-	: m_windows(a), m_viewports(a), m_instances(a)
-{
 }
 
 void EditorApp::run()
@@ -416,7 +469,7 @@ void EditorApp::update()
 
 				int newId = nextId++;
 
-                m_openTabs[newId] = EditorTab::openEmpty(*GLOBAL_HEAP, m_renderer, newId);
+                m_openTabs[newId] = EditorTab::openEmpty(GLOBAL_HEAP, m_renderer, newId);
                 m_hFocusedTab = newId;
             }
 
@@ -470,10 +523,20 @@ void EditorApp::update()
         ImGui::DockSpace(dockspace_id, ImVec2(0, 0), ImGuiDockNodeFlags_PassthruCentralNode);
     }
     ImGui::EndChild();
-    ImGui::End();
+
+
+	ImGui::End();
+
+	truth::Key clicked{};
+	m_assetWindow->update(&clicked);
 
     if (focusedTab)
     {
+		if (clicked.asU64 != 0)
+		{
+			focusedTab->addPrototype(clicked);
+		}
+
         focusedTab->update();
     }
 }
@@ -490,18 +553,18 @@ void EditorApp::onResize(u32 w, u32 h)
 
 Truth* g_truth;
 
-EditorApp::EditorApp(Allocator& a)
-	:m_openTabs(a)
+EditorApp::EditorApp(Allocator* a)
 {
 	InitializeRandomContext(&g_rand);
-
+	m_openTabs.set_allocator(a);
+	m_assetWindow = create<AssetBrowserWindow>(a);
     m_renderer = nullptr;
     m_hFocusedTab = 0;
 
-	g_truth = create<Truth>(*GLOBAL_HEAP, *GLOBAL_HEAP);
+	g_truth = create<Truth>(GLOBAL_HEAP, GLOBAL_HEAP);
     
-	u32 x = GetSystemMetrics(SM_CXSCREEN) - 60;
-	u32 y = GetSystemMetrics(SM_CYSCREEN) - 60;
+	i32 x = GetSystemMetrics(SM_CXSCREEN) - 60;
+	i32 y = GetSystemMetrics(SM_CYSCREEN) - 60;
 
 	m_hwnd = createWindow(x, y);
 

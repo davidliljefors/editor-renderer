@@ -361,8 +361,8 @@ inline void generate_sphere_mesh(ID3D11Device* device, Mesh* mesh, int latitude_
 {
     TempAllocator ta;
     
-    Array<float> vertices(ta);
-    Array<UINT> indices(ta);
+    Array<float> vertices(&ta);
+    Array<UINT> indices(&ta);
     
     // Generate vertices
     for(int lat = 0; lat <= latitude_count; lat++) 
