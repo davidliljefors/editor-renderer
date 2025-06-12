@@ -29,8 +29,8 @@ struct Position
 	}
 };
 
-Position get_position(Truth* t, truth::Key objectId);
-void set_position(Truth* t, truth::Key objectId, Position p);
+Position get_position(ReadOnlySnapshot snap, truth::Key objectId);
+void set_position(Transaction& tx, truth::Key objectId, Position p);
 
 struct Entity : TruthElement
 {

@@ -405,6 +405,79 @@ void DrawEntityHierarchy(Truth* truth, ReadOnlySnapshot snap, truth::Key key, tr
 }
 
 
+bool DragFloat3WithGreyout(const char* label, float v[3], float v_speed = 1.0f,
+                           float v_min = 0.0f, float v_max = 0.0f,
+                           const char* format = "%.3f", ImGuiSliderFlags flags = 0,
+                           bool grey_out_x = false, bool grey_out_y = false, bool grey_out_z = false)
+{
+    const ImGuiStyle& style = ImGui::GetStyle();
+
+    bool value_changed = false;
+    ImGui::BeginGroup(); // Group the three DragFloat widgets together
+    ImGui::PushID(label); // Push a unique ID for this entire custom widget
+
+    // Calculate common width for each component
+    float available_width = ImGui::GetContentRegionAvail().x;
+    // Account for 2 spacings between the 3 fields
+    float item_width = (available_width - style.ItemInnerSpacing.x * 2.0f) / 3.0f;
+
+    // Draw the label
+    ImGui::Text("%s", label);
+    ImGui::SameLine(0, style.ItemInnerSpacing.x); // Align with the first input field
+
+    // --- X Component ---
+    ImGui::PushID(0); // Unique ID for X
+    if (grey_out_x) {
+        // Darker background, lighter text
+        ImGui::PushStyleColor(ImGuiCol_FrameBg, IM_COL32(50, 50, 50, 255));
+        ImGui::PushStyleColor(ImGuiCol_Text, IM_COL32(150, 150, 150, 255));
+        ImGui::PushStyleColor(ImGuiCol_TextDisabled, IM_COL32(100, 100, 100, 255)); // For text when disabled, if you were to disable
+    }
+    ImGui::SetNextItemWidth(item_width);
+    value_changed |= ImGui::DragFloat("##X", &v[0], v_speed, v_min, v_max, format, flags);
+    if (grey_out_x) {
+        ImGui::PopStyleColor(3);
+    }
+    ImGui::PopID(); // Pop X's ID
+
+    ImGui::SameLine(0, style.ItemInnerSpacing.x);
+
+    // --- Y Component ---
+    ImGui::PushID(1); // Unique ID for Y
+    if (grey_out_y) {
+        ImGui::PushStyleColor(ImGuiCol_FrameBg, IM_COL32(50, 50, 50, 255));
+        ImGui::PushStyleColor(ImGuiCol_Text, IM_COL32(150, 150, 150, 255));
+        ImGui::PushStyleColor(ImGuiCol_TextDisabled, IM_COL32(100, 100, 100, 255));
+    }
+    ImGui::SetNextItemWidth(item_width);
+    value_changed |= ImGui::DragFloat("##Y", &v[1], v_speed, v_min, v_max, format, flags);
+    if (grey_out_y) {
+        ImGui::PopStyleColor(3);
+    }
+    ImGui::PopID(); // Pop Y's ID
+
+    ImGui::SameLine(0, style.ItemInnerSpacing.x);
+
+    // --- Z Component ---
+    ImGui::PushID(2); // Unique ID for Z
+    if (grey_out_z) {
+        ImGui::PushStyleColor(ImGuiCol_FrameBg, IM_COL32(50, 50, 50, 255));
+        ImGui::PushStyleColor(ImGuiCol_Text, IM_COL32(150, 150, 150, 255));
+        ImGui::PushStyleColor(ImGuiCol_TextDisabled, IM_COL32(100, 100, 100, 255));
+    }
+    ImGui::SetNextItemWidth(item_width);
+    value_changed |= ImGui::DragFloat("##Z", &v[2], v_speed, v_min, v_max, format, flags);
+    if (grey_out_z) {
+        ImGui::PopStyleColor(3);
+    }
+    ImGui::PopID(); // Pop Z's ID
+
+    ImGui::PopID(); // Pop the main widget's ID
+    ImGui::EndGroup(); // End the group
+
+    return value_changed;
+}
+
 void OutlinerWindow::update()
 {
 	ReadOnlySnapshot snapshot = m_truth->head();
@@ -422,16 +495,13 @@ void OutlinerWindow::update()
 	{
 		if (selectedElement->typeId() == Entity::kTypeId)
 		{
-			const Entity* e = (const Entity*)selectedElement;
-			float3 value = e->position.float3();
-			ImGui::DragFloat3("Entity Position", &value.x);
+			Position pos = get_position(snapshot, m_selected);
+			DragFloat3WithGreyout("Entity Position", &pos.x, 1.0f, 0.0f, 0.0f, "%.3f", 0, pos.inheritsX, pos.inheritsY, pos.inheritsZ);
+
 			if (ImGui::IsItemDeactivatedAfterEdit())
 			{
 				Transaction tx = m_truth->openTransaction();
-				Entity* writable = (Entity*)m_truth->edit(tx, m_selected);
-				writable->position.x = value.x;
-				writable->position.y = value.y;
-				writable->position.z = value.z;
+				set_position(tx, m_selected, pos);
 				m_truth->commit(tx);
 			}
 		}

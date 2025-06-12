@@ -7,6 +7,8 @@
 
 struct Transaction
 {
+	Transaction(const Transaction&) = delete;
+
 	ReadOnlySnapshot base;
 	Snapshot uncommitted;
 };

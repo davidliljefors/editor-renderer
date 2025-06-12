@@ -101,6 +101,7 @@ public:
 	void set_allocator(Allocator* a);
 
 	T* find(u64 key);
+	const T* find(u64 key) const;
 
 	bool contains(u64 key) const;
 
@@ -163,6 +164,13 @@ T* HashMap<T>::find(u64 key)
 	}
 
 	return &m_data[find.dataIndex].value;
+}
+
+template <typename T>
+const T* HashMap<T>::find(u64 key) const
+{
+	HashMap* self = (HashMap*)this;
+	return self->find(key);
 }
 
 template <typename T>

@@ -37,23 +37,29 @@ Position get_position(ReadOnlySnapshot s, truth::Key objectId)
 	return res;
 }
 
-void set_position(Transaction tx, truth::Key objectId, Position p)
+
+bool float_almost_equal(float a, float b) {
+    const float epsilon = 0.0001f;
+    return fabs(a - b) < epsilon;
+}
+
+void set_position(Transaction& tx, truth::Key objectId, Position p)
 {
 	Entity* entity = (Entity*)g_truth->edit(tx, objectId);
 
 	if (entity->prototype.asU64 != 0)
 	{
-		if (entity->position.inheritsX && entity->position.x != p.x)
+		if (entity->position.inheritsX && !float_almost_equal(entity->position.x, p.x))
 		{
 			entity->position.inheritsX = false;
 		}
 
-		if (entity->position.inheritsY && entity->position.y != p.y)
+		if (entity->position.inheritsY && !float_almost_equal(entity->position.y,p.y))
 		{
 			entity->position.inheritsY = false;
 		}
 
-		if (entity->position.inheritsZ && entity->position.z != p.z)
+		if (entity->position.inheritsZ && !float_almost_equal(entity->position.z, p.z))
 		{
 			entity->position.inheritsZ = false;
 		}
@@ -80,7 +86,7 @@ Entity* Entity::createFromPrototype(Allocator* a, truth::Key prototype)
 	const Entity* prototypeEntity  = (const Entity*)g_truth->read(g_truth->snap(), prototype);
 
 	entity->position = prototypeEntity->position;
-
+	entity->prototype = prototype;
 	entity->position.inheritsX = true;
 	entity->position.inheritsY = true;
 	entity->position.inheritsZ = true;

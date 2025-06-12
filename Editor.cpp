@@ -289,12 +289,25 @@ void EditorTab::update()
 
 		for (const KeyEntry& edit : edits)
 		{
-			if (edit.value->root == m_root || isReferenced(rootEntity, edit.value))
+			if (edit.value->root == m_root)
 			{
-				Entity* i = (Entity*)edit.value;
 				constexpr float3 defaultColor =	{0.5f, 0.5f, 0.5f};
+				float3 newPos = get_position(newHead, edit.key).float3();
+				updateInstance(edit.key.asU64, newPos, defaultColor);
+			}
+			else if (isReferenced(rootEntity, edit.value))
+			{
+				auto instantiations = rootEntity->instantiatedRoots.find(edit.key.asU64);
+				if (instantiations)
+				{
+					for (truth::Key instantiated : *instantiations)
+					{
+						constexpr float3 defaultColor =	{0.5f, 0.5f, 0.5f};
+						float3 newPos = get_position(newHead, instantiated).float3();
+						updateInstance(instantiated.asU64, newPos, defaultColor);
+					}
+				}
 
-				updateInstance(edit.key.asU64, i->position.float3(), defaultColor);
 			}
 		}
 
@@ -366,6 +379,7 @@ void EditorTab::addPrototype(truth::Key parent, truth::Key prototype)
 	Entity* rootEntity = (Entity*)g_truth->edit(tx, m_root);
 
 	Entity* instantiatedPrototype = Entity::createFromPrototype(g_truth->allocator(), prototype);
+	instantiatedPrototype->root = m_root;
 
 	truth::Key instantiatedPrototypeId = nextKey();
 
@@ -379,11 +393,17 @@ void EditorTab::addPrototype(truth::Key parent, truth::Key prototype)
 
 	ids->push_back(instantiatedPrototypeId);
 
-	rootEntity->children.push_back(prototype);
+	rootEntity->children.push_back(instantiatedPrototypeId);
 
-	g_truth->set(instantiatedPrototypeId, instantiatedPrototype);
+	g_truth->add(tx, instantiatedPrototypeId, instantiatedPrototype);
 
 	g_truth->commit(tx);
+
+	auto tx2 = g_truth->openTransaction();
+
+	Entity* rootEntity2 = (Entity*)g_truth->edit(tx2, m_root);
+
+	Array<truth::Key>* ids2 = rootEntity2->instantiatedRoots.find(prototype.asU64);
 }
 
 void EditorTab::addInstance(u64 id, float3 pos)
