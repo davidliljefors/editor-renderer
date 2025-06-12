@@ -54,7 +54,7 @@ struct Entity : TruthElement
 
 	truth::Key prototype;
 
-	char name[32];
+	char name[64];
 
 	
 	Position position = {};

@@ -410,72 +410,72 @@ bool DragFloat3WithGreyout(const char* label, float v[3], float v_speed = 1.0f,
                            const char* format = "%.3f", ImGuiSliderFlags flags = 0,
                            bool grey_out_x = false, bool grey_out_y = false, bool grey_out_z = false)
 {
-    const ImGuiStyle& style = ImGui::GetStyle();
+	const ImGuiStyle& style = ImGui::GetStyle();
 
-    bool value_changed = false;
-    ImGui::BeginGroup(); // Group the three DragFloat widgets together
-    ImGui::PushID(label); // Push a unique ID for this entire custom widget
+	bool value_changed = false;
+	ImGui::BeginGroup();
+	ImGui::PushID(label);
 
-    // Calculate common width for each component
-    float available_width = ImGui::GetContentRegionAvail().x;
-    // Account for 2 spacings between the 3 fields
-    float item_width = (available_width - style.ItemInnerSpacing.x * 2.0f) / 3.0f;
+	float available_width = ImGui::GetContentRegionAvail().x;
+	float item_width = (available_width - style.ItemInnerSpacing.x * 2.0f) / 4.0f;
 
-    // Draw the label
-    ImGui::Text("%s", label);
-    ImGui::SameLine(0, style.ItemInnerSpacing.x); // Align with the first input field
+	ImGui::Text("%s", label);
+	ImGui::SameLine(0, style.ItemInnerSpacing.x);
 
-    // --- X Component ---
-    ImGui::PushID(0); // Unique ID for X
-    if (grey_out_x) {
-        // Darker background, lighter text
-        ImGui::PushStyleColor(ImGuiCol_FrameBg, IM_COL32(50, 50, 50, 255));
-        ImGui::PushStyleColor(ImGuiCol_Text, IM_COL32(150, 150, 150, 255));
-        ImGui::PushStyleColor(ImGuiCol_TextDisabled, IM_COL32(100, 100, 100, 255)); // For text when disabled, if you were to disable
-    }
-    ImGui::SetNextItemWidth(item_width);
-    value_changed |= ImGui::DragFloat("##X", &v[0], v_speed, v_min, v_max, format, flags);
-    if (grey_out_x) {
-        ImGui::PopStyleColor(3);
-    }
-    ImGui::PopID(); // Pop X's ID
+	ImGui::PushID(0);
+	if (grey_out_x)
+	{
+		ImGui::PushStyleColor(ImGuiCol_FrameBg, IM_COL32(50, 50, 50, 255));
+		ImGui::PushStyleColor(ImGuiCol_Text, IM_COL32(150, 150, 150, 255));
+		ImGui::PushStyleColor(ImGuiCol_TextDisabled, IM_COL32(100, 100, 100, 255));
+	}
+	ImGui::SetNextItemWidth(item_width);
+	value_changed |= ImGui::DragFloat("##X", &v[0], v_speed, v_min, v_max, format, flags);
+	if (grey_out_x)
+	{
+		ImGui::PopStyleColor(3);
+	}
+	ImGui::PopID(); // Pop X's ID
 
-    ImGui::SameLine(0, style.ItemInnerSpacing.x);
+	ImGui::SameLine(0, style.ItemInnerSpacing.x);
 
-    // --- Y Component ---
-    ImGui::PushID(1); // Unique ID for Y
-    if (grey_out_y) {
-        ImGui::PushStyleColor(ImGuiCol_FrameBg, IM_COL32(50, 50, 50, 255));
-        ImGui::PushStyleColor(ImGuiCol_Text, IM_COL32(150, 150, 150, 255));
-        ImGui::PushStyleColor(ImGuiCol_TextDisabled, IM_COL32(100, 100, 100, 255));
-    }
-    ImGui::SetNextItemWidth(item_width);
-    value_changed |= ImGui::DragFloat("##Y", &v[1], v_speed, v_min, v_max, format, flags);
-    if (grey_out_y) {
-        ImGui::PopStyleColor(3);
-    }
-    ImGui::PopID(); // Pop Y's ID
+	ImGui::PushID(1);
+	if (grey_out_y)
+	{
+		ImGui::PushStyleColor(ImGuiCol_FrameBg, IM_COL32(50, 50, 50, 255));
+		ImGui::PushStyleColor(ImGuiCol_Text, IM_COL32(150, 150, 150, 255));
+		ImGui::PushStyleColor(ImGuiCol_TextDisabled, IM_COL32(100, 100, 100, 255));
+	}
 
-    ImGui::SameLine(0, style.ItemInnerSpacing.x);
+	ImGui::SetNextItemWidth(item_width);
+	value_changed |= ImGui::DragFloat("##Y", &v[1], v_speed, v_min, v_max, format, flags);
+	if (grey_out_y)
+	{
+		ImGui::PopStyleColor(3);
+	}
+	ImGui::PopID();
 
-    // --- Z Component ---
-    ImGui::PushID(2); // Unique ID for Z
-    if (grey_out_z) {
-        ImGui::PushStyleColor(ImGuiCol_FrameBg, IM_COL32(50, 50, 50, 255));
-        ImGui::PushStyleColor(ImGuiCol_Text, IM_COL32(150, 150, 150, 255));
-        ImGui::PushStyleColor(ImGuiCol_TextDisabled, IM_COL32(100, 100, 100, 255));
-    }
-    ImGui::SetNextItemWidth(item_width);
-    value_changed |= ImGui::DragFloat("##Z", &v[2], v_speed, v_min, v_max, format, flags);
-    if (grey_out_z) {
-        ImGui::PopStyleColor(3);
-    }
-    ImGui::PopID(); // Pop Z's ID
+	ImGui::SameLine(0, style.ItemInnerSpacing.x);
 
-    ImGui::PopID(); // Pop the main widget's ID
-    ImGui::EndGroup(); // End the group
+	ImGui::PushID(2);
+	if (grey_out_z)
+	{
+		ImGui::PushStyleColor(ImGuiCol_FrameBg, IM_COL32(50, 50, 50, 255));
+		ImGui::PushStyleColor(ImGuiCol_Text, IM_COL32(150, 150, 150, 255));
+		ImGui::PushStyleColor(ImGuiCol_TextDisabled, IM_COL32(100, 100, 100, 255));
+	}
+	ImGui::SetNextItemWidth(item_width);
+	value_changed |= ImGui::DragFloat("##Z", &v[2], v_speed, v_min, v_max, format, flags);
+	if (grey_out_z)
+	{
+		ImGui::PopStyleColor(3);
+	}
+	ImGui::PopID();
 
-    return value_changed;
+	ImGui::PopID();
+	ImGui::EndGroup();
+
+	return value_changed;
 }
 
 void OutlinerWindow::update()

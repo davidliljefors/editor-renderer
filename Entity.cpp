@@ -46,20 +46,21 @@ bool float_almost_equal(float a, float b) {
 void set_position(Transaction& tx, truth::Key objectId, Position p)
 {
 	Entity* entity = (Entity*)g_truth->edit(tx, objectId);
+	Position current = get_position(tx.uncommitted.asImmutable(), objectId);
 
 	if (entity->prototype.asU64 != 0)
 	{
-		if (entity->position.inheritsX && !float_almost_equal(entity->position.x, p.x))
+		if (entity->position.inheritsX && !float_almost_equal(current.x, p.x))
 		{
 			entity->position.inheritsX = false;
 		}
 
-		if (entity->position.inheritsY && !float_almost_equal(entity->position.y,p.y))
+		if (entity->position.inheritsY && !float_almost_equal(current.y,p.y))
 		{
 			entity->position.inheritsY = false;
 		}
 
-		if (entity->position.inheritsZ && !float_almost_equal(entity->position.z, p.z))
+		if (entity->position.inheritsZ && !float_almost_equal(current.z, p.z))
 		{
 			entity->position.inheritsZ = false;
 		}
@@ -93,7 +94,7 @@ Entity* Entity::createFromPrototype(Allocator* a, truth::Key prototype)
 
 	entity->children.set_allocator(a);
 	entity->instantiatedRoots.set_allocator(a);
-	sprintf_s(entity->name, "New Prototyped Entity (%d)", s_nextId++);
+	sprintf_s(entity->name, "Instance of prototype (%s) ", prototypeEntity->name);
 
 	return entity;
 }

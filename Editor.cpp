@@ -280,10 +280,28 @@ void EditorTab::update()
 
 		for (auto& add : adds)
 		{
-			if (add.value->root == m_root || isReferenced(rootEntity, add.value))
+			if (add.value->root == m_root)
 			{
-				Entity* e = (Entity*)add.value;
-				addInstance(add.key.asU64, e->position.float3());
+				float3 pos = get_position(newHead, add.key).float3();
+				addInstance(add.key.asU64, pos);
+
+				const Entity* added = (const Entity*)add.value;
+
+				if (added->prototype.asU64 != 0)
+				{
+					const Entity* proto = (const Entity*)g_truth->read(newHead, added->prototype);
+
+					for (truth::Key childKey : proto->children)
+					{
+						float3 cpos = get_position(newHead, childKey).float3();
+						addInstance(childKey.asU64, cpos);
+					}
+				}
+			}
+			else if (isReferenced(rootEntity, add.value))
+			{
+				float3 pos = get_position(newHead, add.key).float3();
+				addInstance(add.key.asU64, pos);
 			}
 		}
 
@@ -297,17 +315,19 @@ void EditorTab::update()
 			}
 			else if (isReferenced(rootEntity, edit.value))
 			{
+				constexpr float3 defaultColor =	{0.5f, 0.5f, 0.5f};
+
 				auto instantiations = rootEntity->instantiatedRoots.find(edit.key.asU64);
 				if (instantiations)
 				{
 					for (truth::Key instantiated : *instantiations)
 					{
-						constexpr float3 defaultColor =	{0.5f, 0.5f, 0.5f};
 						float3 newPos = get_position(newHead, instantiated).float3();
 						updateInstance(instantiated.asU64, newPos, defaultColor);
 					}
 				}
 
+				updateInstance(edit.key.asU64, get_position(newHead, edit.key).float3(), defaultColor);
 			}
 		}
 
@@ -366,6 +386,13 @@ DrawList EditorTab::getDrawList()
 	return m_drawList;
 }
 
+void addPrototypeInstances(Transaction& tx, Entity* instantiated, const Entity* prototype)
+{
+	for (truth::Key childKey : prototype->children)
+	{
+	}
+}
+
 void EditorTab::addPrototype(truth::Key parent, truth::Key prototype)
 {
 	const Entity* prototypeEntity = (const Entity*)g_truth->read(m_state, prototype);
@@ -376,34 +403,29 @@ void EditorTab::addPrototype(truth::Key parent, truth::Key prototype)
 	}
 
 	Transaction tx = g_truth->openTransaction();
-	Entity* rootEntity = (Entity*)g_truth->edit(tx, m_root);
+	Entity* parentEntity = (Entity*)g_truth->edit(tx, parent);
 
 	Entity* instantiatedPrototype = Entity::createFromPrototype(g_truth->allocator(), prototype);
 	instantiatedPrototype->root = m_root;
 
 	truth::Key instantiatedPrototypeId = nextKey();
 
-	Array<truth::Key>* ids = rootEntity->instantiatedRoots.find(prototype.asU64);
+	Array<truth::Key>* ids = parentEntity->instantiatedRoots.find(prototype.asU64);
+	
 	if (!ids)
 	{
-		ids = &rootEntity->instantiatedRoots[prototype.asU64];
+		ids = &parentEntity->instantiatedRoots[prototype.asU64];
 		ids->set_allocator(g_truth->allocator());
-
 	}
 
 	ids->push_back(instantiatedPrototypeId);
+	parentEntity->children.push_back(instantiatedPrototypeId);
 
-	rootEntity->children.push_back(instantiatedPrototypeId);
+	//addPrototypeInstances(instantiatedPrototype, prototypeEntity);
 
 	g_truth->add(tx, instantiatedPrototypeId, instantiatedPrototype);
 
 	g_truth->commit(tx);
-
-	auto tx2 = g_truth->openTransaction();
-
-	Entity* rootEntity2 = (Entity*)g_truth->edit(tx2, m_root);
-
-	Array<truth::Key>* ids2 = rootEntity2->instantiatedRoots.find(prototype.asU64);
 }
 
 void EditorTab::addInstance(u64 id, float3 pos)
