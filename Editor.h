@@ -41,7 +41,7 @@ struct EditorTab
 	void addViewport();
 	DrawList getDrawList();
 
-	void addPrototype(truth::Key prototype);
+	void addPrototype(truth::Key parent, truth::Key prototype);
 
 	void addInstance(u64 id, float3 pos);
 	void updateInstance(u64 id, float3 pos, float3 color);

@@ -48,6 +48,9 @@ struct TruthElement
 	virtual u64 typeId() const = 0;
 	virtual TruthElement* clone(Allocator* a) const = 0;
 
+	const void* readField(u64 field);
+
+
 	truth::Key root;
 };
 

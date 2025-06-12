@@ -423,13 +423,15 @@ void OutlinerWindow::update()
 		if (selectedElement->typeId() == Entity::kTypeId)
 		{
 			const Entity* e = (const Entity*)selectedElement;
-			float3 value = e->position;
+			float3 value = e->position.float3();
 			ImGui::DragFloat3("Entity Position", &value.x);
 			if (ImGui::IsItemDeactivatedAfterEdit())
 			{
 				Transaction tx = m_truth->openTransaction();
 				Entity* writable = (Entity*)m_truth->edit(tx, m_selected);
-				writable->position = value;
+				writable->position.x = value.x;
+				writable->position.y = value.y;
+				writable->position.z = value.z;
 				m_truth->commit(tx);
 			}
 		}

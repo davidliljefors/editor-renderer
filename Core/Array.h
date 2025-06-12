@@ -5,11 +5,16 @@
 #include <string.h>
 
 #include "Allocator.h"
-
 template<typename T>
 class Array
 {
 public:
+	template<typename U>
+	static auto test_clone(U* p) -> decltype(p->clone(), char(0)) { return 0; }
+	static char(&test_clone(...))[2] { static char arr[2] = {}; return arr; }
+
+	static constexpr bool has_clone = sizeof(test_clone((T*)0)) == 1;
+
 	explicit Array();
 	explicit Array(Allocator* allocator);
 	~Array();
@@ -133,7 +138,14 @@ Array<T> Array<T>::clone() const
 
 	for (i32 i = 0; i < size(); ++i)
 	{
-		copy.m_data[i] = m_data[i];
+		if constexpr(has_clone)
+		{
+			copy.m_data[i] = m_data[i].clone();
+		}
+		else
+		{
+			copy.m_data[i] = m_data[i];
+		}
 	}
 
 	return copy;

@@ -23,9 +23,33 @@ struct HashFind
 
 struct Entry
 {
+	template<typename U>
+	static auto test_clone(U* p) -> decltype(p->clone(), char(0)) { return 0; }
+	static char(&test_clone(...))[2] { static char arr[2] = {}; return arr; }
+
+	static constexpr bool has_clone = sizeof(test_clone((T*)0)) == 1;
+
 	u64 key;
 	u32 next;
 	T value;
+
+	Entry& operator=(const Entry& e)
+	{
+		if constexpr(has_clone)
+		{
+			key = e.key;
+			value = e.value.clone();
+			next = e.next;
+		}
+		else
+		{
+			key = e.key;
+			value = e.value;
+			next = e.next;
+		}
+
+		return *this;
+	}
 };
 
 public:
@@ -320,11 +344,12 @@ void HashMap<T>::erase_impl(HashFind find)
 template <typename T>
 i32 HashMap<T>::add_entry(u64 key)
 {
-	typename HashMap<T>::Entry e;
-	e.key = key;
-	e.next = END_OF_CHAIN;
 	u32 ei = m_data.size();
-	m_data.push_back(e);
+
+	HashMap<T>::Entry* e = new (m_data.push_back_uninit()) HashMap<T>::Entry();
+	e->key = key;
+	e->next = END_OF_CHAIN;
+
 	return ei;
 }
 

@@ -2,7 +2,67 @@
 
 #include <stdio.h>
 
+#include "Editor.h"
+
 static i32 s_nextId = 0;
+
+
+Position get_position(ReadOnlySnapshot s, truth::Key objectId)
+{
+	const Entity* entity = (const Entity*)g_truth->read(s, objectId);
+
+	Position res = entity->position;
+
+	if (entity->prototype.asU64 != 0 && (entity->position.inheritsX || entity->position.inheritsY || entity->position.inheritsZ))
+	{
+		Position prototypePosition = get_position(s, entity->prototype);
+
+		if (entity->position.inheritsX)
+		{
+			res.x = prototypePosition.x;
+
+		}
+
+		if (entity->position.inheritsY)
+		{
+			res.y = prototypePosition.y;
+		}
+
+		if (entity->position.inheritsZ)
+		{
+			res.z = prototypePosition.z;
+		}
+	}
+
+	return res;
+}
+
+void set_position(Transaction tx, truth::Key objectId, Position p)
+{
+	Entity* entity = (Entity*)g_truth->edit(tx, objectId);
+
+	if (entity->prototype.asU64 != 0)
+	{
+		if (entity->position.inheritsX && entity->position.x != p.x)
+		{
+			entity->position.inheritsX = false;
+		}
+
+		if (entity->position.inheritsY && entity->position.y != p.y)
+		{
+			entity->position.inheritsY = false;
+		}
+
+		if (entity->position.inheritsZ && entity->position.z != p.z)
+		{
+			entity->position.inheritsZ = false;
+		}
+	}
+
+	entity->position.x = p.x;
+	entity->position.y = p.y;
+	entity->position.z = p.z;
+}
 
 Entity* Entity::create(Allocator* a)
 {
@@ -14,6 +74,25 @@ Entity* Entity::create(Allocator* a)
 	return entity;
 }
 
+Entity* Entity::createFromPrototype(Allocator* a, truth::Key prototype)
+{
+	Entity* entity = alloc<Entity>(a);
+	const Entity* prototypeEntity  = (const Entity*)g_truth->read(g_truth->snap(), prototype);
+
+	entity->position = prototypeEntity->position;
+
+	entity->position.inheritsX = true;
+	entity->position.inheritsY = true;
+	entity->position.inheritsZ = true;
+
+	entity->children.set_allocator(a);
+	entity->instantiatedRoots.set_allocator(a);
+	sprintf_s(entity->name, "New Prototyped Entity (%d)", s_nextId++);
+
+	return entity;
+}
+
+
 TruthElement* Entity::clone(Allocator* a) const
 {
 	Entity* entityClone = alloc<Entity>(a);
@@ -22,6 +101,7 @@ TruthElement* Entity::clone(Allocator* a) const
 	entityClone->children = children.clone();
 	entityClone->instantiatedRoots = instantiatedRoots.clone();
 	entityClone->position = position;
+	entityClone->prototype = prototype;
 
 	memcpy(entityClone->name, name, sizeof(name));
 	return entityClone;

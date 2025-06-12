@@ -283,7 +283,7 @@ void EditorTab::update()
 			if (add.value->root == m_root || isReferenced(rootEntity, add.value))
 			{
 				Entity* e = (Entity*)add.value;
-				addInstance(add.key.asU64, e->position);
+				addInstance(add.key.asU64, e->position.float3());
 			}
 		}
 
@@ -294,7 +294,7 @@ void EditorTab::update()
 				Entity* i = (Entity*)edit.value;
 				constexpr float3 defaultColor =	{0.5f, 0.5f, 0.5f};
 
-				updateInstance(edit.key.asU64, i->position, defaultColor);
+				updateInstance(edit.key.asU64, i->position.float3(), defaultColor);
 			}
 		}
 
@@ -353,7 +353,7 @@ DrawList EditorTab::getDrawList()
 	return m_drawList;
 }
 
-void EditorTab::addPrototype(truth::Key prototype)
+void EditorTab::addPrototype(truth::Key parent, truth::Key prototype)
 {
 	const Entity* prototypeEntity = (const Entity*)g_truth->read(m_state, prototype);
 
@@ -365,9 +365,23 @@ void EditorTab::addPrototype(truth::Key prototype)
 	Transaction tx = g_truth->openTransaction();
 	Entity* rootEntity = (Entity*)g_truth->edit(tx, m_root);
 
-	rootEntity->instantiatedRoots[prototype.asU64] += 1;
+	Entity* instantiatedPrototype = Entity::createFromPrototype(g_truth->allocator(), prototype);
+
+	truth::Key instantiatedPrototypeId = nextKey();
+
+	Array<truth::Key>* ids = rootEntity->instantiatedRoots.find(prototype.asU64);
+	if (!ids)
+	{
+		ids = &rootEntity->instantiatedRoots[prototype.asU64];
+		ids->set_allocator(g_truth->allocator());
+
+	}
+
+	ids->push_back(instantiatedPrototypeId);
 
 	rootEntity->children.push_back(prototype);
+
+	g_truth->set(instantiatedPrototypeId, instantiatedPrototype);
 
 	g_truth->commit(tx);
 }
@@ -404,9 +418,9 @@ void EditorTab::buildDrawList()
 	m_drawList.count = count;
 	u64 idx = 0;
 
-	for (Instance& instance : m_instances)
+	for (auto& entry : m_instances)
 	{
-		m_drawList.data[idx++] = instance;
+		m_drawList.data[idx++] = entry.value;
 	}
 }
 
@@ -534,7 +548,7 @@ void EditorApp::update()
     {
 		if (clicked.asU64 != 0)
 		{
-			focusedTab->addPrototype(clicked);
+			focusedTab->addPrototype(focusedTab->m_root, clicked);
 		}
 
         focusedTab->update();

@@ -11,3 +11,5 @@ using i64 = long long;
 
 using f32 = float;
 using f64 = double;
+
+#define TM_STATIC_HASH(s, v) (sizeof("" s "") ? v : v)
