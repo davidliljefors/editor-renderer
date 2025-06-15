@@ -364,7 +364,7 @@ void DrawEntityHierarchy(Truth* truth, ReadOnlySnapshot snap, truth::Key key, tr
 		return;
 	}
 
-	ImGui::PushID((int)key.asU64);
+	ImGui::PushID((int)key.u64);
 
 	ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_OpenOnArrow | ImGuiTreeNodeFlags_OpenOnDoubleClick;
 	if (entity->children.empty())
@@ -489,7 +489,7 @@ void OutlinerWindow::update()
 
 	ImGui::Begin("Inspector");
 	ImGui::Text("Inspector");
-	const TruthElement* selectedElement = m_truth->read(snapshot, m_selected);
+	const TruthObject* selectedElement = m_truth->read(snapshot, m_selected);
 
 	if (selectedElement)
 	{

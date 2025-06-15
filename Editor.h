@@ -7,6 +7,7 @@
 #include "TruthView.h"
 #include "Core/HashMap.h"
 
+struct Entity;
 class AssetBrowserWindow;
 struct EditorTab;
 
@@ -42,6 +43,11 @@ struct EditorTab
 	DrawList getDrawList();
 
 	void addPrototype(truth::Key parent, truth::Key prototype);
+	void instantiatePrototypeChild(truth::Key parent, truth::Key child);
+
+	void addEntity(ReadOnlySnapshot from, ReadOnlySnapshot to,const KeyEntry* entity);
+	void updateEntity(ReadOnlySnapshot from, ReadOnlySnapshot to,const KeyEntry* entity);
+	void popEntity(ReadOnlySnapshot from, ReadOnlySnapshot to,const KeyEntry* entity);
 
 	void addInstance(u64 id, float3 pos);
 	void updateInstance(u64 id, float3 pos, float3 color);

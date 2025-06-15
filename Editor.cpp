@@ -258,7 +258,7 @@ void EditorTab::save()
 
 }
 
-bool isReferenced(const Entity* referee, const TruthElement* candidate)
+bool isReferenced(const Entity* referee, const TruthObject* candidate)
 {
 	return referee->instantiatedRoots.contains(candidate->root.asU64);
 }
@@ -277,6 +277,7 @@ void EditorTab::update()
 		Array<KeyEntry> edits(&ta);
 
 		diff(m_state.s, newHead.s, adds, edits, removes);
+
 
 		for (auto& add : adds)
 		{
@@ -426,6 +427,53 @@ void EditorTab::addPrototype(truth::Key parent, truth::Key prototype)
 	g_truth->add(tx, instantiatedPrototypeId, instantiatedPrototype);
 
 	g_truth->commit(tx);
+}
+
+void EditorTab::instantiatePrototypeChild(truth::Key parent, truth::Key child)
+{
+	const Entity* parentEntity = (const Entity*)g_truth->read(m_state, parent);
+
+	if (parentEntity->prototype.asU64 == 0)
+	{
+		return;
+	}
+
+	Transaction tx = g_truth->openTransaction();
+
+	parentEntity->
+
+}
+
+void EditorTab::addEntity(ReadOnlySnapshot from, ReadOnlySnapshot to, const KeyEntry* entity)
+{
+	if (add.value->root == m_root)
+	{
+		float3 pos = get_position(newHead, add.key).float3();
+		addInstance(add.key.asU64, pos);
+
+		const Entity* added = (const Entity*)add.value;
+
+		if (added->prototype.asU64 != 0)
+		{
+			const Entity* proto = (const Entity*)g_truth->read(newHead, added->prototype);
+
+			for (truth::Key childKey : proto->children)
+			{
+				float3 cpos = get_position(newHead, childKey).float3();
+				addInstance(childKey.asU64, cpos);
+			}
+		}
+	}
+}
+
+void EditorTab::updateEntity(const KeyEntry* entity)
+{
+
+}
+
+void EditorTab::popEntity(const KeyEntry* entity)
+{
+
 }
 
 void EditorTab::addInstance(u64 id, float3 pos)

@@ -42,14 +42,21 @@ inline bool operator!=(truth::Key a, truth::Key b)
 
 }
 
-struct TruthElement
+enum PrototypeRelation : u8 
 {
-	virtual ~TruthElement() = default;
+	PrototypeRelation_Added, // Not existing in prototype 
+	PrototypeRelation_Asset, // Is a prototype
+	PrototypeRelation_Inherited, // Inherited from parent prototype without modifications
+	PrototypeRelation_Instantiated, // Instantiated from prototype allowing modifications
+	PrototypeRelation_Removed, // Locally removed, exists only in prototype
+	PrototypeRelation_None,
+};
+
+struct TruthObject
+{
+	virtual ~TruthObject() = default;
 	virtual u64 typeId() const = 0;
-	virtual TruthElement* clone(Allocator* a) const = 0;
-
-	const void* readField(u64 field);
-
+	virtual TruthObject* clone(Allocator* a) const = 0;
 
 	truth::Key root;
 };
@@ -57,7 +64,7 @@ struct TruthElement
 struct KeyEntry
 {
 	truth::Key key;
-	TruthElement* value;
+	TruthObject* value;
 
 	bool operator==(const KeyEntry& other) const { return value == other.value; }
 	bool operator<(const KeyEntry& other) const { return key.Index < other.key.Index; }
@@ -182,7 +189,7 @@ public:
 		const TruthMap* base,
 		TruthMap* head,
 		truth::Key key,
-		TruthElement** outEntry)
+		TruthObject** outEntry)
 	{
 		InlineArray* array;
 		u32 slot;
@@ -197,7 +204,7 @@ public:
 		return update;
 	}
 
-	static TruthMap* writeValue(const TruthMap* base, TruthMap* head, truth::Key key, TruthElement* value)
+	static TruthMap* writeValue(const TruthMap* base, TruthMap* head, truth::Key key, TruthObject* value)
 	{
 		InlineArray* array;
 		u32 slot;
@@ -229,7 +236,7 @@ public:
 		return update;
 	}
 
-	const TruthElement* find(truth::Key key) const
+	const TruthObject* find(truth::Key key) const
 	{
 		const InlineArray* entries = getEntries(key);
 

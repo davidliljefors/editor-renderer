@@ -13,7 +13,7 @@ Position get_position(ReadOnlySnapshot s, truth::Key objectId)
 
 	Position res = entity->position;
 
-	if (entity->prototype.asU64 != 0 && (entity->position.inheritsX || entity->position.inheritsY || entity->position.inheritsZ))
+	if (entity->prototype.u64 != 0 && (entity->position.inheritsX || entity->position.inheritsY || entity->position.inheritsZ))
 	{
 		Position prototypePosition = get_position(s, entity->prototype);
 
@@ -48,7 +48,7 @@ void set_position(Transaction& tx, truth::Key objectId, Position p)
 	Entity* entity = (Entity*)g_truth->edit(tx, objectId);
 	Position current = get_position(tx.uncommitted.asImmutable(), objectId);
 
-	if (entity->prototype.asU64 != 0)
+	if (entity->prototype.u64 != 0)
 	{
 		if (entity->position.inheritsX && !float_almost_equal(current.x, p.x))
 		{
@@ -100,7 +100,7 @@ Entity* Entity::createFromPrototype(Allocator* a, truth::Key prototype)
 }
 
 
-TruthElement* Entity::clone(Allocator* a) const
+TruthObject* Entity::clone(Allocator* a) const
 {
 	Entity* entityClone = alloc<Entity>(a);
 	entityClone->root = root;

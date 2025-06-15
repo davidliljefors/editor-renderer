@@ -13,3 +13,7 @@ using f32 = float;
 using f64 = double;
 
 #define TM_STATIC_HASH(s, v) (sizeof("" s "") ? v : v)
+
+#define CONCAT_IMPL(a, b) a##b
+#define CONCAT(a, b) CONCAT_IMPL(a, b)
+#define PAD(n) char CONCAT(_padding_, __LINE__)[n]

@@ -32,7 +32,7 @@ struct Position
 Position get_position(ReadOnlySnapshot snap, truth::Key objectId);
 void set_position(Transaction& tx, truth::Key objectId, Position p);
 
-struct Entity : TruthElement
+struct Entity : TruthObject
 {
 	constexpr static const char* kName = "Entity";
 	constexpr static u64 kTypeId = TM_STATIC_HASH("Entity", 0x11fef190dc0c34a1ULL);
@@ -47,7 +47,7 @@ struct Entity : TruthElement
 		return kTypeId;
 	}
 
-	TruthElement* clone(Allocator* a) const override;
+	TruthObject* clone(Allocator* a) const override;
 
 	Array<truth::Key> children;
 	HashMap<Array<truth::Key>> instantiatedRoots;

@@ -18,12 +18,6 @@ truth::Key nextKey();
 class Truth
 {
 public:
-
-	struct Conflict
-	{
-		
-	};
-
 	explicit Truth(Allocator* allocator)
 		: m_allocator(allocator)
 		, m_history(allocator)
@@ -35,8 +29,8 @@ public:
 
 	/// Single shot API
 
-	const TruthElement* get(truth::Key key);
-	bool set(truth::Key key, TruthElement* element);
+	const TruthObject* get(truth::Key key);
+	bool set(truth::Key key, TruthObject* element);
 	bool erase(truth::Key key);
 
 	ReadOnlySnapshot snap();
@@ -47,12 +41,10 @@ public:
 	bool commit(Transaction& tx);
 	void drop(Transaction& tx);
 
-	void getConflicts(Transaction& tx, Array<Conflict>& outConflicts);
-
-	const TruthElement* read(ReadOnlySnapshot snap, truth::Key key);
-	const TruthElement* read(Transaction& tx, truth::Key key);
-	void add(Transaction& tx, truth::Key key, TruthElement* element);
-	TruthElement* edit(Transaction& tx, truth::Key key);
+	const TruthObject* read(ReadOnlySnapshot snap, truth::Key key);
+	const TruthObject* read(Transaction& tx, truth::Key key);
+	void add(Transaction& tx, truth::Key key, TruthObject* element);
+	TruthObject* edit(Transaction& tx, truth::Key key);
 	void erase(Transaction& tx, truth::Key key);
 
 
@@ -120,14 +112,14 @@ private:
 	i32 m_readIndex = 0;
 };
 
-inline const TruthElement* Truth::get(truth::Key key)
+inline const TruthObject* Truth::get(truth::Key key)
 {
 	ReadOnlySnapshot snap = head();
 
 	return snap.s->find(key);
 }
 
-inline bool Truth::set(truth::Key key, TruthElement* element)
+inline bool Truth::set(truth::Key key, TruthObject* element)
 {
 	Transaction tx = openTransaction();
 	tx.uncommitted.s = TruthMap::writeValue(tx.base.s, tx.uncommitted.s, key, element);
@@ -179,24 +171,24 @@ inline bool Truth::commit(Transaction& tx)
 	}
 }
 
-inline const TruthElement* Truth::read(ReadOnlySnapshot snap, truth::Key key)
+inline const TruthObject* Truth::read(ReadOnlySnapshot snap, truth::Key key)
 {
 	return snap.s->find(key);
 }
 
-inline const TruthElement* Truth::read(Transaction& tx, truth::Key key)
+inline const TruthObject* Truth::read(Transaction& tx, truth::Key key)
 {
 	return tx.uncommitted.s->find(key);
 }
 
-inline void Truth::add(Transaction& tx, truth::Key key, TruthElement* element)
+inline void Truth::add(Transaction& tx, truth::Key key, TruthObject* element)
 {
 	tx.uncommitted.s = TruthMap::writeValue(tx.base.s, tx.uncommitted.s, key, element);
 }
 
-inline TruthElement* Truth::edit(Transaction& tx, truth::Key key)
+inline TruthObject* Truth::edit(Transaction& tx, truth::Key key)
 {
-	TruthElement* element;
+	TruthObject* element;
 	tx.uncommitted.s = TruthMap::lookupForWrite(tx.base.s, tx.uncommitted.s, key, &element);
 	return element;
 }
