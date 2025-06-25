@@ -8,7 +8,8 @@
 #include "Core/HashMap.h"
 
 
-
+struct TTInstance;
+struct TTValue;
 
 struct Position
 {
@@ -31,6 +32,124 @@ struct Position
 
 Position get_position(ReadOnlySnapshot snap, truth::Key objectId);
 void set_position(Transaction& tx, truth::Key objectId, Position p);
+
+struct TTObject
+{
+	Array<u64> names;
+	Array<TTValue*> values;
+};
+
+struct TTArray
+{
+	Array<TTValue*> values;
+};
+
+
+TTObject* clone_object(Allocator* a, const TTObject* pObject);
+
+TTObject* create_from_template(Allocator* a, const TTObject* pTemplate);
+
+struct TTInstance
+{
+	u64 hTemplate;
+	TTObject* pOverride;
+};
+
+struct TTValue
+{
+	enum Type : u8
+	{
+		Type_Object,
+		Type_ObjectRef,
+		Type_Array,
+		Type_Instance,
+		Type_Integer,
+		Type_Number
+	};
+
+	f64 asNumber()
+	{
+		return type == Type_Number ? number : 0.0;
+	}
+
+	union
+	{
+		TTInstance instance;
+		TTObject* pObject;
+		u64 objectRef;
+		TTArray* pArray;
+		i64 integer;
+		f64 number;
+	};
+
+	Type type;
+};
+
+
+TTValue* lookup(u64 ref)
+{
+	return nullptr;
+}
+
+TTValue* DynamicValue_clone(Allocator* a, const TTValue* src)
+{
+	
+}
+
+f64 DynamicValue_read_f64(u64 hField, const TTValue* value)
+{
+	if (value->type == TTValue::Type_Object)
+	{
+		TTObject* pObject = value->pObject;
+
+		for (i32 i = 0; i < pObject->names.size(); ++i)
+		{
+			if (hField == pObject->names[i])
+			{
+				return pObject->values[i]->asNumber();
+			}
+		}
+	}
+
+	if (value->type == TTValue::Type_Instance)
+	{
+		TTInstance instance = value->instance;
+
+		if (instance.pOverride)
+		{
+			TTObject* pOverride = instance.pOverride;
+
+			for (i32 i = 0; i < pOverride->names.size(); ++i)
+			{
+				if (hField == pOverride->names[i])
+				{
+					return pOverride->values[i]->asNumber();
+				}
+			}
+		}
+
+		TTObject* pTemplate = lookup(instance.hTemplate)->pObject;
+
+		for (i32 i = 0; i < pTemplate->names.size(); ++i)
+		{
+			if (hField == pTemplate->names[i])
+			{
+				return pTemplate->values[i]->asNumber();
+			}
+		}
+
+	}
+
+	return 0.0;
+}
+
+TTValue* make_default_entity(Allocator* a)
+{
+	TTValue* pValue = (TTValue*)a->alloc(sizeof(TTValue));
+	memset(pValue, 0, sizeof(TTValue));
+
+
+}
 
 struct Entity : TruthElement
 {
