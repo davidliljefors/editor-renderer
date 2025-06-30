@@ -114,6 +114,16 @@ struct DynamicData
 		Type_String
 	};
 
+	u64 asUint()
+	{
+		return type == Type_Integer ? integer : 0;
+	}
+
+	i64 asInt()
+	{
+		return type == Type_Integer ? integer : 0;
+	}
+
 	f64 asNumber()
 	{
 		return type == Type_Number ? number : 0.0;
@@ -168,8 +178,6 @@ void DynamicData_register_obj(const DynamicData* pObject, u64 id);
 
 DynamicData DynamicData_obj_new();
 
-DynamicData DynamicData_obj_from_type(u64 typeId);
-
 DynamicData DynamicData_array_new();
 
 DynamicData DynamicData_str_new();
@@ -180,10 +188,11 @@ DynamicData DynamicData_make_int(i64 integer);
 
 DynamicData DynamicData_make_str(const char* str);
 
-
 DynamicData DynamicData_make_null();
 
 DynamicData DynamicData_num_new();
+
+DynamicData DynamicData_make_num(f64 number);
 
 u64 DynamicData_size(const DynamicData* value);
 
@@ -210,9 +219,9 @@ inline DynamicData DynamicData_obj_find(DynamicData* pValue, u64 hName)
 	return DynamicData_make_null();
 }
 
-inline void DynamicData_obj_add(DynamicData target, u64 hName, DynamicData add)
+inline void DynamicData_obj_add(DynamicData* target, u64 hName, DynamicData add)
 {
-	if (DDObject* pObject = target.asObject())
+	if (DDObject* pObject = target->asObject())
 	{
 		for (i32 i = 0; i < pObject->names.size(); ++i)
 		{
@@ -229,6 +238,23 @@ inline void DynamicData_obj_add(DynamicData target, u64 hName, DynamicData add)
 	}
 }
 
+inline void DynamicData_obj_set(DynamicData* target, u64 hName, DynamicData value)
+{
+	if (DDObject* pObject = target->asObject())
+	{
+		for (i32 i = 0; i < pObject->names.size(); ++i)
+		{
+			if (hName == pObject->names[i])
+			{
+				pObject->values[i] = value;
+				return;
+			}
+		}
+	}
+
+	assert(false && "didnt find key");
+}
+
 inline void DynamicData_array_add(DynamicData array, DynamicData value)
 {
 	if (array.type == DynamicData::Type_Array)
@@ -242,12 +268,24 @@ u64 string_repository_hash(const char* str);
 
 const char* string_repository_get(u64 hName);
 
+bool float_almost_equal(float a, float b);
+
 constexpr const char* s_typeNameKey = "type_name";
 constexpr const char* s_fieldsKey = "fields";
 constexpr const char* s_typeIdKey = "__type_id";
 
 struct DDEntity
 {
+	enum
+	{
+		FieldMask_Name =  (1<<0),
+		FieldMask_Children =  (1<<1),
+		FieldMask_Components =  (1<<2),
+	};
+
+	u64 editedMask;
+	u64 id;
+
 	const char* name;
 	eastl::vector<DynamicData> children;
 	eastl::vector<DynamicData> components;
@@ -257,37 +295,117 @@ struct DDEntityReader
 {
 	const DDEntity* ref;
 
-	const eastl::vector<u64>& readChildren();
-	const char* readName();
+	const eastl::vector<DynamicData>& readComponents() { return ref->components; }
+	const eastl::vector<DynamicData>& readChildren() { return ref->children; }
+	const char* readName() { return ref->name; }
 };
 
 struct DDEntityEditor
 {
 	DDEntity* ref;
 
-	eastl::vector<u64>& editChildren();
-	//eastl::string& editName();
+	eastl::vector<DynamicData>& editChildren()
+	{
+		ref->editedMask |= DDEntity::FieldMask_Children;
+		return ref->children;
+	}
 
-	const eastl::vector<u64>& readChildren();
-	const char* readName();
+	void setName(const char* newName)
+	{
+		ref->editedMask |= DDEntity::FieldMask_Name;
+		ref->name = newName;
+	}
+
+	eastl::vector<DynamicData>& editComponents()
+	{
+		ref->editedMask |= DDEntity::FieldMask_Components;
+		return ref->components;
+	}
+
+	const eastl::vector<DynamicData>& readChildren() { return ref->children; }
+	const char* readName() { return ref->name; }
 };
 
 struct DDTransformComponent
 {
+	enum : u8
+	{
+		FieldMask_X = (1 << 0),
+		FieldMask_Y = (1 << 1),
+		FieldMask_Z = (1 << 2),
+	};
+
+	u64 editedMask;
+	u64 id;
 
 	float x;
 	float y;
 	float z;
 };
 
+struct DDTransformComponentReader
+{
+	const DDTransformComponent* ref;
+
+	float3 readPosition()
+	{
+		float3 val;
+		val.x = ref->x;
+		val.y = ref->y;
+		val.z = ref->z;
+
+		return val;
+	}
+};
+
+struct DDTransformComponentEditor
+{
+	DDTransformComponent* ref;
+
+	float3 readPosition()
+	{
+		float3 val;
+		val.x = ref->x;
+		val.y = ref->y;
+		val.z = ref->z;
+
+		return val;
+	}
+
+	void setPosition(float3 val)
+	{
+		if (!float_almost_equal(val.x, ref->x))
+		{
+			ref->editedMask |= DDTransformComponent::FieldMask_X;
+			ref->x = val.x;
+		}
+
+		if (!float_almost_equal(val.y, ref->y))
+		{
+			ref->editedMask |= DDTransformComponent::FieldMask_Y;
+			ref->y = val.y;
+		}
+
+		if (!float_almost_equal(val.z, ref->z))
+		{
+			ref->editedMask |= DDTransformComponent::FieldMask_Z;
+			ref->z = val.z;
+		}
+	}
+};
+
 struct DynamicDataParser_i
 {
 	void (*parse)(DynamicData* value, void* target);
+	void (*write_back)(DynamicData* value, void* data);
 };
 
 void DynamicData_registerParser(u64 hType, DynamicDataParser_i parser);
 
-DDEntity DynamicData_readEntity(DynamicData* value);
+DDEntity DynamicData_readEntity(DynamicData* pEntity);
+DDTransformComponent DynamicData_readTransform(DynamicData* pEntity);
+
+void DynamicData_writeBack(DynamicData* pData, void* pValue);
 
 constexpr u64 ENTITY_TYPE_ID = TM_STATIC_HASH("ENTITY_TYPE_ID", 0x5bf6f54407a5c834ULL);
 constexpr u64 COMPONENT_ID_TRANSFORM = TM_STATIC_HASH("COMPONENT_ID_TRANSFORM", 0x24e93d7df3c9e6f0ULL);

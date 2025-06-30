@@ -499,6 +499,11 @@ void EditorApp::run()
 	}
 }
 
+void DrawDynamicEntity(DynamicData& entity)
+{
+	
+}
+
 void EditorApp::update()
 {
 	ImGuiIO& io = ImGui::GetIO();
@@ -535,7 +540,7 @@ void EditorApp::update()
 	{
 		DynamicData entity = DynamicData_createFromTemplate(ENTITY_TYPE_ID);
 		u64 hName = MetroHash64::HashStr("name");
-		DynamicData_obj_add(entity, hName, DynamicData_make_str("New Entity"));
+		DynamicData_obj_add(&entity, hName, DynamicData_make_str("New Entity"));
 		m_roots.push_back(entity);
 	}
 
@@ -557,7 +562,7 @@ void EditorApp::update()
 			DynamicData childEntity = DynamicData_createFromTemplate(ENTITY_TYPE_ID);
 
 			u64 hName = MetroHash64::HashStr("name");
-			DynamicData_obj_add(childEntity, hName, DynamicData_make_str("Child Entity"));
+			DynamicData_obj_add(&childEntity, hName, DynamicData_make_str("Child Entity"));
 			DynamicData arrChildren = DynamicData_obj_find(&value, string_repository_hash("children"));
 			DynamicData_array_add(arrChildren, childEntity);
 		}
@@ -577,9 +582,13 @@ void EditorApp::update()
 
 	for (DynamicData& value : m_roots)
 	{
-
+		DrawDynamicEntity(value);
 	}
 
+	ImGui::End();
+
+	ImGui::Begin("Inspector");
+	DrawSelectedEntity();
 	ImGui::End();
 
     EditorTab** focusedTabFind = m_openTabs.find(m_hFocusedTab);
@@ -675,6 +684,65 @@ void EditorApp::onResize(u32 w, u32 h)
     update();
 	renderFrame(m_renderer);
     present(m_renderer);
+}
+
+void EditorApp::DrawDynamicEntity(DynamicData& entityData)
+{
+	DDEntity entity = DynamicData_readEntity(&entityData);
+	bool selected = m_focused.id() == entityData.id();
+	ImGui::PushID((int)entityData.id());
+	bool r = ImGui::TreeNodeEx(entity.name, selected ? ImGuiTreeNodeFlags_Selected : 0);
+	ImGui::PopID();
+
+	if (ImGui::IsItemClicked())
+	{
+		m_focused = entityData;
+	}
+
+	if (r)
+	{
+		for (auto& child : entity.children)
+		{
+			DrawDynamicEntity(child);
+		}
+		ImGui::TreePop();
+	}
+}
+
+void EditorApp::DrawSelectedEntity()
+{
+	if (lookup_obj(m_focused.id()) == nullptr)
+	{
+		return;
+	}
+
+	DynamicData components = DynamicData_obj_find(&m_focused, MetroHash64::HashStr("components"));
+
+	if (ImGui::Button("Add Empty Child"))
+	{
+		DDEntity entity = DynamicData_readEntity(&m_focused);
+		DDEntityEditor editor = {&entity};
+
+		DynamicData emptyEntity = DynamicData_createFromTemplate(ENTITY_TYPE_ID);
+		editor.editChildren().push_back(emptyEntity);
+
+		DynamicData_writeBack(&m_focused, &entity);
+	}
+	
+	if (DynamicData_size(&components) == 0)
+	{
+		if (ImGui::Button("Add transform component"))
+		{ 
+			DynamicData transformComponent = DynamicData_createFromTemplate(COMPONENT_ID_TRANSFORM);
+			DynamicData arrComponents = DynamicData_obj_find(&m_focused, string_repository_hash("components"));
+			DynamicData_array_add(arrComponents, transformComponent);
+		}
+	}
+	else
+	{
+		DDTransformComponent transform = DynamicData_readTransform(&m_focused);
+		ImGui::InputFloat3("Entity Position", &transform.x);
+	}
 }
 
 Truth* g_truth;

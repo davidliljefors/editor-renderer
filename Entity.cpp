@@ -164,6 +164,12 @@ static std::unordered_map<u64, DynamicData> g_templates;
 static std::unordered_map<u64, DynamicDataParser_i> g_parsers;
 static std::unordered_map<u64, DDObject*> g_objects;
 
+DynamicDataParser_i* lookup_parser(u64 typeId)
+{
+	auto find = g_parsers.find(typeId);
+	return find != g_parsers.end() ? &find->second : nullptr;
+}
+
 DDObject* lookup_obj(u64 hObject)
 {
 	auto find = g_objects.find(hObject);
@@ -179,10 +185,10 @@ DynamicData DynamicData_obj_new()
 
 	u64 id = random_u64();
 
-	g_objects[id] = (DDObject*)mem;
-
 	value.type = DynamicData::Type_Object;
 	value.hObject = id;
+
+	g_objects[id] = (DDObject*)mem;
 
 	return value;
 }
@@ -273,6 +279,13 @@ DynamicData DynamicData_num_new()
 	value.type = DynamicData::Type_Number;
 	value.number = 0.0;
 
+	return value;
+}
+
+DynamicData DynamicData_make_num(f64 number)
+{
+	DynamicData value = DynamicData_num_new();
+	value.number = number;
 	return value;
 }
 
@@ -394,11 +407,61 @@ void DynamicData_registerParser(u64 hType, DynamicDataParser_i parser)
 	g_parsers[hType] = parser;
 }
 
-DDEntity DynamicData_readEntity(DynamicData* value)
+DDEntity DynamicData_readEntity(DynamicData* pEntity)
 {
-	DDEntity entity;
+	DDEntity entity{};
 
+	u64 hType = ENTITY_TYPE_ID;
 
+	DynamicDataParser_i* parser = lookup_parser(hType);
+
+	if (parser)
+	{
+		parser->parse(pEntity, &entity);
+	}
+
+	return entity;
+}
+
+DDTransformComponent DynamicData_readTransform(DynamicData* pEntity)
+{
+	DDTransformComponent component{};
+
+	u64 hTypeId = MetroHash64::HashStr(s_typeIdKey);
+	u64 hComponents = MetroHash64::HashStr("components");
+
+	if (DDArray* pComponents = DynamicData_obj_find(pEntity, hComponents).asArray())
+	{
+		for (DynamicData& comp : pComponents->values)
+		{
+			u64 comp_type = DynamicData_obj_find(&comp, hTypeId).asUint();
+			if (comp_type == COMPONENT_ID_TRANSFORM)
+			{
+				DynamicDataParser_i* parser = lookup_parser(COMPONENT_ID_TRANSFORM);
+
+				if (parser)
+				{
+					parser->parse(pEntity, &component);
+				}
+			}
+		}
+	}
+
+	return component;
+}
+
+void DynamicData_writeBack(DynamicData* pData, void* pValue)
+{
+	u64 hTypeId = MetroHash64::HashStr(s_typeIdKey);
+
+	DynamicData type = DynamicData_obj_find(pData, hTypeId);
+
+	DynamicDataParser_i* parser = lookup_parser(type.asUint());
+
+	if (parser)
+	{
+		parser->write_back(pData, pValue);
+	}
 }
 
 void registerEntityTemplate()
@@ -409,29 +472,56 @@ void registerEntityTemplate()
 	u64 hFields = string_repository_hash(s_fieldsKey);
 
 	DynamicData entityName = DynamicData_make_str("entity");
-	DynamicData_obj_add(root, hTypeName, entityName);
+	DynamicData_obj_add(&root, hTypeName, entityName);
 
 
 	DynamicData field_children = DynamicData_obj_new();
-	DynamicData_obj_add(field_children, string_repository_hash("name"), DynamicData_str_new());
-	DynamicData_obj_add(field_children, string_repository_hash("children"), DynamicData_array_new());
-	DynamicData_obj_add(field_children, string_repository_hash("components"), DynamicData_array_new());
-	DynamicData_obj_add(root, hFields, field_children);
+	DynamicData_obj_add(&field_children, string_repository_hash("name"), DynamicData_make_str("Unnamed Entity"));
+	DynamicData_obj_add(&field_children, string_repository_hash("children"), DynamicData_array_new());
+	DynamicData_obj_add(&field_children, string_repository_hash("components"), DynamicData_array_new());
+	DynamicData_obj_add(&root, hFields, field_children);
 
 	DynamicDataParser_i parser;
-	parser.parse = [](DynamicData* value)
+
+	parser.parse = [](DynamicData* value, void* target)
 	{
-		DDEntity* pEntity = (DDEntity*)malloc(sizeof DDEntity);
+		DDEntity* pEntity = (DDEntity*)target;
 
 		u64 hNameField = MetroHash64::HashStr("name");
 		u64 hChildrenField = MetroHash64::HashStr("children");
 		u64 hComponentsField = MetroHash64::HashStr("components");
 
+		pEntity->id = value->id();
 		pEntity->name = DynamicData_obj_find(value, hNameField).asString();
 		pEntity->children = DynamicData_obj_find(value, hChildrenField).asArray()->values;
 		pEntity->components = DynamicData_obj_find(value, hComponentsField).asArray()->values;
+	};
 
-		return (void*)pEntity;
+	parser.write_back = [](DynamicData* value, void* source)
+	{
+		DDEntity* pEntity = (DDEntity*)source;
+
+		if ((pEntity->editedMask & DDEntity::FieldMask_Name) != 0)
+		{
+			u64 hNameField = MetroHash64::HashStr("name");
+			DynamicData_obj_set(value, hNameField, DynamicData_make_str(pEntity->name));
+		}
+
+		if ((pEntity->editedMask & DDEntity::FieldMask_Children) != 0)
+		{
+			u64 hChildrenField = MetroHash64::HashStr("children");
+			DynamicData arrChildren = DynamicData_array_new();
+			arrChildren.pArray->values = pEntity->children;
+			DynamicData_obj_set(value, hChildrenField, arrChildren);
+		}
+
+		if ((pEntity->editedMask & DDEntity::FieldMask_Components) != 0)
+		{
+			u64 hComponentsField = MetroHash64::HashStr("components");
+			DynamicData arrComponents = DynamicData_array_new();
+			arrComponents.pArray->values = pEntity->components;
+			DynamicData_obj_set(value, hComponentsField, arrComponents);
+		}
 	};
 
 	DynamicData_registerParser(ENTITY_TYPE_ID, parser);
@@ -470,21 +560,21 @@ void registerComponent_TransformTemplate()
 	u64 hFields = string_repository_hash(s_fieldsKey);
 
 	DynamicData componentName = DynamicData_make_str("component_transform");
-	DynamicData_obj_add(root, hTypeName, componentName);
+	DynamicData_obj_add(&root, hTypeName, componentName);
 
 	DynamicData field_children = DynamicData_obj_new();
 
-	DynamicData_obj_add(field_children, string_repository_hash("x"), DynamicData_num_new());
-	DynamicData_obj_add(field_children, string_repository_hash("y"), DynamicData_num_new());
-	DynamicData_obj_add(field_children, string_repository_hash("z"), DynamicData_num_new());
+	DynamicData_obj_add(&field_children, string_repository_hash("x"), DynamicData_num_new());
+	DynamicData_obj_add(&field_children, string_repository_hash("y"), DynamicData_num_new());
+	DynamicData_obj_add(&field_children, string_repository_hash("z"), DynamicData_num_new());
 
-	DynamicData_obj_add(root, hFields, field_children);
+	DynamicData_obj_add(&root, hFields, field_children);
 
 	DynamicDataParser_i parser;
 
-	parser.parse = [](DynamicData* value)
+	parser.parse = [](DynamicData* value, void* data)
 	{
-		DDTransformComponent* pComponent = (DDTransformComponent*)malloc(sizeof DDTransformComponent);
+		DDTransformComponent* pComponent = (DDTransformComponent*)data;
 
 		u64 hXField = MetroHash64::HashStr("x");
 		u64 hYField = MetroHash64::HashStr("y");
@@ -493,8 +583,29 @@ void registerComponent_TransformTemplate()
 		pComponent->x = (f32)DynamicData_obj_find(value, hXField).asNumber();
 		pComponent->y = (f32)DynamicData_obj_find(value, hYField).asNumber();
 		pComponent->z = (f32)DynamicData_obj_find(value, hZField).asNumber();
+	};
 
-		return (void*)pComponent;
+	parser.write_back = [](DynamicData* value, void* data)
+	{
+		DDTransformComponent* pComponent = (DDTransformComponent*)data;
+
+		if ((pComponent->editedMask & DDTransformComponent::FieldMask_X) != 0)
+		{
+			u64 hXField = MetroHash64::HashStr("x");
+			DynamicData_obj_set(value, hXField, DynamicData_make_num(pComponent->x));
+		}
+
+		if ((pComponent->editedMask & DDTransformComponent::FieldMask_Y) != 0)
+		{
+			u64 hYField = MetroHash64::HashStr("y");
+			DynamicData_obj_set(value, hYField, DynamicData_make_num(pComponent->y));
+		}
+
+		if ((pComponent->editedMask & DDTransformComponent::FieldMask_Z) != 0)
+		{
+			u64 hZField = MetroHash64::HashStr("z");
+			DynamicData_obj_set(value, hZField, DynamicData_make_num(pComponent->z));
+		}
 	};
 
 	DynamicData_registerParser(COMPONENT_ID_TRANSFORM, parser);
@@ -517,8 +628,8 @@ DynamicData DynamicData_createFromTemplate(u64 hTemplate)
 
 	const char* typeName = DynamicData_obj_find(pTemplate, hType).asString();
 
-	DynamicData_obj_add(value, hType, DynamicData_make_str(typeName));
-	DynamicData_obj_add(value, hTypeId, DynamicData_make_int((i64)hTemplate));
+	DynamicData_obj_add(&value, hType, DynamicData_make_str(typeName));
+	DynamicData_obj_add(&value, hTypeId, DynamicData_make_int((i64)hTemplate));
 
 	u64 hFields = string_repository_hash(s_fieldsKey);
 
@@ -529,7 +640,7 @@ DynamicData DynamicData_createFromTemplate(u64 hTemplate)
 		{
 			DynamicData valueToAdd;
 			DynamicData_clone_internal(&fields->values[i], &valueToAdd);
-			DynamicData_obj_add(value, fields->names[i], valueToAdd);
+			DynamicData_obj_add(&value, fields->names[i], valueToAdd);
 		}
 	}
 

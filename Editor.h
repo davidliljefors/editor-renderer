@@ -77,13 +77,16 @@ public:
 	void onResize(u32 w, u32 h);
 
 private:
+	void DrawDynamicEntity(DynamicData& entityData);
+	void DrawSelectedEntity();
+
 	EditorRenderer* m_renderer;
 	AssetBrowserWindow* m_assetWindow;
 	HashMap<EditorTab*> m_openTabs;
 	u64 m_hFocusedTab;
 	Array<DynamicData> m_roots;
 
-	u64 m_hFocusedObject;
+	DynamicData m_focused;
 
 	HWND m_hwnd;
 };
