@@ -1,4 +1,5 @@
 #include "Editor.h"
+#include "Entity.h"
 
 #include "Core/TempAllocator.h"
 
@@ -8,6 +9,8 @@ Allocator* GLOBAL_HEAP;
 
 i32 main()
 {
+	register_entity_type();
+
 	HeapAllocator gHeap;
 	GLOBAL_HEAP = &gHeap;
 

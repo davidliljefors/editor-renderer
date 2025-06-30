@@ -10,6 +10,7 @@
 class AssetBrowserWindow;
 struct EditorTab;
 
+
 class IEditorWindow
 {
 public:

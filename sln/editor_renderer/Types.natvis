@@ -22,4 +22,31 @@
 		</ArrayItems>
 	</Expand>
 </Type>
+
+<Type Name="DynamicData">
+	<DisplayString Condition="type == 0">Object: {pObject}</DisplayString>
+	<DisplayString Condition="type == 1">ObjectRef: {objectRef}</DisplayString>
+	<DisplayString Condition="type == 2">Array: {pArray}</DisplayString>
+	<DisplayString Condition="type == 3">Instance: {instance}</DisplayString>
+	<DisplayString Condition="type == 4">Integer: {integer}</DisplayString>
+	<DisplayString Condition="type == 5">Number: {number}</DisplayString>
+	<DisplayString Condition="type == 6">String: {string,s}</DisplayString>
+	<Expand>
+		<Item Name="[type]" Condition="type == 0">type, en</Item>
+		<Item Name="pObject" Condition="type == 0">pObject</Item>
+		<Item Name="[type]" Condition="type == 1">type, en</Item>
+		<Item Name="objectRef" Condition="type == 1">objectRef</Item>
+		<Item Name="[type]" Condition="type == 2">type, en</Item>
+		<Item Name="pArray" Condition="type == 2">pArray</Item>
+		<Item Name="[type]" Condition="type == 3">type, en</Item>
+		<Item Name="instance" Condition="type == 3">instance</Item>
+		<Item Name="[type]" Condition="type == 4">type, en</Item>
+		<Item Name="integer" Condition="type == 4">integer</Item>
+		<Item Name="[type]" Condition="type == 5">type, en</Item>
+		<Item Name="number" Condition="type == 5">number</Item>
+		<Item Name="[type]" Condition="type == 6">type, en</Item>
+		<Item Name="string" Condition="type == 6">string,s</Item>
+	</Expand>
+</Type>
+	
 </AutoVisualizer>

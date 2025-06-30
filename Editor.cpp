@@ -138,6 +138,11 @@ HWND createWindow(int w, int h)
     return hwnd;
 }
 
+u64 random_u64()
+{
+	return g_rand.next();
+}
+
 DrawList EditorViewport::getDrawList()
 {
 	return tab->getDrawList();
@@ -510,6 +515,7 @@ void EditorApp::update()
 
     ImGui::Begin("MainWindow", nullptr, window_flags);
 
+	DynamicData_view(g_templates[ENTITY_TYPE_ID]);
 
     EditorTab** focusedTabFind = m_openTabs.find(m_hFocusedTab);
 	EditorTab* focusedTab = focusedTabFind ? *focusedTabFind : nullptr;
