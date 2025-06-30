@@ -1,5 +1,7 @@
 #pragma once
 
+#include <cstdarg>
+
 #include "Math.h"
 #include "mh64.h"
 #include "TruthMap.h"
@@ -15,6 +17,39 @@
 
 
 #define _CRT_SECURE_NO_WARNINGS 1
+
+struct Printf
+{
+	Printf() = default;
+
+	Printf(const char* fmt, ...)
+	{
+		va_list args;
+		va_start(args, fmt);
+		int result = vsnprintf(buf, 128, fmt, args);
+		va_end(args);
+	}
+
+	void write(const char* fmt, ...)
+	{
+		va_list args;
+		va_start(args, fmt);
+		int result = vsnprintf(buf, 128, fmt, args);
+		va_end(args);
+	}
+
+	operator const char* ()
+	{
+		return buf;
+	}
+
+	const char* cstr()
+	{
+		return buf;
+	}
+
+	char buf[128];
+};
 
 u64 random_u64();
 
@@ -46,23 +81,17 @@ Position get_position(ReadOnlySnapshot snap, truth::Key objectId);
 void set_position(Transaction& tx, truth::Key objectId, Position p);
 
 
-
 struct DDObject
 {
+	u64 typeId;
 	std::vector<u64> names;
-	std::vector<DynamicData*> values;
+	std::vector<DynamicData> values;
 };
 
 struct DDArray
 {
-	eastl::vector<DynamicData*> values;
+	eastl::vector<DynamicData> values;
 };
-
-
-DDObject* clone_object(Allocator* a, const DDObject* pObject);
-
-DDObject* create_from_template(Allocator* a, const DDObject* pTemplate);
-
 
 struct DDInstance
 {
@@ -70,16 +99,16 @@ struct DDInstance
 	DDObject* pOverride;
 };
 
+DDObject* lookup_obj(u64 hObject);
+
 struct DynamicData
 {
-	DynamicData(const DynamicData&) = delete;
-
 	enum Type : u8
 	{
+		Type_Null,
 		Type_Object,
-		Type_ObjectRef,
 		Type_Array,
-		Type_Instance,
+		//Type_Instance,
 		Type_Integer,
 		Type_Number,
 		Type_String
@@ -95,12 +124,36 @@ struct DynamicData
 		return type == Type_String ? string : "";
 	}
 
+	DDObject* asObject()
+	{
+		return type == Type_Object ? lookup_obj(hObject) : nullptr;
+	}
+
+	DDArray* asArray()
+	{
+		return type == Type_Array ? pArray : nullptr;
+	}
+
+	const DDObject* asObject() const
+	{
+		return type == Type_Object ? lookup_obj(hObject) : nullptr;
+	}
+
+	const DDArray* asArray() const
+	{
+		return type == Type_Array ? pArray : nullptr;
+	}
+
+	u64 id() const
+	{
+		return type == Type_Object ? hObject : 0ull;
+	}
+
 	union
 	{
-		DDInstance instance;
-		DDObject* pObject;
+		//u64 hIns;
+		u64 hObject;
 		DDArray* pArray;
-		u64 objectRef;
 		i64 integer;
 		f64 number;
 		char* string;
@@ -111,179 +164,39 @@ struct DynamicData
 
 using Prototype = DynamicData;
 
-inline std::unordered_map<u64, DynamicData*> g_lookup;
-inline std::unordered_map<u64, DynamicData*> g_templates;
+void DynamicData_register_obj(const DynamicData* pObject, u64 id);
+
+DynamicData DynamicData_obj_new();
+
+DynamicData DynamicData_obj_from_type(u64 typeId);
+
+DynamicData DynamicData_array_new();
+
+DynamicData DynamicData_str_new();
+
+DynamicData DynamicData_int_new();
+
+DynamicData DynamicData_make_int(i64 integer);
+
+DynamicData DynamicData_make_str(const char* str);
 
 
-inline DynamicData* DynamicData_value_new()
-{
-	void* mem = malloc(sizeof(DynamicData));
-	memset(mem, 0, sizeof(DynamicData));
-	return (DynamicData*)mem;
-}
+DynamicData DynamicData_make_null();
 
-inline DynamicData* DynamicData_obj_new()
-{
-	DynamicData* pValue = DynamicData_value_new();
+DynamicData DynamicData_num_new();
 
-	void* mem = malloc(sizeof(DDObject));
-	memset(mem, 0, sizeof(DDObject));
-
-	pValue->type = DynamicData::Type_Object;
-	pValue->pObject = (DDObject*)mem;
-
-	return pValue;
-}
-
-inline DynamicData* DynamicData_array_new()
-{
-	DynamicData* pValue = DynamicData_value_new();
-
-	void* mem = malloc(sizeof(DDArray));
-	memset(mem, 0, sizeof(DDArray));
-
-	pValue->type = DynamicData::Type_Array;
-	pValue->pArray = (DDArray*)mem;
-
-	return pValue;
-}
-
-inline DynamicData* DynamicData_str_new()
-{
-	DynamicData* pValue = DynamicData_value_new();
-
-	pValue->type = DynamicData::Type_String;
-
-	return pValue;
-}
-
-inline DynamicData* DynamicData_int_new()
-{
-	DynamicData* pValue = DynamicData_value_new();
-
-	pValue->type = DynamicData::Type_Integer;
-
-	return pValue;
-}
-
-inline DynamicData* DynamicData_make_str(const char* str)
-{
-	DynamicData* pData = DynamicData_str_new();
-
-	u64 capacity = strlen(str) + 1;
-	pData->string = (char*)malloc(capacity);
-	strcpy_s(pData->string, capacity, str);
-
-	return pData;
-}
-
-inline DynamicData* DynamicData_num_new()
-{
-	DynamicData* pValue = DynamicData_value_new();
-
-	pValue->type = DynamicData::Type_Integer;
-
-	return pValue;
-}
-
-inline u64 DynamicData_size(const DynamicData* value)
-{
-	if (value->type == DynamicData::Type_Object)
-	{
-		return value->pObject->names.size();
-	}
-
-	if (value->type == DynamicData::Type_Array)
-	{
-		return value->pArray->values.size();
-	}
-
-	if (value->type == DynamicData::Type_Instance)
-	{
-		
-	}
-
-	return 0;
-}
-
-inline DynamicData* lookup(u64 ref)
-{
-	auto find = g_lookup.find(ref);
-	return find != g_lookup.end() ? find->second : nullptr;
-}
-
-inline void TTValue_clone_internal(const DynamicData* src, DynamicData** dst)
-{
-	switch (src->type)
-	{
-	case DynamicData::Type_Object:
-	{
-		*dst = DynamicData_obj_new();
-		u64 size = DynamicData_size(src);
-		(*dst)->pObject->names.resize(size);
-		(*dst)->pObject->values.resize(size);
-
-		for (u64 i = 0; i < size; ++i)
-		{
-			(*dst)->pObject->names[i] = src->pObject->names[i];
-			TTValue_clone_internal(src->pObject->values[i], &(*dst)->pObject->values[i]);
-		}
-
-		break;
-	}
-	case DynamicData::Type_ObjectRef:
-		break;
-	case DynamicData::Type_Array:
-	{
-		*dst = DynamicData_array_new();
-		u64 size = DynamicData_size(src);
-		(*dst)->pArray->values.resize(size);
-
-		for (u64 i = 0; i < size; ++i)
-		{
-			TTValue_clone_internal(src->pArray->values[i], &(*dst)->pArray->values[i]);
-		}
-
-		break;
-	}
-	case DynamicData::Type_Instance:
-		break;
-	case DynamicData::Type_Integer:
-		*dst = DynamicData_int_new();
-		(*dst)->integer = src->integer;
-		break;
-	case DynamicData::Type_Number:
-		*dst = DynamicData_num_new();
-		(*dst)->number = src->number;
-		break;
-	case DynamicData::Type_String:
-		*dst = DynamicData_str_new();
-		u64 capacity = strlen(src->string) + 1;
-		(*dst)->string = (char*)malloc(capacity);
-		strcpy_s((*dst)->string, capacity, src->string);
-		break;
-	}
-}
-
-inline u64 DynamicData_clone(const DynamicData* src)
-{
-	u64 id = random_u64();
-
-	DynamicData** pValue = nullptr;
-
-	TTValue_clone_internal(src, pValue);
-
-	g_lookup[id] = *pValue;
-
-	return id;
-}
+u64 DynamicData_size(const DynamicData* value);
 
 
-inline const DynamicData* DynamicData_obj_find(DynamicData* pValue, u64 hName)
+void DynamicData_clone_internal(const DynamicData* src, DynamicData* dst);
+
+DynamicData DynamicData_clone(const DynamicData* src);
+
+inline DynamicData DynamicData_obj_find(DynamicData* pValue, u64 hName)
 {
 	if (pValue->type == DynamicData::Type_Object)
 	{
-		DDObject* pObject = pValue->pObject;
+		DDObject* pObject = pValue->asObject();
 
 		for (i32 i = 0; i < pObject->names.size(); ++i)
 		{
@@ -294,94 +207,36 @@ inline const DynamicData* DynamicData_obj_find(DynamicData* pValue, u64 hName)
 		}
 	}
 
-	return nullptr;
+	return DynamicData_make_null();
 }
 
-inline void DynamicData_obj_add(DynamicData* pObj, u64 hName, DynamicData* pValue)
+inline void DynamicData_obj_add(DynamicData target, u64 hName, DynamicData add)
 {
-	if (pObj->type == DynamicData::Type_Object)
+	if (DDObject* pObject = target.asObject())
 	{
-		DDObject* pObject = pObj->pObject;
-
 		for (i32 i = 0; i < pObject->names.size(); ++i)
 		{
 			if (hName == pObject->names[i])
 			{
 				// todo: api add existing is error?
-				pObject->values[i] = pValue;
+				pObject->values[i] = add;
 				return;
 			}
 		}
 
 		pObject->names.push_back(hName);
-		pObject->values.push_back(pValue);
+		pObject->values.push_back(add);
 	}
 }
 
-inline void DynamicData_array_add(DynamicData* pArr, DynamicData* pValue)
+inline void DynamicData_array_add(DynamicData array, DynamicData value)
 {
-	if (pArr->type == DynamicData::Type_Array)
+	if (array.type == DynamicData::Type_Array)
 	{
-		DDArray* pArray = pArr->pArray;
-		pArray->values.push_back(pValue);
+		DDArray* pArray = array.pArray;
+		pArray->values.push_back(value);
 	}
 }
-
-inline void DynamicData_array_insert(DynamicData* pObj, DynamicData* pValue, i32 index)
-{
-	if (pObj->type == DynamicData::Type_Array)
-	{
-		DDArray* pArray = pObj->pArray;
-		pArray->values.insert(pArray->values.begin() + index, pObj);
-	}
-}
-
-//f64 DynamicData_read_f64(u64 hName, const DynamicData* value)
-//{
-//	if (value->type == DynamicData::Type_Object)
-//	{
-//		DDObject* pObject = value->pObject;
-//
-//		for (i32 i = 0; i < pObject->names.size(); ++i)
-//		{
-//			if (hName == pObject->names[i])
-//			{
-//				return pObject->values[i]->asNumber();
-//			}
-//		}
-//	}
-//
-//	if (value->type == DynamicData::Type_Instance)
-//	{
-//		DDInstance instance = value->instance;
-//
-//		if (instance.pOverride)
-//		{
-//			DDObject* pOverride = instance.pOverride;
-//
-//			for (i32 i = 0; i < pOverride->names.size(); ++i)
-//			{
-//				if (hName == pOverride->names[i])
-//				{
-//					return pOverride->values[i]->asNumber();
-//				}
-//			}
-//		}
-//
-//		DDObject* pTemplate = lookup(instance.hTemplate)->pObject;
-//
-//		for (i32 i = 0; i < pTemplate->names.size(); ++i)
-//		{
-//			if (hName == pTemplate->names[i])
-//			{
-//				return pTemplate->values[i]->asNumber();
-//			}
-//		}
-//	}
-//
-//	return 0.0;
-//}
-
 
 u64 string_repository_hash(const char* str);
 
@@ -389,11 +244,13 @@ const char* string_repository_get(u64 hName);
 
 constexpr const char* s_typeNameKey = "type_name";
 constexpr const char* s_fieldsKey = "fields";
+constexpr const char* s_typeIdKey = "__type_id";
 
 struct DDEntity
 {
-	eastl::string name;
-	eastl::vector<u64> children;
+	const char* name;
+	eastl::vector<DynamicData> children;
+	eastl::vector<DynamicData> components;
 };
 
 struct DDEntityReader
@@ -401,7 +258,7 @@ struct DDEntityReader
 	const DDEntity* ref;
 
 	const eastl::vector<u64>& readChildren();
-	const eastl::string& readName();
+	const char* readName();
 };
 
 struct DDEntityEditor
@@ -409,41 +266,40 @@ struct DDEntityEditor
 	DDEntity* ref;
 
 	eastl::vector<u64>& editChildren();
-	eastl::string& editName();
+	//eastl::string& editName();
 
 	const eastl::vector<u64>& readChildren();
-	const eastl::string& readName();
+	const char* readName();
 };
 
 struct DDTransformComponent
 {
-	float3 position;
+
+	float x;
+	float y;
+	float z;
 };
 
-constexpr u64 ENTITY_TYPE_ID = TM_STATIC_HASH("ENTITY_TYPE_ID", 0x5bf6f54407a5c834ULL);
-
-inline void register_entity_type()
+struct DynamicDataParser_i
 {
-	DynamicData* root = DynamicData_obj_new();
+	void (*parse)(DynamicData* value, void* target);
+};
 
-	u64 hTypeName = string_repository_hash(s_typeNameKey);
-	u64 hFields = string_repository_hash(s_fieldsKey);
+void DynamicData_registerParser(u64 hType, DynamicDataParser_i parser);
 
-	DynamicData* entityName = DynamicData_make_str("entity");
-	DynamicData_obj_add(root, hTypeName, entityName);
+DDEntity DynamicData_readEntity(DynamicData* value);
 
-	DynamicData* arrFields = DynamicData_array_new();
+constexpr u64 ENTITY_TYPE_ID = TM_STATIC_HASH("ENTITY_TYPE_ID", 0x5bf6f54407a5c834ULL);
+constexpr u64 COMPONENT_ID_TRANSFORM = TM_STATIC_HASH("COMPONENT_ID_TRANSFORM", 0x24e93d7df3c9e6f0ULL);
 
-	DynamicData* field_children = DynamicData_obj_new();
-	DynamicData_obj_add(field_children, string_repository_hash("children"), DynamicData_make_str("array"));
-	DynamicData_array_add(arrFields, field_children);
+void registerEntityTemplate();
+void registerComponent_TransformTemplate();
 
-	DynamicData_obj_add(root, hFields, arrFields);
+DynamicData* DynamicData_getTemplate(u64 id);
 
-	g_templates[ENTITY_TYPE_ID] = root;
-}
+DynamicData DynamicData_createFromTemplate(u64 hTemplate);
 
-void DynamicData_view(const DynamicData* pData);
+void DynamicData_view(DynamicData* pData);
 
 struct Entity : TruthElement
 {

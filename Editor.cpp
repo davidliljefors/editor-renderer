@@ -514,8 +514,73 @@ void EditorApp::update()
         ImGuiWindowFlags_MenuBar;
 
     ImGui::Begin("MainWindow", nullptr, window_flags);
+	ImGui::Begin("Dynamic Data Templates");
+	if (ImGui::CollapsingHeader("EntityTemplate"))
+	{
+		auto temp = DynamicData_getTemplate(ENTITY_TYPE_ID);
+		ImGui::PushID((int)ENTITY_TYPE_ID);
+		DynamicData_view(temp);
+		ImGui::PopID();
+	}
 
-	DynamicData_view(g_templates[ENTITY_TYPE_ID]);
+	if (ImGui::CollapsingHeader("ComponentTemplate_Transform"))
+	{
+		DynamicData* temp = DynamicData_getTemplate(COMPONENT_ID_TRANSFORM);
+		ImGui::PushID((int)COMPONENT_ID_TRANSFORM);
+		DynamicData_view(temp);
+		ImGui::PopID();
+	}
+
+	if (ImGui::Button("Create Entity"))
+	{
+		DynamicData entity = DynamicData_createFromTemplate(ENTITY_TYPE_ID);
+		u64 hName = MetroHash64::HashStr("name");
+		DynamicData_obj_add(entity, hName, DynamicData_make_str("New Entity"));
+		m_roots.push_back(entity);
+	}
+
+	ImGui::End();
+
+	ImGui::Begin("Entity Roots");
+
+	int num = 0;
+	for (DynamicData& value : m_roots)
+	{
+		ImGui::PushID((int)value.id());
+		if (ImGui::CollapsingHeader(Printf("Entity Root %d", num++)))
+		{
+			DynamicData_view(&value);
+		}
+
+		if (ImGui::Button("Add Child"))
+		{
+			DynamicData childEntity = DynamicData_createFromTemplate(ENTITY_TYPE_ID);
+
+			u64 hName = MetroHash64::HashStr("name");
+			DynamicData_obj_add(childEntity, hName, DynamicData_make_str("Child Entity"));
+			DynamicData arrChildren = DynamicData_obj_find(&value, string_repository_hash("children"));
+			DynamicData_array_add(arrChildren, childEntity);
+		}
+		if (ImGui::Button("Add Transform"))
+		{
+			DynamicData transformComponent = DynamicData_createFromTemplate(COMPONENT_ID_TRANSFORM);
+			DynamicData arrComponents = DynamicData_obj_find(&value, string_repository_hash("components"));
+
+			DynamicData_array_add(arrComponents, transformComponent);
+		}
+		ImGui::PopID();
+	}
+
+	ImGui::End();
+
+	ImGui::Begin("Entity Throguh Api");
+
+	for (DynamicData& value : m_roots)
+	{
+
+	}
+
+	ImGui::End();
 
     EditorTab** focusedTabFind = m_openTabs.find(m_hFocusedTab);
 	EditorTab* focusedTab = focusedTabFind ? *focusedTabFind : nullptr;
@@ -524,7 +589,6 @@ void EditorApp::update()
     {
         if (ImGui::BeginMenu("   File   "))
         {
-
             if (ImGui::MenuItem("New")) 
             {
 				static int nextId = 0;
@@ -622,6 +686,7 @@ EditorApp::EditorApp(Allocator* a)
 	m_assetWindow = create<AssetBrowserWindow>(a);
     m_renderer = nullptr;
     m_hFocusedTab = 0;
+	m_roots.set_allocator(a);
 
 	g_truth = create<Truth>(GLOBAL_HEAP, GLOBAL_HEAP);
     

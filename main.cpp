@@ -9,7 +9,8 @@ Allocator* GLOBAL_HEAP;
 
 i32 main()
 {
-	register_entity_type();
+	registerEntityTemplate();
+	registerComponent_TransformTemplate();
 
 	HeapAllocator gHeap;
 	GLOBAL_HEAP = &gHeap;

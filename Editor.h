@@ -6,6 +6,7 @@
 #include "TruthMap.h"
 #include "TruthView.h"
 #include "Core/HashMap.h"
+#include "Entity.h"
 
 class AssetBrowserWindow;
 struct EditorTab;
@@ -80,6 +81,9 @@ private:
 	AssetBrowserWindow* m_assetWindow;
 	HashMap<EditorTab*> m_openTabs;
 	u64 m_hFocusedTab;
+	Array<DynamicData> m_roots;
+
+	u64 m_hFocusedObject;
 
 	HWND m_hwnd;
 };
