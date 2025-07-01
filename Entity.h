@@ -126,11 +126,6 @@ struct DynamicData
 		return type == Type_String ? string : "";
 	}
 
-	DynamicData getPrototype()
-	{
-		return type == Type_Instance ? lookup_obj(instance.hPrototype) : nullptr;
-	}
-
 	DDObject* asObject()
 	{
 		return type == Type_Object ? lookup_obj(hObject) : nullptr;
@@ -240,7 +235,7 @@ struct DDObject
 };
 
 
-DynamicEdit DynamicEdit_arrayAdd(DynamicData value)
+inline DynamicEdit DynamicEdit_arrayAdd(DynamicData value)
 {
 	DynamicEdit e;
 	e.type = DynamicEdit::Type_ArrayAppend;
@@ -248,7 +243,7 @@ DynamicEdit DynamicEdit_arrayAdd(DynamicData value)
 	return e;
 }
 
-DynamicEdit DynamicEdit_arrayPop()
+inline DynamicEdit DynamicEdit_arrayPop()
 {
 	DynamicEdit e;
 	e.type = DynamicEdit::Type_ArrayPop;
@@ -339,6 +334,25 @@ struct ArrayEditor
 	void push(DynamicData value);
 	void pop();
 	u64 size();
+};
+
+struct ObjectEditor
+{
+	struct Instance
+	{
+		eastl::vector<u64> flatNames;
+		eastl::vector<DynamicData> flatValues;
+		DDObject::Edits* pEdits;
+	};
+
+	struct Owned
+	{
+		DDObject* pObject;
+	};
+
+	void set(DynamicData value, u64 hName);
+	DynamicData get(u64 hName);
+
 };
 
 ArrayEditor DynamicData_edit_array(DynamicData* object, u64 hName);
