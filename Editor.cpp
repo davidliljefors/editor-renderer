@@ -18,6 +18,8 @@
 
 static EditorApp* s_app;
 
+DynamicData s_clipboard;
+
 struct Xoshiro256
 {
 	static uint64_t rotl(const uint64_t x, int k) 
@@ -536,11 +538,11 @@ void EditorApp::update()
 		ImGui::PopID();
 	}
 
-	if (ImGui::Button("Create Entity"))
+	if (ImGui::Button("Add new root entity"))
 	{
 		DynamicData entity = DynamicData_createFromTemplate(ENTITY_TYPE_ID);
 		u64 hName = MetroHash64::HashStr("name");
-		DynamicData_obj_add(&entity, hName, DynamicData_make_str("New Entity"));
+		DynamicData_obj_add(&entity, hName, DynamicData_make_str("Root Entity"));
 		m_roots.push_back(entity);
 	}
 
@@ -742,6 +744,24 @@ void EditorApp::DrawSelectedEntity()
 	{
 		DDTransformComponent transform = DynamicData_readTransform(&m_focused);
 		ImGui::InputFloat3("Entity Position", &transform.x);
+	}
+
+
+
+	if (s_clipboard.id() != 0)
+	{
+		DDObject* selected = lookup_obj(m_focused.hObject);
+		DDObject* clipboard = lookup_obj(s_clipboard.hObject);
+
+		if (ImGui::Button("Paste Entity"))
+		{
+			
+		}
+	}
+
+	if (ImGui::Button("Copy Entity to Clipboard"))
+	{
+		s_clipboard = m_focused;
 	}
 }
 

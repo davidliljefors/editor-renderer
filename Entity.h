@@ -80,26 +80,18 @@ struct Position
 Position get_position(ReadOnlySnapshot snap, truth::Key objectId);
 void set_position(Transaction& tx, truth::Key objectId, Position p);
 
-
-struct DDObject
-{
-	u64 typeId;
-	std::vector<u64> names;
-	std::vector<DynamicData> values;
-};
-
-struct DDArray
-{
-	eastl::vector<DynamicData> values;
-};
+struct DDObject;
+struct DDArray;
+struct DDEdits;
 
 struct DDInstance
 {
-	u64 hTemplate;
-	DDObject* pOverride;
+	u64 hPrototype;
+	u64 hEdits;
 };
 
 DDObject* lookup_obj(u64 hObject);
+DDEdits* lookup_edits(u64 hEdits);
 
 struct DynamicData
 {
@@ -108,7 +100,7 @@ struct DynamicData
 		Type_Null,
 		Type_Object,
 		Type_Array,
-		//Type_Instance,
+		Type_Instance,
 		Type_Integer,
 		Type_Number,
 		Type_String
@@ -134,7 +126,17 @@ struct DynamicData
 		return type == Type_String ? string : "";
 	}
 
+	DynamicData getPrototype()
+	{
+		return type == Type_Instance ? lookup_obj(instance.hPrototype) : nullptr;
+	}
+
 	DDObject* asObject()
+	{
+		return type == Type_Object ? lookup_obj(hObject) : nullptr;
+	}
+
+	const DDObject* asObject() const
 	{
 		return type == Type_Object ? lookup_obj(hObject) : nullptr;
 	}
@@ -144,24 +146,30 @@ struct DynamicData
 		return type == Type_Array ? pArray : nullptr;
 	}
 
-	const DDObject* asObject() const
-	{
-		return type == Type_Object ? lookup_obj(hObject) : nullptr;
-	}
-
 	const DDArray* asArray() const
 	{
 		return type == Type_Array ? pArray : nullptr;
 	}
 
+	DDEdits* getEdits()
+	{
+		return type == Type_Instance ? lookup_edits(instance.hEdits) : nullptr;
+	}
+
 	u64 id() const
 	{
-		return type == Type_Object ? hObject : 0ull;
+		if (type == Type_Object)
+			return hObject;
+
+		if (type == Type_Instance)
+			return instance.hEdits;
+
+		return 0ull;
 	}
 
 	union
 	{
-		//u64 hIns;
+		DDInstance instance;
 		u64 hObject;
 		DDArray* pArray;
 		i64 integer;
@@ -172,97 +180,168 @@ struct DynamicData
 	Type type;
 };
 
-using Prototype = DynamicData;
+struct DynamicEdit
+{
+	enum Type : u8
+	{
+		Type_ArrayAppend,
+		Type_ArrayPop,
+		Type_ArraySet,
 
-void DynamicData_register_obj(const DynamicData* pObject, u64 id);
+		Type_ObjectAdd,
+		Type_ObjectRemove,
+		Type_ObjectSet,
+	};
+
+	struct ArrayAppend
+	{
+		DynamicData value;
+	};
+
+
+	struct ArraySet
+	{
+		i32 index;
+		DynamicData value;
+	};
+
+	struct ObjectAdd
+	{
+		DynamicData value;
+	};
+
+	union
+	{
+		ObjectAdd objectAdd;
+		ArrayAppend arrayAppend;
+		ArraySet arraySet;
+	};
+
+	Type type;
+};
+struct DDObject
+{
+	u64 hPrototype;
+
+	struct Owned
+	{
+		eastl::vector<u64> names;
+		eastl::vector<DynamicData> values;
+	};
+
+	struct Edits
+	{
+		eastl::vector<u64> names;
+		eastl::vector<eastl::vector<DynamicEdit>> edits;
+	};
+
+	Owned owned;
+	Edits edits;
+};
+
+
+DynamicEdit DynamicEdit_arrayAdd(DynamicData value)
+{
+	DynamicEdit e;
+	e.type = DynamicEdit::Type_ArrayAppend;
+	e.arrayAppend.value = value;
+	return e;
+}
+
+DynamicEdit DynamicEdit_arrayPop()
+{
+	DynamicEdit e;
+	e.type = DynamicEdit::Type_ArrayPop;
+	return e;
+}
+
+struct DDEdits
+{
+	eastl::vector<u64> names;
+	eastl::vector<eastl::vector<DynamicEdit>> edits;
+};
+
+bool DynamicEdits_find(DDObject::Edits* edits, u64 hName, u64* outIndex);
+
+struct DDArray
+{
+	u64 hRoot;
+	eastl::vector<DynamicData> values;
+};
+
+enum class PropertyRelation : u8
+{
+	Owned,
+	Override,
+	Inherited,
+	None
+};
+
+PropertyRelation DynamicData_get_relation(DynamicData* pValue, u64 hName);
 
 DynamicData DynamicData_obj_new();
-
+DynamicData DynamicData_instance_new(DynamicData* prototype);
 DynamicData DynamicData_array_new();
-
 DynamicData DynamicData_str_new();
-
 DynamicData DynamicData_int_new();
-
-DynamicData DynamicData_make_int(i64 integer);
-
-DynamicData DynamicData_make_str(const char* str);
-
-DynamicData DynamicData_make_null();
-
 DynamicData DynamicData_num_new();
 
+DynamicData DynamicData_make_int(i64 integer);
+DynamicData DynamicData_make_str(const char* str);
+DynamicData DynamicData_make_null();
 DynamicData DynamicData_make_num(f64 number);
 
 u64 DynamicData_size(const DynamicData* value);
-
 
 void DynamicData_clone_internal(const DynamicData* src, DynamicData* dst);
 
 DynamicData DynamicData_clone(const DynamicData* src);
 
-inline DynamicData DynamicData_obj_find(DynamicData* pValue, u64 hName)
+DynamicData DynamicData_obj_find(DynamicData* pValue, u64 hName);
+
+void DynamicData_assign_root(DynamicData* newRoot, DynamicData* value);
+
+void DynamicData_obj_add(DynamicData* target, u64 hName, DynamicData add);
+
+DynamicData DynamicData_obj_get(DynamicData* target, u64 hName);
+
+void DynamicData_obj_set(DynamicData* target, u64 hName, DynamicData value);
+
+DynamicData DynamicData_instantiate(DynamicData* prototype);
+
+void DynamicData_array_add(DynamicData* array, DynamicData value);
+
+void DynamicData_array_pop(DynamicData* array, DynamicData value);
+
+eastl::vector<DynamicData> DynamicData_array_compose(DynamicData* object, u64 hName);
+
+struct ArrayEditor
 {
-	if (pValue->type == DynamicData::Type_Object)
+	struct Instance
 	{
-		DDObject* pObject = pValue->asObject();
+		eastl::vector<DynamicData> flattened;
+		DDObject::Edits* pEdits;
+	};
 
-		for (i32 i = 0; i < pObject->names.size(); ++i)
-		{
-			if (hName == pObject->names[i])
-			{
-				return pObject->values[i];
-			}
-		}
-	}
-
-	return DynamicData_make_null();
-}
-
-inline void DynamicData_obj_add(DynamicData* target, u64 hName, DynamicData add)
-{
-	if (DDObject* pObject = target->asObject())
+	struct Owned
 	{
-		for (i32 i = 0; i < pObject->names.size(); ++i)
-		{
-			if (hName == pObject->names[i])
-			{
-				// todo: api add existing is error?
-				pObject->values[i] = add;
-				return;
-			}
-		}
+		DDArray* pArray;
+	};
 
-		pObject->names.push_back(hName);
-		pObject->values.push_back(add);
-	}
-}
-
-inline void DynamicData_obj_set(DynamicData* target, u64 hName, DynamicData value)
-{
-	if (DDObject* pObject = target->asObject())
+	union
 	{
-		for (i32 i = 0; i < pObject->names.size(); ++i)
-		{
-			if (hName == pObject->names[i])
-			{
-				pObject->values[i] = value;
-				return;
-			}
-		}
-	}
+		Instance instance;
+		Owned owned;
+	};
 
-	assert(false && "didnt find key");
-}
+	u64 hName;
+	bool isInstanced;
+	void push(DynamicData value);
+	void pop();
+	u64 size();
+};
 
-inline void DynamicData_array_add(DynamicData array, DynamicData value)
-{
-	if (array.type == DynamicData::Type_Array)
-	{
-		DDArray* pArray = array.pArray;
-		pArray->values.push_back(value);
-	}
-}
+ArrayEditor DynamicData_edit_array(DynamicData* object, u64 hName);
 
 u64 string_repository_hash(const char* str);
 
