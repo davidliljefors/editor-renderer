@@ -114,6 +114,11 @@ void DynamicData_view_impl(DynamicData* pData)
 			{
 				ImGui::TreePop();
 			}
+
+			if (ImGui::TreeNodeEx(Printf("Based on version : %llu", pObject->flattened.basedOnVersion), ImGuiTreeNodeFlags_Leaf))
+			{
+				ImGui::TreePop();
+			}
 		}
 
 		for (u64 i = 0; i < pObject->flattened.names.size(); ++i)
@@ -131,6 +136,11 @@ void DynamicData_view_impl(DynamicData* pData)
 					ImGui::TreePop();
 				}
 
+				if (ImGui::IsItemClicked(0) && ImGui::IsKeyDown(ImGuiKey_LeftShift))
+				{
+					__debugbreak();
+				}
+
 				if (element.type == DynamicData::Type_Number && ImGui::IsItemClicked())
 				{
 					DynamicData newPos = DynamicData_make_num(element.asNumber() + 1);
@@ -141,6 +151,37 @@ void DynamicData_view_impl(DynamicData* pData)
 			{
 				if (ImGui::TreeNode(name))
 				{
+					if (ImGui::IsItemClicked(0) && ImGui::IsKeyDown(ImGuiKey_LeftShift))
+					{
+						if (MetroHash64::HashStr("subobject") == pObject->flattened.names[i])
+						{
+							__debugbreak();
+							DynamicData_obj_before_read(pObject->flattened.values[i].asObject());
+						}
+					}
+
+					if (ImGui::IsItemClicked(0) && ImGui::IsKeyDown(ImGuiKey_LeftCtrl))
+					{
+						pObject->flattened.basedOnVersion = 0;
+					}
+
+					bool canInstantiate = pObject->hPrototype;
+					if (ImGui::IsItemClicked(1))
+					{
+						ImGui::OpenPopup("dd_view_context_menu");
+					}
+
+					if (ImGui::BeginPopup("dd_view_context_menu")) {
+
+						ImGui::BeginDisabled(!canInstantiate);
+			            if (ImGui::MenuItem("Instantiate subobject")) 
+						{
+							DynamicData_instantiate_member(pData, pObject->flattened.names[i]);
+			            }
+						ImGui::EndDisabled();
+			            ImGui::EndPopup();
+			        }
+
 					DynamicData_view_impl(&pObject->flattened.values[i]);
 					ImGui::TreePop();
 				}
@@ -391,11 +432,12 @@ DynamicData DynamicData_make_num(f64 number)
 	return value;
 }
 
-u64 DynamicData_size(const DynamicData* value)
+u64 DynamicData_size(DynamicData* value)
 {
-	if (const DDObject* pObject = value->asObject())
+	if (DDObject* pObject = value->asObject())
 	{
-		return pObject->owned.values.size();
+		DynamicData_obj_before_read(pObject);
+		return pObject->flattened.values.size();
 	}
 
 	if (const DDArray* pArray = value->asArray())
@@ -406,7 +448,7 @@ u64 DynamicData_size(const DynamicData* value)
 	return 0;
 }
 
-void DynamicData_clone_internal(const DynamicData* src, DynamicData* dst)
+void DynamicData_clone_internal(DynamicData* src, DynamicData* dst)
 {
 	switch (src->type)
 	{
@@ -415,7 +457,7 @@ void DynamicData_clone_internal(const DynamicData* src, DynamicData* dst)
 		*dst = DynamicData_obj_new();
 		u64 size = DynamicData_size(src);
 		DDObject* pObject = dst->asObject();
-		const DDObject* pSrcObject = src->asObject();
+		DDObject* pSrcObject = src->asObject();
 
 		pObject->owned.names.resize(size);
 		pObject->owned.values.resize(size);
@@ -434,7 +476,7 @@ void DynamicData_clone_internal(const DynamicData* src, DynamicData* dst)
 		u64 size = DynamicData_size(src);
 		DDArray* pArray = dst->asArray();
 		pArray->values.resize(size);
-		const DDArray* srcArray = src->asArray();
+		DDArray* srcArray = src->asArray();
 
 		for (u64 i = 0; i < size; ++i)
 		{
@@ -472,7 +514,7 @@ void DynamicData_clone_internal(const DynamicData* src, DynamicData* dst)
 	}
 }
 
-DynamicData DynamicData_clone(const DynamicData* src)
+DynamicData DynamicData_clone(DynamicData* src)
 {
 	DynamicData value;
 	DynamicData_clone_internal(src, &value);
@@ -641,12 +683,12 @@ void DynamicData_obj_arr_push(DynamicData* object, u64 hArrayName, DynamicData v
 
 			if (findName(pObject->flattened.names, hArrayName, &i))
 			{
-				pObject->flattened.values[i] = value;
+				pObject->flattened.values[i].asArray()->values.push_back(value);
 			}
 			else
 			{
-				pObject->flattened.names.push_back(hArrayName);
-				pObject->flattened.values.push_back(value);
+				assert(false && "didnt find key");
+				// we push to array but it doesnt exist?
 			}
 			pObject->version++;
 			return;
@@ -683,6 +725,12 @@ DynamicData DynamicData_instantiate_member(DynamicData* pValue, u64 hName)
 			DynamicData instance = DynamicData_new_from_prototype(pPrototype);
 			pObject->instantiated.names.push_back(hName);
 			pObject->instantiated.values.push_back(instance);
+
+			// todo this has to be set so we dont have to reset
+			pObject->flattened.dirty = true;
+
+
+			DynamicData_obj_before_read(pObject);
 			return instance;
 		}
 	}
@@ -796,19 +844,47 @@ void DynamicData_obj_compose(DDObject* pObject, eastl::vector<u64>& names, eastl
 
 		names = pObject->owned.names;
 		values = pObject->owned.values;
+		return;
 	}
 	if (pPrototype)
 	{
-		if (pObject->flattened.basedOnVersion == pPrototype->version)
-		{
-			// todo if we have no edits at top level we can directly reference the arrays
-			names = pObject->flattened.names;
-			values = pObject->flattened.values;
-			return;
-		}
-
+		//if (pObject->flattened.basedOnVersion == pPrototype->version && !pObject->flattened.dirty && !pPrototype->flattened.dirty)
+		//{
+		//	// todo if we have no edits at top level we can directly reference the arrays
+		//	// why isnt return ok here
+		//	names = pObject->flattened.names;
+		//	values = pObject->flattened.values;
+		//	
+		//	return;
+		//}
 		DynamicData_obj_compose(pPrototype, names, values);
 		pObject->flattened.basedOnVersion = pPrototype->version;
+	}
+
+	// Redirect instances and assign flattened state
+	for (u64 i = 0; i < pObject->instantiated.names.size(); ++i)
+	{
+		u64 hName = pObject->instantiated.names[i];
+		u64 hObject = pObject->instantiated.values[i].hObject;
+		
+		u64 prototypeIndex;
+		// for an instance we need to redirect the values to our instance. applying the instance edits.
+		// todo if its no longer in prototype clean it up
+		if (findName(names, hName, &prototypeIndex))
+		{
+			assert(values[prototypeIndex].type == DynamicData::Type_Object);
+			assert(pObject->instantiated.values[i].type == DynamicData::Type_Object);
+
+			if (values[prototypeIndex].type == DynamicData::Type_Object)
+			{
+				DDObject* original = lookup_obj(values[prototypeIndex].hObject);
+				DDObject* pInstantiated = lookup_obj(hObject);
+
+				pInstantiated->flattened.values = original->flattened.values;
+				pInstantiated->flattened.names = original->flattened.names;
+				values[prototypeIndex].hObject = hObject;
+			}
+		}
 	}
 
 	// apply edits
@@ -823,35 +899,13 @@ void DynamicData_obj_compose(DDObject* pObject, eastl::vector<u64>& names, eastl
 		}
 	}
 
-	// Redirect instances and assign flattened state
-	for (u64 i = 0; i < pObject->instantiated.names.size(); ++i)
-	{
-		u64 hName = pObject->instantiated.names[i];
-		u64 hObject = pObject->instantiated.values[i].hObject;
-
-		u64 prototypeIndex;
-		// for an instance we need to redirect the values to our instance. applying the instance edits.
-		// todo if its no longer in prototype clean it up
-		if (findName(names, hName, &prototypeIndex))
-		{
-			assert(values[prototypeIndex].type == DynamicData::Type_Object);
-			assert(pObject->instantiated.values[i].type == DynamicData::Type_Object);
-
-			if (values[prototypeIndex].type == DynamicData::Type_Object)
-			{
-				values[prototypeIndex].hObject = hObject;
-			}
-			DDObject* pInstantiated = lookup_obj(hObject);
-			pInstantiated->flattened.values = values;
-			pInstantiated->flattened.names = names;
-		}
-	}
-
 	if (pObject->hPrototype != 0)
 	{
 		pObject->flattened.names = names;
 		pObject->flattened.values = values;
 	}
+
+	pObject->flattened.dirty = false;
 }
 
 void DynamicData_obj_before_read(DDObject* pObject)
@@ -1086,6 +1140,18 @@ void registerEntityTemplate()
 	DynamicData_obj_add(&field_children, string_repository_hash("children"), DynamicData_array_new());
 	DynamicData_obj_add(&field_children, string_repository_hash("components"), DynamicData_array_new());
 	DynamicData_obj_add(&field_children, string_repository_hash("test_number"), DynamicData_num_new());
+
+	DynamicData entity_subobject = DynamicData_obj_new();
+	DynamicData_obj_add(&entity_subobject, string_repository_hash("suh"), DynamicData_num_new());
+	DynamicData_obj_add(&entity_subobject, string_repository_hash("dude"), DynamicData_num_new());
+
+	DynamicData nested_subobject = DynamicData_obj_new();
+	DynamicData_obj_add(&nested_subobject, string_repository_hash("nested-suh"), DynamicData_num_new());
+	DynamicData_obj_add(&nested_subobject, string_repository_hash("nested-dude"), DynamicData_num_new());
+	DynamicData_obj_add(&entity_subobject, string_repository_hash("nested-subobject"), nested_subobject);
+
+	DynamicData_obj_add(&field_children, string_repository_hash("subobject"), entity_subobject);
+
 	DynamicData_obj_add(&root, hFields, field_children);
 
 	DynamicDataParser_i parser;
@@ -1109,7 +1175,13 @@ void registerEntityTemplate()
 		DDObject* pObject = value->asObject();
 		(void)pObject;
 		pEntity->name = DynamicData_obj_find(value, hNameField).asString();
-		pEntity->children = DynamicData_obj_find(value, hChildrenField).asArray()->values;
+		DynamicData arr =  DynamicData_obj_find(value, hChildrenField);
+
+		if (arr.type == DynamicData::Type_Object)
+		{
+			__debugbreak();
+		}
+		pEntity->children = arr.asArray()->values;
 		pEntity->components = DynamicData_obj_find(value, hComponentsField).asArray()->values;
 	};
 

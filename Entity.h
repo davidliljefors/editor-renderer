@@ -270,6 +270,7 @@ struct DDObject
 		eastl::vector<u64> names;
 		eastl::vector<DynamicData> values;
 		u64 basedOnVersion;
+		bool dirty;
 	};
 
 	struct Instantiated
@@ -340,11 +341,11 @@ DynamicData DynamicData_make_str(const char* str);
 DynamicData DynamicData_make_null();
 DynamicData DynamicData_make_num(f64 number);
 
-u64 DynamicData_size(const DynamicData* value);
+u64 DynamicData_size(DynamicData* value);
 
-void DynamicData_clone_internal(const DynamicData* src, DynamicData* dst);
+void DynamicData_clone_internal(DynamicData* src, DynamicData* dst);
 
-DynamicData DynamicData_clone(const DynamicData* src);
+DynamicData DynamicData_clone(DynamicData* src);
 
 DynamicData DynamicData_obj_find(DynamicData* pValue, u64 hName);
 

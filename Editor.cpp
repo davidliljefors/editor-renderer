@@ -570,7 +570,6 @@ void EditorApp::update()
 		if (ImGui::Button("Add Transform"))
 		{
 			DynamicData transformComponent = DynamicData_createFromTemplate(COMPONENT_ID_TRANSFORM);
-			DynamicData arrComponents = DynamicData_obj_find(&value, string_repository_hash("components"));
 			DynamicData_obj_arr_push(&value, string_repository_hash("components"), transformComponent);
 		}
 		ImGui::PopID();
