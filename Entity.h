@@ -146,11 +146,6 @@ struct DynamicData
 		return type == Type_Array ? pArray : nullptr;
 	}
 
-	DDEdits* getEdits()
-	{
-		return type == Type_Instance ? lookup_edits(instance.hEdits) : nullptr;
-	}
-
 	u64 id() const
 	{
 		if (type == Type_Object)
@@ -189,7 +184,6 @@ struct DynamicEdit
 		DynamicData value;
 	};
 
-
 	struct ArraySet
 	{
 		i32 index;
@@ -201,8 +195,14 @@ struct DynamicEdit
 		DynamicData value;
 	};
 
+	struct ObjectSet
+	{
+		DynamicData value;
+	};
+
 	union
 	{
+		ObjectSet objectSet;
 		ObjectAdd objectAdd;
 		ArrayAppend arrayAppend;
 		ArraySet arraySet;
@@ -251,6 +251,8 @@ struct DDObject
 	u64 hRoot;
 	u64 hPrototype;
 
+	// Prototype + edits = flattened; Flattened gets out of sync if version in hPrototype is ahead of flattened.version
+
 	struct Owned
 	{
 		eastl::vector<u64> names;
@@ -263,6 +265,13 @@ struct DDObject
 		eastl::vector<eastl::vector<DynamicEdit>> edits;
 	};
 
+	struct Flattened
+	{
+		eastl::vector<u64> names;
+		eastl::vector<DynamicData> values;
+		u64 basedOnVersion;
+	};
+
 	struct Instantiated
 	{
 		eastl::vector<u64> names;
@@ -272,6 +281,10 @@ struct DDObject
 	Owned owned;
 	Edits edits;
 	Instantiated instantiated;
+
+	Flattened flattened;
+
+	u64 version;
 };
 
 
@@ -315,7 +328,8 @@ enum class PropertyRelation : u8
 PropertyRelation DynamicData_get_relation(DynamicData* pValue, u64 hName);
 
 DynamicData DynamicData_obj_new();
-DynamicData DynamicData_instance_new(DynamicData* prototype);
+DynamicData DynamicData_new_from_prototype(DynamicData* pPrototype);
+DynamicData DynamicData_instantiate_member(DynamicData* pValue, u64 hName);
 DynamicData DynamicData_array_new();
 DynamicData DynamicData_str_new();
 DynamicData DynamicData_int_new();
@@ -342,11 +356,13 @@ DynamicData DynamicData_obj_get(DynamicData* target, u64 hName);
 
 void DynamicData_obj_set(DynamicData* target, u64 hName, DynamicData value);
 
-DynamicData DynamicData_instantiate(DynamicData* prototype);
+void DynamicData_obj_arr_push(DynamicData* object, u64 hArrayName, DynamicData value);
 
-void DynamicData_array_add(DynamicData* array, DynamicData value);
+//void DynamicData_array_add(DynamicData* array, DynamicData value);
 
 void DynamicData_array_pop(DynamicData* array, DynamicData value);
+
+void DynamicData_obj_before_read(DDObject* pObject);
 
 eastl::vector<DynamicData> DynamicData_array_compose(DynamicData* object, u64 hName);
 
@@ -422,6 +438,7 @@ struct DDEntity
 	const char* name;
 	eastl::vector<DynamicData> children;
 	eastl::vector<DynamicData> components;
+	f64 test_number;
 };
 
 struct DDEntityReader

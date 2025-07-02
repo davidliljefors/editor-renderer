@@ -565,15 +565,13 @@ void EditorApp::update()
 
 			u64 hName = MetroHash64::HashStr("name");
 			DynamicData_obj_add(&childEntity, hName, DynamicData_make_str("Child Entity"));
-			DynamicData arrChildren = DynamicData_obj_find(&value, string_repository_hash("children"));
-			DynamicData_array_add(&arrChildren, childEntity);
+			DynamicData_obj_arr_push(&value, string_repository_hash("children"), childEntity);
 		}
 		if (ImGui::Button("Add Transform"))
 		{
 			DynamicData transformComponent = DynamicData_createFromTemplate(COMPONENT_ID_TRANSFORM);
 			DynamicData arrComponents = DynamicData_obj_find(&value, string_repository_hash("components"));
-
-			DynamicData_array_add(&arrComponents, transformComponent);
+			DynamicData_obj_arr_push(&value, string_repository_hash("components"), transformComponent);
 		}
 		ImGui::PopID();
 	}
@@ -722,13 +720,16 @@ void EditorApp::DrawSelectedEntity()
 
 	if (ImGui::Button("Add Empty Child"))
 	{
-		DDEntity entity = DynamicData_readEntity(&m_focused);
-		DDEntityEditor editor = {&entity};
+		//DDEntity entity = DynamicData_readEntity(&m_focused);
+		//DDEntityEditor editor = {&entity};
 
 		DynamicData emptyEntity = DynamicData_createFromTemplate(ENTITY_TYPE_ID);
-		editor.editChildren().push_back(emptyEntity);
 
-		DynamicData_writeBack(&m_focused, &entity);
+		DynamicData_obj_arr_push(&m_focused, string_repository_hash("children"), emptyEntity);
+
+		//editor.editChildren().push_back(emptyEntity);
+
+		//DynamicData_writeBack(&m_focused, &entity);
 	}
 	
 	if (DynamicData_size(&components) == 0)
@@ -736,8 +737,7 @@ void EditorApp::DrawSelectedEntity()
 		if (ImGui::Button("Add transform component"))
 		{ 
 			DynamicData transformComponent = DynamicData_createFromTemplate(COMPONENT_ID_TRANSFORM);
-			DynamicData arrComponents = DynamicData_obj_find(&m_focused, string_repository_hash("components"));
-			DynamicData_array_add(&arrComponents, transformComponent);
+			DynamicData_obj_arr_push(&m_focused, string_repository_hash("components"), transformComponent);
 		}
 	}
 	else
@@ -746,8 +746,6 @@ void EditorApp::DrawSelectedEntity()
 		ImGui::InputFloat3("Entity Position", &transform.x);
 	}
 
-
-
 	if (s_clipboard.id() != 0)
 	{
 		DDObject* selected = lookup_obj(m_focused.hObject);
@@ -755,9 +753,14 @@ void EditorApp::DrawSelectedEntity()
 
 		if (ImGui::Button("Paste Entity"))
 		{
-			DynamicData_instantiate(s_clipboard.hObject);
+			DynamicData instantiated = DynamicData_new_from_prototype(&s_clipboard);
+
+			DynamicData_obj_set(&instantiated, string_repository_hash("name"), DynamicData_make_str("Instantiated Entity"));
+
+			DynamicData_obj_arr_push(&m_focused, string_repository_hash("children"), instantiated);
 		}
 	}
+
 
 	if (ImGui::Button("Copy Entity to Clipboard"))
 	{

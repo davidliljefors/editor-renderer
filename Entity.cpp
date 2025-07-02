@@ -102,27 +102,46 @@ void DynamicData_view_impl(DynamicData* pData)
 	case DynamicData::Type_Object:
 	{
 		DDObject* pObject = pData->asObject();
-		u64 size = DynamicData_size(pData);
+		DynamicData_obj_before_read(pObject);
 
-		for (u64 i = 0; i < size; ++i)
+		if (ImGui::TreeNodeEx(Printf("Object ID : %llu", pData->hObject), ImGuiTreeNodeFlags_Leaf))
+		{
+			ImGui::TreePop();
+		}
+		if (pObject->hPrototype)
+		{
+			if (ImGui::TreeNodeEx(Printf("Prototype ID : %llu", pObject->hPrototype), ImGuiTreeNodeFlags_Leaf))
+			{
+				ImGui::TreePop();
+			}
+		}
+
+		for (u64 i = 0; i < pObject->flattened.names.size(); ++i)
 		{
 
-			const char* name = string_repository_get(pObject->owned.names[i]);
+			const char* name = string_repository_get(pObject->flattened.names[i]);
 
-			if (DynamicData_size(&pObject->owned.values[i]) == 0)
+			if (DynamicData_size(&pObject->flattened.values[i]) == 0)
 			{
 				Printf buf;
-				DynamicData_format_value(buf, pObject->owned.values[i]);
+				DynamicData element = pObject->flattened.values[i];
+				DynamicData_format_value(buf, pObject->flattened.values[i]);
 				if (ImGui::TreeNodeEx(Printf("%s : %s", name, buf.cstr()), ImGuiTreeNodeFlags_Leaf))
 				{
 					ImGui::TreePop();
+				}
+
+				if (element.type == DynamicData::Type_Number && ImGui::IsItemClicked())
+				{
+					DynamicData newPos = DynamicData_make_num(element.asNumber() + 1);
+					DynamicData_obj_set(pData, pObject->flattened.names[i], newPos);
 				}
 			}
 			else 
 			{
 				if (ImGui::TreeNode(name))
 				{
-					DynamicData_view_impl(&pObject->owned.values[i]);
+					DynamicData_view_impl(&pObject->flattened.values[i]);
 					ImGui::TreePop();
 				}
 			}
@@ -243,15 +262,16 @@ DynamicData DynamicData_obj_new()
 {
 	DynamicData value;
 
-	void* mem = malloc(sizeof(DDObject));
-	memset(mem, 0, sizeof(DDObject));
+	DDObject* pObject = new DDObject();
 
 	u64 id = random_u64();
 
 	value.type = DynamicData::Type_Object;
 	value.hObject = id;
 
-	g_objects[id] = (DDObject*)mem;
+	pObject->version = 1;
+
+	g_objects[id] = pObject;
 
 	return value;
 }
@@ -268,6 +288,8 @@ DynamicData DynamicData_instance_new(DynamicData* prototype)
 	value.type = DynamicData::Type_Object;
 	value.hObject = id;
 	pObject->hPrototype = prototype->id();
+	pObject->flattened.basedOnVersion = 0;
+	pObject->version = 1;
 
 	g_objects[id] = (DDObject*)mem;
 
@@ -464,10 +486,11 @@ DynamicData DynamicData_obj_find(DynamicData* pValue, u64 hName)
 	if (pValue->type == DynamicData::Type_Object)
 	{
 		DDObject* pObject = pValue->asObject();
+		DynamicData_obj_before_read(pObject);
 		u64 i;
-		if (findName(pObject->owned.names, hName, &i))
+		if (findName(pObject->flattened.names, hName, &i))
 		{
-			return pObject->owned.values[i];
+			return pObject->flattened.values[i];
 		}
 	}
 
@@ -496,6 +519,8 @@ void DynamicData_obj_add(DynamicData* target, u64 hName, DynamicData add)
 {
 	if (DDObject* pObject = target->asObject())
 	{
+		pObject->version++;
+
 		for (i32 i = 0; i < pObject->owned.names.size(); ++i)
 		{
 			if (hName == pObject->owned.names[i])
@@ -522,17 +547,111 @@ void DynamicData_obj_set(DynamicData* target, u64 hName, DynamicData value)
 {
 	if (DDObject* pObject = target->asObject())
 	{
-		for (i32 i = 0; i < pObject->owned.names.size(); ++i)
-		{
-			if (hName == pObject->owned.names[i])
-			{
-				pObject->owned.values[i] = value;
+		DynamicData_obj_before_read(pObject);
 
-				return;
+		if (pObject->hPrototype == 0)
+		{
+			for (i32 i = 0; i < pObject->owned.names.size(); ++i)
+			{
+				if (hName == pObject->owned.names[i])
+				{
+					pObject->owned.values[i] = value;
+					pObject->version++;
+					return;
+				}
 			}
+			assert(false && "didnt find key");
+		}
+		else
+		{
+			DynamicEdit edit;
+			edit.type = DynamicEdit::Type_ObjectSet;
+			edit.objectSet.value = value;
+
+			u64 i;
+			if (findName(pObject->edits.names, hName, &i))
+			{
+				// todo remove the previous edits if necessary
+
+				// Its currently an edit, re-assign the edit
+				pObject->edits.edits[i].push_back(edit);
+			}
+			else
+			{
+				pObject->edits.names.push_back(hName);
+				pObject->edits.edits.push_back({});
+				pObject->edits.edits.back().push_back(edit);
+			}
+
+			if (findName(pObject->flattened.names, hName, &i))
+			{
+				pObject->flattened.values[i] = value;
+			}
+			else
+			{
+				pObject->flattened.names.push_back(hName);
+				pObject->flattened.values.push_back(value);
+			}
+
+			pObject->version++;
+			return;
 		}
 	}
 
+	assert(false && "didnt find key");
+}
+
+void DynamicData_obj_arr_push(DynamicData* object, u64 hArrayName, DynamicData value)
+{
+	if (DDObject* pObject = object->asObject())
+	{
+		DynamicData_obj_before_read(pObject);
+
+		if (pObject->hPrototype == 0)
+		{
+			for (i32 i = 0; i < pObject->owned.names.size(); ++i)
+			{
+				if (hArrayName == pObject->owned.names[i])
+				{
+					pObject->owned.values[i].asArray()->values.push_back(value);
+					pObject->version++;
+					return;
+				}
+			}
+
+			assert(false && "didnt find key");
+		}
+		else
+		{
+			DynamicEdit edit;
+			edit.type = DynamicEdit::Type_ArrayAppend;
+			edit.arrayAppend.value = value;
+
+			u64 i;
+			if (findName(pObject->edits.names, hArrayName, &i))
+			{
+				pObject->edits.edits[i].push_back(edit);
+			}
+			else
+			{
+				pObject->edits.names.push_back(hArrayName);
+				pObject->edits.edits.push_back({});
+				pObject->edits.edits.back().push_back(edit);
+			}
+
+			if (findName(pObject->flattened.names, hArrayName, &i))
+			{
+				pObject->flattened.values[i] = value;
+			}
+			else
+			{
+				pObject->flattened.names.push_back(hArrayName);
+				pObject->flattened.values.push_back(value);
+			}
+			pObject->version++;
+			return;
+		}
+	}
 	assert(false && "didnt find key");
 }
 
@@ -541,25 +660,34 @@ void DynamicData_instantiate_impl(DynamicData* value, DynamicData* target)
 	
 }
 
-DynamicData DynamicData_instantiate(DynamicData* prototype)
+DynamicData DynamicData_new_from_prototype(DynamicData* pPrototype)
 {
-	DynamicData instance = DynamicData_instance_new(prototype);
+	DynamicData instance = DynamicData_instance_new(pPrototype);
+	return instance;
+}
 
-	DDObject* pInstance = instance.asObject();
-	DDObject* pPrototype = prototype->asObject();
+DynamicData DynamicData_instantiate_member(DynamicData* pValue, u64 hName)
+{
+	DDObject* pObject = pValue->asObject();
+	DynamicData_obj_before_read(pObject);
 
-	if (pPrototype->hPrototype == 0)
+	u64 i;
+
+	// make sure its not already instantiated
+	if (!findName(pObject->instantiated.names, hName, &i))
 	{
-		u64 size = pPrototype->owned.names.size();
-		for (u64 i = 0; i< size; ++i)
+		// find our value from the prototype
+		if (findName(pObject->flattened.names, hName, &i))
 		{
-			DynamicData* element = &pPrototype->owned.values[i];
-			DynamicData instancedElement = DynamicData_instance_new(element);
+			DynamicData* pPrototype = &pObject->flattened.values[i];
+			DynamicData instance = DynamicData_new_from_prototype(pPrototype);
+			pObject->instantiated.names.push_back(hName);
+			pObject->instantiated.values.push_back(instance);
+			return instance;
 		}
 	}
 
-
-	return instance;
+	return DynamicData_make_null();
 }
 
 void DynamicData_array_add(DynamicData* array, DynamicData value)
@@ -568,11 +696,6 @@ void DynamicData_array_add(DynamicData* array, DynamicData value)
 	{
 		DDArray* pArray = array->pArray;
 		pArray->values.push_back(value);
-	}
-
-	if (array->type == DynamicData::Type_Instance)
-	{
-		DDEdits* edits = array->getEdits();
 	}
 }
 
@@ -618,6 +741,124 @@ void DynamicData_array_compose_internal(DDObject* object, u64 hName, eastl::vect
 			}
 		}
 	}
+}
+
+void DynamicData_apply_obj_edit(eastl::vector<u64>& names, eastl::vector<DynamicData>& values, u64 hName, DynamicEdit edit)
+{
+	switch (edit.type)
+	{
+	case DynamicEdit::Type_ArrayAppend:
+		u64 i;
+		if (findName(names, hName, &i))
+		{
+			values[i].asArray()->values.push_back(edit.arrayAppend.value);
+		}
+		break;
+	case DynamicEdit::Type_ArrayPop:
+	case DynamicEdit::Type_ArraySet:
+		assert(false && " not implemented ");
+		break;
+	case DynamicEdit::Type_ObjectAdd:
+		values.push_back(edit.objectAdd.value);
+		break;
+	case DynamicEdit::Type_ObjectRemove:
+	{
+		u64 i;
+		if (findName(names, hName, &i))
+		{
+			names.erase(names.begin() + i);
+			values.erase(values.begin() + i);
+		}
+		break;
+	}
+	case DynamicEdit::Type_ObjectSet:
+	{
+		u64 i;
+		if (findName(names, hName, &i))
+		{
+			values[i] = edit.objectSet.value;
+		}
+	}
+	break;
+	}
+}
+
+void DynamicData_obj_compose(DDObject* pObject, eastl::vector<u64>& names, eastl::vector<DynamicData>& values)
+{
+	DDObject* pPrototype = pObject->hPrototype != 0 ? lookup_obj(pObject->hPrototype) : nullptr;
+
+	// evaluate prototype
+	if (!pPrototype)
+	{
+		// todo remove
+		pObject->flattened.names = pObject->owned.names;
+		pObject->flattened.values = pObject->owned.values;
+
+		names = pObject->owned.names;
+		values = pObject->owned.values;
+	}
+	if (pPrototype)
+	{
+		if (pObject->flattened.basedOnVersion == pPrototype->version)
+		{
+			// todo if we have no edits at top level we can directly reference the arrays
+			names = pObject->flattened.names;
+			values = pObject->flattened.values;
+			return;
+		}
+
+		DynamicData_obj_compose(pPrototype, names, values);
+		pObject->flattened.basedOnVersion = pPrototype->version;
+	}
+
+	// apply edits
+	for (u64 i = 0; i < pObject->edits.names.size(); ++i)
+	{
+		u64 hName = pObject->edits.names[i];
+		eastl::vector<DynamicEdit>& edits = pObject->edits.edits[i];
+
+		for (auto& edit : edits)
+		{
+			DynamicData_apply_obj_edit(names, values, hName, edit);
+		}
+	}
+
+	// Redirect instances and assign flattened state
+	for (u64 i = 0; i < pObject->instantiated.names.size(); ++i)
+	{
+		u64 hName = pObject->instantiated.names[i];
+		u64 hObject = pObject->instantiated.values[i].hObject;
+
+		u64 prototypeIndex;
+		// for an instance we need to redirect the values to our instance. applying the instance edits.
+		// todo if its no longer in prototype clean it up
+		if (findName(names, hName, &prototypeIndex))
+		{
+			assert(values[prototypeIndex].type == DynamicData::Type_Object);
+			assert(pObject->instantiated.values[i].type == DynamicData::Type_Object);
+
+			if (values[prototypeIndex].type == DynamicData::Type_Object)
+			{
+				values[prototypeIndex].hObject = hObject;
+			}
+			DDObject* pInstantiated = lookup_obj(hObject);
+			pInstantiated->flattened.values = values;
+			pInstantiated->flattened.names = names;
+		}
+	}
+
+	if (pObject->hPrototype != 0)
+	{
+		pObject->flattened.names = names;
+		pObject->flattened.values = values;
+	}
+}
+
+void DynamicData_obj_before_read(DDObject* pObject)
+{
+	eastl::vector<u64> names;
+	eastl::vector<DynamicData> values;
+	DynamicData_obj_compose(pObject, names, values);
 }
 
 eastl::vector<DynamicData> DynamicData_array_compose(DDObject* object, u64 hName)
@@ -844,6 +1085,7 @@ void registerEntityTemplate()
 	DynamicData_obj_add(&field_children, string_repository_hash("name"), DynamicData_make_str("Unnamed Entity"));
 	DynamicData_obj_add(&field_children, string_repository_hash("children"), DynamicData_array_new());
 	DynamicData_obj_add(&field_children, string_repository_hash("components"), DynamicData_array_new());
+	DynamicData_obj_add(&field_children, string_repository_hash("test_number"), DynamicData_num_new());
 	DynamicData_obj_add(&root, hFields, field_children);
 
 	DynamicDataParser_i parser;
@@ -857,6 +1099,15 @@ void registerEntityTemplate()
 		u64 hComponentsField = MetroHash64::HashStr("components");
 
 		pEntity->id = value->id();
+		if (auto obj = value->asObject())
+		{
+			if (obj->hPrototype != 0)
+			{
+				//__debugbreak();
+			}
+		}
+		DDObject* pObject = value->asObject();
+		(void)pObject;
 		pEntity->name = DynamicData_obj_find(value, hNameField).asString();
 		pEntity->children = DynamicData_obj_find(value, hChildrenField).asArray()->values;
 		pEntity->components = DynamicData_obj_find(value, hComponentsField).asArray()->values;
