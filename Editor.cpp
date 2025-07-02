@@ -566,14 +566,14 @@ void EditorApp::update()
 			u64 hName = MetroHash64::HashStr("name");
 			DynamicData_obj_add(&childEntity, hName, DynamicData_make_str("Child Entity"));
 			DynamicData arrChildren = DynamicData_obj_find(&value, string_repository_hash("children"));
-			DynamicData_array_add(arrChildren, childEntity);
+			DynamicData_array_add(&arrChildren, childEntity);
 		}
 		if (ImGui::Button("Add Transform"))
 		{
 			DynamicData transformComponent = DynamicData_createFromTemplate(COMPONENT_ID_TRANSFORM);
 			DynamicData arrComponents = DynamicData_obj_find(&value, string_repository_hash("components"));
 
-			DynamicData_array_add(arrComponents, transformComponent);
+			DynamicData_array_add(&arrComponents, transformComponent);
 		}
 		ImGui::PopID();
 	}
@@ -737,7 +737,7 @@ void EditorApp::DrawSelectedEntity()
 		{ 
 			DynamicData transformComponent = DynamicData_createFromTemplate(COMPONENT_ID_TRANSFORM);
 			DynamicData arrComponents = DynamicData_obj_find(&m_focused, string_repository_hash("components"));
-			DynamicData_array_add(arrComponents, transformComponent);
+			DynamicData_array_add(&arrComponents, transformComponent);
 		}
 	}
 	else
@@ -755,7 +755,7 @@ void EditorApp::DrawSelectedEntity()
 
 		if (ImGui::Button("Paste Entity"))
 		{
-			
+			DynamicData_instantiate(s_clipboard.hObject);
 		}
 	}
 

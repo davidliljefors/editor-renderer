@@ -106,12 +106,13 @@ void DynamicData_view_impl(DynamicData* pData)
 
 		for (u64 i = 0; i < size; ++i)
 		{
-			const char* name = string_repository_get(pObject->names[i]);
 
-			if (DynamicData_size(&pObject->values[i]) == 0)
+			const char* name = string_repository_get(pObject->owned.names[i]);
+
+			if (DynamicData_size(&pObject->owned.values[i]) == 0)
 			{
 				Printf buf;
-				DynamicData_format_value(buf, pObject->values[i]);
+				DynamicData_format_value(buf, pObject->owned.values[i]);
 				if (ImGui::TreeNodeEx(Printf("%s : %s", name, buf.cstr()), ImGuiTreeNodeFlags_Leaf))
 				{
 					ImGui::TreePop();
@@ -121,7 +122,7 @@ void DynamicData_view_impl(DynamicData* pData)
 			{
 				if (ImGui::TreeNode(name))
 				{
-					DynamicData_view_impl(&pObject->values[i]);
+					DynamicData_view_impl(&pObject->owned.values[i]);
 					ImGui::TreePop();
 				}
 			}
@@ -197,9 +198,9 @@ DDEdits* lookup_edits(u64 hEdits)
 
 bool has_field(DDObject* pObject, u64 hName)
 {
-	for (i32 i = 0; i < pObject->names.size(); ++i)
+	for (i32 i = 0; i < pObject->owned.names.size(); ++i)
 	{
-		if (hName == pObject->names[i])
+		if (hName == pObject->owned.names[i])
 		{
 			return true;
 		}
@@ -235,30 +236,6 @@ bool DynamicEdits_find(DDObject::Edits* edits, u64 hName, u64* outIndex)
 
 PropertyRelation DynamicData_get_relation(DynamicData* pValue, u64 hName)
 {
-	if (pValue->type == DynamicData::Type_Object)
-	{
-		DDObject* pObject = pValue->asObject();
-		if (has_field(pObject, hName))
-		{
-			return PropertyRelation::Owned;
-		}
-	}
-
-	if (pValue->type == DynamicData::Type_Instance)
-	{
-		DDObject* pInstanceObject = pValue->asObjectInstance();
-		if (has_field(pInstanceObject, hName))
-		{
-			return PropertyRelation::Override;
-		}
-
-		DDObject* pObject = pValue->getPrototype();
-		if (has_field(pObject, hName))
-		{
-			return PropertyRelation::Inherited;
-		}
-	}
-
 	return PropertyRelation::None;
 }
 
@@ -283,16 +260,16 @@ DynamicData DynamicData_instance_new(DynamicData* prototype)
 {
 	DynamicData value;
 
-	void* mem = malloc(sizeof(DDEdits));
-	memset(mem, 0, sizeof(DDEdits));
+	void* mem = malloc(sizeof(DDObject));
+	memset(mem, 0, sizeof(DDObject));
 
 	u64 id = random_u64();
+	DDObject* pObject = (DDObject*)mem;
+	value.type = DynamicData::Type_Object;
+	value.hObject = id;
+	pObject->hPrototype = prototype->id();
 
-	value.type = DynamicData::Type_Instance;
-	value.instance.hPrototype = prototype->id();
-	value.instance.hEdits = id;
-
-	g_edits[id] = (DDEdits*)mem;
+	g_objects[id] = (DDObject*)mem;
 
 	return value;
 }
@@ -396,7 +373,7 @@ u64 DynamicData_size(const DynamicData* value)
 {
 	if (const DDObject* pObject = value->asObject())
 	{
-		return pObject->values.size();
+		return pObject->owned.values.size();
 	}
 
 	if (const DDArray* pArray = value->asArray())
@@ -418,13 +395,13 @@ void DynamicData_clone_internal(const DynamicData* src, DynamicData* dst)
 		DDObject* pObject = dst->asObject();
 		const DDObject* pSrcObject = src->asObject();
 
-		pObject->names.resize(size);
-		pObject->values.resize(size);
+		pObject->owned.names.resize(size);
+		pObject->owned.values.resize(size);
 
 		for (u64 i = 0; i < size; ++i)
 		{
-			pObject->names[i] = pSrcObject->names[i];
-			DynamicData_clone_internal(&pSrcObject->values[i], &pObject->values[i]);
+			pObject->owned.names[i] = pSrcObject->owned.names[i];
+			DynamicData_clone_internal(&pSrcObject->owned.values[i], &pObject->owned.values[i]);
 		}
 
 		break;
@@ -490,28 +467,7 @@ DynamicData DynamicData_obj_find(DynamicData* pValue, u64 hName)
 		u64 i;
 		if (findName(pObject->owned.names, hName, &i))
 		{
-			return pObject->values[i];
-		}
-
-		if (DDObject* pPrototype = lookup_obj(pObject->hPrototype))
-		{
-			return DynamicData_obj_find()
-		}
-	}
-
-	if (pValue->type == DynamicData::Type_Instance)
-	{
-		DDObject* pInstance = pValue->asObjectInstance();
-		u64 i;
-		if (DynamicObject_find(pInstance, hName, &i))
-		{
-			return pInstance->values[i];
-		}
-
-		DDObject* pTemplate = pValue->getPrototype();
-		if (DynamicObject_find(pTemplate, hName, &i))
-		{
-			return pTemplate->values[i];
+			return pObject->owned.values[i];
 		}
 	}
 
@@ -540,18 +496,18 @@ void DynamicData_obj_add(DynamicData* target, u64 hName, DynamicData add)
 {
 	if (DDObject* pObject = target->asObject())
 	{
-		for (i32 i = 0; i < pObject->names.size(); ++i)
+		for (i32 i = 0; i < pObject->owned.names.size(); ++i)
 		{
-			if (hName == pObject->names[i])
+			if (hName == pObject->owned.names[i])
 			{
 				// todo: api add existing is error?
-				pObject->values[i] = add;
+				pObject->owned.values[i] = add;
 				return;
 			}
 		}
 
-		pObject->names.push_back(hName);
-		pObject->values.push_back(add);
+		pObject->owned.names.push_back(hName);
+		pObject->owned.values.push_back(add);
 
 		DynamicData_assign_root(target, &add);
 	}
@@ -566,11 +522,11 @@ void DynamicData_obj_set(DynamicData* target, u64 hName, DynamicData value)
 {
 	if (DDObject* pObject = target->asObject())
 	{
-		for (i32 i = 0; i < pObject->names.size(); ++i)
+		for (i32 i = 0; i < pObject->owned.names.size(); ++i)
 		{
-			if (hName == pObject->names[i])
+			if (hName == pObject->owned.names[i])
 			{
-				pObject->values[i] = value;
+				pObject->owned.values[i] = value;
 
 				return;
 			}
@@ -589,12 +545,19 @@ DynamicData DynamicData_instantiate(DynamicData* prototype)
 {
 	DynamicData instance = DynamicData_instance_new(prototype);
 
-	u64 size = DynamicData_size(prototype);
-		
-	for (u64 i = 0; i< size; ++i)
+	DDObject* pInstance = instance.asObject();
+	DDObject* pPrototype = prototype->asObject();
+
+	if (pPrototype->hPrototype == 0)
 	{
-		
+		u64 size = pPrototype->owned.names.size();
+		for (u64 i = 0; i< size; ++i)
+		{
+			DynamicData* element = &pPrototype->owned.values[i];
+			DynamicData instancedElement = DynamicData_instance_new(element);
+		}
 	}
+
 
 	return instance;
 }
@@ -623,8 +586,6 @@ void DynamicData_array_compose_internal(DDObject* object, u64 hName, eastl::vect
 	if (object->hPrototype != 0)
 	{
 		DynamicData_array_compose_internal(lookup_obj(object->hPrototype), hName, composed);
-
-
 	}
 	else
 	{
@@ -659,11 +620,11 @@ void DynamicData_array_compose_internal(DDObject* object, u64 hName, eastl::vect
 	}
 }
 
-eastl::vector<DynamicData> DynamicData_array_compose(DynamicData* object, u64 hName)
+eastl::vector<DynamicData> DynamicData_array_compose(DDObject* object, u64 hName)
 {
 	// todo cleanup allocations
 	eastl::vector<DynamicData> composed;
-	DynamicData_array_compose_internal(object->asObject(), hName, composed);
+	DynamicData_array_compose_internal(object, hName, composed);
 	return composed;
 }
 
@@ -697,25 +658,30 @@ void ArrayEditor::push(DynamicData value)
 
 void ArrayEditor::pop()
 {
-	if (isInstanced && !instance.flattened.empty())
+	if (isInstanced)
 	{
-		u64 size = instance.pEdits->names.size();
-		u64 index = u64(-1);
-		for (u64 i = 0; i < size; ++i)
+		if (!instance.flatValues.empty())
 		{
-			if (instance.pEdits->names[i] == hName)
+			u64 size = instance.pEdits->names.size();
+			u64 index = u64(-1);
+			for (u64 i = 0; i < size; ++i)
 			{
-				index = i;
-				break;
+				if (instance.pEdits->names[i] == hName)
+				{
+					index = i;
+					break;
+				}
 			}
+			if (index == u64(-1))
+			{
+				index = size;
+				instance.pEdits->names.push_back(hName);
+				instance.pEdits->edits.push_back({});
+			}
+
+			instance.flatValues.pop_back();
+			instance.pEdits->edits[index].push_back(DynamicEdit_arrayPop());
 		}
-		if (index == u64(-1))
-		{
-			index = size;
-			instance.pEdits->names.push_back(hName);
-			instance.pEdits->edits.push_back({});
-		}
-		instance.pEdits->edits[index].push_back(DynamicEdit_arrayPop());
 	}
 	else
 	{
@@ -723,40 +689,23 @@ void ArrayEditor::pop()
 	}
 }
 
+DynamicData ArrayEditor::get(u64 index)
+{
+	if (isInstanced)
+	{
+		return instance.flatValues[index];
+	}
+	else
+	{
+		return owned.pArray->values[index];
+	}
+}
+
 u64 ArrayEditor::size()
 {
 	if (isInstanced)
 	{
-		u64 size = pObject.pEdits->names.size();
-		u64 index = u64(-1);
-		for (u64 i = 0; i < size; ++i)
-		{
-			if (pObject.pEdits->names[i] == hName)
-			{
-				index = i;
-				break;
-			}
-		}
-		if (index == u64(-1))
-		{
-			return pObject.pArray->values.size();
-		}
-		const eastl::vector<DynamicEdit>& edits = pObject.pEdits->edits[index];
-
-		u64 totalSize = pObject.pArray->values.size();
-		for (const DynamicEdit& edit : edits)
-		{
-			if (edit.type == DynamicEdit::Type_ArrayAppend)
-			{
-				totalSize++;
-			}
-			if (edit.type == DynamicEdit::Type_ArrayPop)
-			{
-				totalSize--;
-			}
-		}
-
-		return totalSize;
+		return instance.flatValues.size();
 	}
 	else
 	{
@@ -767,11 +716,30 @@ u64 ArrayEditor::size()
 ArrayEditor DynamicData_edit_array(DynamicData* object, u64 hName)
 {
 	DDObject* pObject = object->asObject();
+
+	ArrayEditor editor{};
+	
+
 	if (pObject)
 	{
 		if (pObject->hPrototype)
-		DynamicData_array_compose()
+		{
+			editor.instance.flatValues = DynamicData_array_compose(pObject, hName);
+			editor.instance.pEdits = &pObject->edits;
+			editor.isInstanced = true;
+		}
+		else
+		{
+			u64 i;
+			if (findName(pObject->owned.names, hName, &i))
+			{
+				editor.owned.pArray = pObject->owned.values[i].asArray();
+			}
+		}
+
 	}
+
+	return editor;
 }
 
 u64 string_repository_hash(const char* str)
@@ -1032,12 +1000,12 @@ DynamicData DynamicData_createFromTemplate(u64 hTemplate)
 
 	if (DDObject* fields = DynamicData_obj_find(pTemplate, hFields).asObject())
 	{
-		u64 numFields = fields->values.size();
+		u64 numFields = fields->owned.values.size();
 		for (u64 i = 0; i < numFields; ++i)
 		{
 			DynamicData valueToAdd;
-			DynamicData_clone_internal(&fields->values[i], &valueToAdd);
-			DynamicData_obj_add(&value, fields->names[i], valueToAdd);
+			DynamicData_clone_internal(&fields->owned.values[i], &valueToAdd);
+			DynamicData_obj_add(&value, fields->owned.names[i], valueToAdd);
 		}
 	}
 

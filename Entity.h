@@ -155,10 +155,6 @@ struct DynamicData
 	{
 		if (type == Type_Object)
 			return hObject;
-
-		if (type == Type_Instance)
-			return instance.hEdits;
-
 		return 0ull;
 	}
 
@@ -214,8 +210,45 @@ struct DynamicEdit
 
 	Type type;
 };
+
+struct DynamicOverride
+{
+	// todo fix allocations SSO? / smaller hash?
+
+	struct IndexOrName
+	{
+		u64 isIndex : 1;
+		u64 value : 63;
+	};
+
+	void pushIndexEdit(u64 index, DynamicEdit e)
+	{
+		IndexOrName i;
+		*(u64*)&i = index;
+
+		i.isIndex = true;
+		keys.push_back(i);
+		edit = e;
+	}
+
+	void pushNameEdit(u64 hName, DynamicEdit e)
+	{
+		IndexOrName i;
+		*(u64*)&i = hName;
+
+		i.isIndex = false;
+		keys.push_back(i);
+		edit = e;
+	}
+
+	// Name or Index depending on target object type
+	eastl::vector<IndexOrName> keys;
+	DynamicEdit edit;
+};
+
 struct DDObject
 {
+	u64 hRoot;
 	u64 hPrototype;
 
 	struct Owned
@@ -230,8 +263,15 @@ struct DDObject
 		eastl::vector<eastl::vector<DynamicEdit>> edits;
 	};
 
+	struct Instantiated
+	{
+		eastl::vector<u64> names;
+		eastl::vector<DynamicData> values;
+	};
+
 	Owned owned;
 	Edits edits;
+	Instantiated instantiated;
 };
 
 
@@ -314,7 +354,7 @@ struct ArrayEditor
 {
 	struct Instance
 	{
-		eastl::vector<DynamicData> flattened;
+		eastl::vector<DynamicData> flatValues;
 		DDObject::Edits* pEdits;
 	};
 
@@ -323,16 +363,16 @@ struct ArrayEditor
 		DDArray* pArray;
 	};
 
-	union
-	{
-		Instance instance;
-		Owned owned;
-	};
+	Instance instance;
+	Owned owned;
 
 	u64 hName;
 	bool isInstanced;
+
 	void push(DynamicData value);
 	void pop();
+	DynamicData get(u64 index);
+
 	u64 size();
 };
 
@@ -352,10 +392,10 @@ struct ObjectEditor
 
 	void set(DynamicData value, u64 hName);
 	DynamicData get(u64 hName);
-
 };
 
 ArrayEditor DynamicData_edit_array(DynamicData* object, u64 hName);
+ObjectEditor DynamicData_edit_object(DynamicData* object, u64 hName);
 
 u64 string_repository_hash(const char* str);
 
