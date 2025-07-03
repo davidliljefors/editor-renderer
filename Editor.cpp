@@ -565,12 +565,12 @@ void EditorApp::update()
 
 			u64 hName = MetroHash64::HashStr("name");
 			DynamicData_obj_add(&childEntity, hName, DynamicData_make_str("Child Entity"));
-			DynamicData_obj_arr_push(&value, string_repository_hash("children"), childEntity);
+			//DynamicData_obj_arr_push(&value, string_repository_hash("children"), childEntity);
 		}
 		if (ImGui::Button("Add Transform"))
 		{
 			DynamicData transformComponent = DynamicData_createFromTemplate(COMPONENT_ID_TRANSFORM);
-			DynamicData_obj_arr_push(&value, string_repository_hash("components"), transformComponent);
+			//DynamicData_obj_arr_push(&value, string_repository_hash("components"), transformComponent);
 		}
 		ImGui::PopID();
 	}
@@ -734,7 +734,7 @@ void EditorApp::DrawSelectedEntity()
 		DynamicData emptyEntity = DynamicData_createFromTemplate(ENTITY_TYPE_ID);
 		static int s_next_num = 0;
 		DynamicData_obj_set(&emptyEntity, string_repository_hash("name"), DynamicData_make_str(Printf("Entity num %d", s_next_num++)));
-		DynamicData_obj_arr_push(&m_focused, string_repository_hash("children"), emptyEntity);
+		//DynamicData_obj_arr_push(&m_focused, string_repository_hash("children"), emptyEntity);
 
 		//editor.editChildren().push_back(emptyEntity);
 
@@ -746,7 +746,7 @@ void EditorApp::DrawSelectedEntity()
 		if (ImGui::Button("Add transform component"))
 		{ 
 			DynamicData transformComponent = DynamicData_createFromTemplate(COMPONENT_ID_TRANSFORM);
-			DynamicData_obj_arr_push(&m_focused, string_repository_hash("components"), transformComponent);
+			//DynamicData_obj_arr_push(&m_focused, string_repository_hash("components"), transformComponent);
 		}
 	}
 	else
@@ -766,7 +766,7 @@ void EditorApp::DrawSelectedEntity()
 
 			DynamicData_obj_set(&instantiated, string_repository_hash("name"), DynamicData_make_str("Instantiated Entity"));
 
-			DynamicData_obj_arr_push(&m_focused, string_repository_hash("children"), instantiated);
+			m_roots.push_back(instantiated);
 		}
 	}
 

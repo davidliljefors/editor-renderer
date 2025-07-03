@@ -174,9 +174,7 @@ struct DynamicEdit
 		Type_ArrayPop,
 		Type_ArraySet,
 
-		Type_ObjectAdd,
-		Type_ObjectRemove,
-		Type_ObjectSet,
+		Type_ObjectAssign,
 	};
 
 	struct ArrayAppend
@@ -190,26 +188,21 @@ struct DynamicEdit
 		DynamicData value;
 	};
 
-	struct ObjectAdd
-	{
-		DynamicData value;
-	};
-
-	struct ObjectSet
+	struct ObjectAssign
 	{
 		DynamicData value;
 	};
 
 	union
 	{
-		ObjectSet objectSet;
-		ObjectAdd objectAdd;
+		ObjectAssign objectAssign;
 		ArrayAppend arrayAppend;
 		ArraySet arraySet;
 	};
 
 	Type type;
 };
+
 
 struct DDObject
 {
@@ -222,10 +215,10 @@ struct DDObject
 		eastl::vector<DynamicData> values;
 	};
 
-	struct Edits
+	struct Overrides
 	{
 		eastl::vector<u64> names;
-		eastl::vector<eastl::vector<DynamicEdit>> edits;
+		eastl::vector<DynamicData> values;
 	};
 
 	struct Flattened
@@ -243,13 +236,16 @@ struct DDObject
 	};
 
 	Owned owned;
-	Edits edits;
+	Overrides overrides;
 	Instantiated instantiated;
 
 	Flattened flattened;
 
 	u64 version;
 };
+
+
+bool DynamicData_isOverridden(DDObject* pObject, u64 hName);
 
 bool DDObject_is_up_to_date(DDObject* pObject, DDObject* pPrototype);
 
@@ -268,33 +264,16 @@ inline DynamicEdit DynamicEdit_arrayPop()
 	return e;
 }
 
-struct DDEdits
-{
-	eastl::vector<u64> names;
-	eastl::vector<eastl::vector<DynamicEdit>> edits;
-};
-
-bool DynamicEdits_find(DDObject::Edits* edits, u64 hName, u64* outIndex);
-
 struct DDArray
 {
 	u64 hRoot;
 	eastl::vector<DynamicData> values;
 };
 
-enum class PropertyRelation : u8
-{
-	Owned,
-	Override,
-	Inherited,
-	None
-};
-
-PropertyRelation DynamicData_get_relation(DynamicData* pValue, u64 hName);
-
 DynamicData DynamicData_obj_new();
 DynamicData DynamicData_new_from_prototype(DynamicData* pPrototype);
 DynamicData DynamicData_instantiate_member(DynamicData* pValue, u64 hName);
+void	    DynamicData_instantiate_clear(DynamicData* pValue, u64 hName);
 DynamicData DynamicData_array_new();
 DynamicData DynamicData_str_new();
 DynamicData DynamicData_int_new();
@@ -338,7 +317,7 @@ struct ArrayEditor
 	struct Instance
 	{
 		eastl::vector<DynamicData> flatValues;
-		DDObject::Edits* pEdits;
+		//DDObject::Edits* pEdits;
 	};
 
 	struct Owned
@@ -365,7 +344,7 @@ struct ObjectEditor
 	{
 		eastl::vector<u64> flatNames;
 		eastl::vector<DynamicData> flatValues;
-		DDObject::Edits* pEdits;
+		//DDObject::Edits* pEdits;
 	};
 
 	struct Owned
