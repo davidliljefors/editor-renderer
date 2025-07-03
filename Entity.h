@@ -244,6 +244,62 @@ struct DDObject
 	u64 version;
 };
 
+struct SetModification
+{
+	enum 
+	{
+		Modification_Add,
+		Modification_Remove,
+	};
+	
+
+};
+
+struct DDObjectSet
+{
+	u64 hRoot;
+	u64 hPrototype;
+
+	struct Owned
+	{
+		eastl::vector<u64> ids;
+		eastl::vector<DynamicData> values;
+	};
+
+	struct Adds
+	{
+		eastl::vector<u64> ids;
+		eastl::vector<DynamicData> values;
+	};
+
+	struct Removes
+	{
+		eastl::vector<u64> ids;
+		eastl::vector<DynamicData> values;
+	};
+
+	struct Instantiated
+	{
+		eastl::vector<u64> ids;
+		eastl::vector<DynamicData> values;
+	};
+
+	struct Flattened
+	{
+		eastl::vector<u64> ids;
+		eastl::vector<DynamicData> values;
+		u64 basedOnVersion;
+		bool dirty;
+	};
+
+	Instantiated instantiated;
+	Flattened flattened;
+	Adds adds;
+	Removes removes;
+
+	u64 version;
+};
+
 
 bool DynamicData_isOverridden(DDObject* pObject, u64 hName);
 
