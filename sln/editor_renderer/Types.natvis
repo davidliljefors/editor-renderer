@@ -1,52 +1,46 @@
 <?xml version="1.0" encoding="utf-8"?>
 <AutoVisualizer xmlns="http://schemas.microsoft.com/vstudio/debugger/natvis/2010">
-  <Type Name="Array&lt;*&gt;">
-    <DisplayString>{{ Size = {m_size}, Capacity={m_capacity} }}</DisplayString>
-	  <Expand>
-      <Item Name="[size]" ExcludeView="simple">m_size</Item>
-      <Item Name="[capacity]" ExcludeView="simple">m_capacity</Item>
-      <ArrayItems>
-        <Size>m_size</Size>
-        <ValuePointer>m_data</ValuePointer>
-      </ArrayItems>
-    </Expand>
-  </Type>
+	<Type Name="Array&lt;*&gt;">
+		<DisplayString>{{ Size = {m_size}, Capacity={m_capacity} }}</DisplayString>
+		<Expand>
+			<Item Name="[size]" ExcludeView="simple">m_size</Item>
+			<Item Name="[capacity]" ExcludeView="simple">m_capacity</Item>
+			<ArrayItems>
+				<Size>m_size</Size>
+				<ValuePointer>m_data</ValuePointer>
+			</ArrayItems>
+		</Expand>
+	</Type>
 
-<Type Name="TruthMap::InlineArray">
-	<DisplayString>{{ Size = {size} }}</DisplayString>
-	<Expand>
-		<Item Name="[size]" ExcludeView="simple">size</Item>
-		<ArrayItems>
-			<Size>size</Size>
-			<ValuePointer>data</ValuePointer>
-		</ArrayItems>
-	</Expand>
-</Type>
+	<Type Name="TruthMap::InlineArray">
+		<DisplayString>{{ Size = {size} }}</DisplayString>
+		<Expand>
+			<Item Name="[size]" ExcludeView="simple">size</Item>
+			<ArrayItems>
+				<Size>size</Size>
+				<ValuePointer>data</ValuePointer>
+			</ArrayItems>
+		</Expand>
+	</Type>
 
-<Type Name="DynamicData">
-	<DisplayString Condition="type == 0">Object: {pObject}</DisplayString>
-	<DisplayString Condition="type == 1">ObjectRef: {objectRef}</DisplayString>
-	<DisplayString Condition="type == 2">Array: {pArray}</DisplayString>
-	<DisplayString Condition="type == 3">Instance: {instance}</DisplayString>
-	<DisplayString Condition="type == 4">Integer: {integer}</DisplayString>
-	<DisplayString Condition="type == 5">Number: {number}</DisplayString>
-	<DisplayString Condition="type == 6">String: {string,s}</DisplayString>
-	<Expand>
-		<Item Name="[type]" Condition="type == 0">type, en</Item>
-		<Item Name="pObject" Condition="type == 0">pObject</Item>
-		<Item Name="[type]" Condition="type == 1">type, en</Item>
-		<Item Name="objectRef" Condition="type == 1">objectRef</Item>
-		<Item Name="[type]" Condition="type == 2">type, en</Item>
-		<Item Name="pArray" Condition="type == 2">pArray</Item>
-		<Item Name="[type]" Condition="type == 3">type, en</Item>
-		<Item Name="instance" Condition="type == 3">instance</Item>
-		<Item Name="[type]" Condition="type == 4">type, en</Item>
-		<Item Name="integer" Condition="type == 4">integer</Item>
-		<Item Name="[type]" Condition="type == 5">type, en</Item>
-		<Item Name="number" Condition="type == 5">number</Item>
-		<Item Name="[type]" Condition="type == 6">type, en</Item>
-		<Item Name="string" Condition="type == 6">string,s</Item>
-	</Expand>
-</Type>
-	
+	<Type Name="DynamicData">
+		<DisplayString Condition="type == Type_Null">"test"</DisplayString>
+		<DisplayString Condition="type == Type_Object">Object</DisplayString>
+		<DisplayString Condition="type == Type_Array">Array</DisplayString>
+		<DisplayString Condition="type == Type_Instance">Instance</DisplayString>
+		<DisplayString Condition="type == Type_Integer">Integer: {integer}</DisplayString>
+		<DisplayString Condition="type == Type_Number">Number: {number}</DisplayString>
+		<DisplayString Condition="type == Type_String">String: {string,s}</DisplayString>
+
+		<Expand>
+			<Item Name="type">type</Item>
+			<Item Name="value" Condition="type == Type_Null">"test"</Item>
+			<Item Name="Object" Condition="type == Type_Object">DynamicData_DebugExpression(hObject) </Item>
+			<Item Name="value" Condition="type == Type_Array">pArray</Item>
+			<Item Name="value" Condition="type == Type_Instance">instance</Item>
+			<Item Name="value" Condition="type == Type_Integer">integer</Item>
+			<Item Name="value" Condition="type == Type_Number">number</Item>
+			<Item Name="value" Condition="type == Type_String">string,s</Item>
+		</Expand>
+	</Type>
 </AutoVisualizer>

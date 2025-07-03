@@ -39,6 +39,29 @@ Position get_position(ReadOnlySnapshot s, truth::Key objectId)
 }
 
 
+DynamicObjectDebugView DynamicData_DebugExpression(u64 hObject)
+{
+	DynamicObjectDebugView debugData;
+	if (DDObject* pObject = lookup_obj(hObject))
+	{
+		for (u64 i = 0; i < pObject->flattened.names.size(); ++i)
+		{
+			DebugValuePair& pair = debugData.flattned.emplace_back();
+			pair.name = string_repository_get(pObject->flattened.names[i]);
+			pair.value = pObject->flattened.values[i];
+		}
+
+		for (u64 i = 0; i < pObject->owned.names.size(); ++i)
+		{
+			DebugValuePair& pair = debugData.owned.emplace_back();
+			pair.name = string_repository_get(pObject->owned.names[i]);
+			pair.value = pObject->owned.values[i];
+		}
+	}
+
+	return debugData;
+}
+
 bool float_almost_equal(float a, float b) {
     const float epsilon = 0.0001f;
     return fabs(a - b) < epsilon;
@@ -661,7 +684,7 @@ void DynamicData_obj_set(DynamicData* target, u64 hName, DynamicData value)
 	assert(false && "didnt find key");
 }
 
-void DynamicData_obj_arr_push(DynamicData* object, u64 hArrayName, DynamicData value)
+void _DynamicData_obj_arr_push(DynamicData* object, u64 hArrayName, DynamicData value)
 {
 	if (DDObject* pObject = object->asObject())
 	{
@@ -764,6 +787,11 @@ void DynamicData_array_add(DynamicData* array, DynamicData value)
 		DDArray* pArray = array->pArray;
 		pArray->values.push_back(value);
 	}
+}
+
+void DynamicData_obj_set_add(DynamicData* object, u64 hSet, DynamicData value)
+{
+
 }
 
 void DynamicData_array_pop(DynamicData* array, DynamicData value)
@@ -1087,6 +1115,11 @@ const char* string_repository_get(u64 hName)
 	}
 
 	return "Invalid String";
+}
+
+const char* lookup_name(u64 hName)
+{
+	return string_repository_get(hName);
 }
 
 void DynamicData_registerParser(u64 hType, DynamicDataParser_i parser)

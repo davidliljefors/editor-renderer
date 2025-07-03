@@ -321,7 +321,9 @@ DynamicData DynamicData_obj_get(DynamicData* target, u64 hName);
 
 void DynamicData_obj_set(DynamicData* target, u64 hName, DynamicData value);
 
-void DynamicData_obj_arr_push(DynamicData* object, u64 hArrayName, DynamicData value);
+void _DynamicData_obj_arr_push(DynamicData* object, u64 hArrayName, DynamicData value);
+
+void DynamicData_obj_set_add(DynamicData* object, u64 hSet, DynamicData value);
 
 //void DynamicData_array_add(DynamicData* array, DynamicData value);
 
@@ -381,6 +383,21 @@ ObjectEditor DynamicData_edit_object(DynamicData* object, u64 hName);
 u64 string_repository_hash(const char* str);
 
 const char* string_repository_get(u64 hName);
+
+struct DebugValuePair
+{
+	eastl::string name;
+	DynamicData value;
+};
+
+struct DynamicObjectDebugView
+{
+	eastl::vector<DebugValuePair> owned;
+	eastl::vector<DebugValuePair> flattned;
+	eastl::vector<DebugValuePair> edits;
+};
+
+DynamicObjectDebugView DynamicData_DebugExpression(u64 hObject);
 
 bool float_almost_equal(float a, float b);
 
