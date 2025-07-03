@@ -211,47 +211,10 @@ struct DynamicEdit
 	Type type;
 };
 
-struct DynamicOverride
-{
-	// todo fix allocations SSO? / smaller hash?
-
-	struct IndexOrName
-	{
-		u64 isIndex : 1;
-		u64 value : 63;
-	};
-
-	void pushIndexEdit(u64 index, DynamicEdit e)
-	{
-		IndexOrName i;
-		*(u64*)&i = index;
-
-		i.isIndex = true;
-		keys.push_back(i);
-		edit = e;
-	}
-
-	void pushNameEdit(u64 hName, DynamicEdit e)
-	{
-		IndexOrName i;
-		*(u64*)&i = hName;
-
-		i.isIndex = false;
-		keys.push_back(i);
-		edit = e;
-	}
-
-	// Name or Index depending on target object type
-	eastl::vector<IndexOrName> keys;
-	DynamicEdit edit;
-};
-
 struct DDObject
 {
 	u64 hRoot;
 	u64 hPrototype;
-
-	// Prototype + edits = flattened; Flattened gets out of sync if version in hPrototype is ahead of flattened.version
 
 	struct Owned
 	{
@@ -288,6 +251,7 @@ struct DDObject
 	u64 version;
 };
 
+bool DDObject_is_up_to_date(DDObject* pObject, DDObject* pPrototype);
 
 inline DynamicEdit DynamicEdit_arrayAdd(DynamicData value)
 {

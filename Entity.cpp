@@ -149,17 +149,18 @@ void DynamicData_view_impl(DynamicData* pData)
 			}
 			else 
 			{
-				if (ImGui::TreeNode(name))
+				Printf buf;
+				if (auto* parr = pObject->flattened.values[i].asArray())
 				{
-					if (ImGui::IsItemClicked(0) && ImGui::IsKeyDown(ImGuiKey_LeftShift))
-					{
-						if (MetroHash64::HashStr("subobject") == pObject->flattened.names[i])
-						{
-							__debugbreak();
-							DynamicData_obj_before_read(pObject->flattened.values[i].asObject());
-						}
-					}
+					buf.write("Array %s ptr:%llu", name, (u64)parr);
+				}
+				else
+				{
+					buf.write("%s", name);
+				}
 
+				if (ImGui::TreeNode(buf.cstr()))
+				{
 					if (ImGui::IsItemClicked(0) && ImGui::IsKeyDown(ImGuiKey_LeftCtrl))
 					{
 						pObject->flattened.basedOnVersion = 0;
@@ -281,6 +282,23 @@ bool findName(const eastl::vector<u64>& vecNames, u64 hName, u64* outIndex)
 }
 
 
+bool DDObject_is_up_to_date(DDObject* pObject, DDObject* pPrototype)
+{
+	if (pObject->flattened.basedOnVersion == pPrototype->version && !pObject->flattened.dirty && !pPrototype->flattened.dirty)
+	{
+		if (pPrototype->hPrototype != 0)
+		{
+			DDObject* pNextPrototype = lookup_obj(pPrototype->hPrototype);
+			return DDObject_is_up_to_date(pPrototype, pNextPrototype);
+		}
+		else
+		{
+			return true;
+		}
+	}
+	return false;
+}
+
 bool DynamicEdits_find(DDObject::Edits* edits, u64 hName, u64* outIndex)
 {
 	for (u64 i = 0; i < edits->names.size(); ++i)
@@ -360,11 +378,9 @@ DynamicData DynamicData_array_new()
 {
 	DynamicData value;
 
-	void* mem = malloc(sizeof(DDArray));
-	memset(mem, 0, sizeof(DDArray));
-
+	DDArray* pArr = new DDArray();
 	value.type = DynamicData::Type_Array;
-	value.pArray = (DDArray*)mem;
+	value.pArray = pArr;
 
 	return value;
 }
@@ -458,14 +474,16 @@ void DynamicData_clone_internal(DynamicData* src, DynamicData* dst)
 		u64 size = DynamicData_size(src);
 		DDObject* pObject = dst->asObject();
 		DDObject* pSrcObject = src->asObject();
+		DynamicData_obj_before_read(pObject);
+		DynamicData_obj_before_read(pSrcObject);
 
 		pObject->owned.names.resize(size);
 		pObject->owned.values.resize(size);
 
 		for (u64 i = 0; i < size; ++i)
 		{
-			pObject->owned.names[i] = pSrcObject->owned.names[i];
-			DynamicData_clone_internal(&pSrcObject->owned.values[i], &pObject->owned.values[i]);
+			pObject->owned.names[i] = pSrcObject->flattened.names[i];
+			DynamicData_clone_internal(&pSrcObject->flattened.values[i], &pObject->owned.values[i]);
 		}
 
 		break;
@@ -683,7 +701,8 @@ void DynamicData_obj_arr_push(DynamicData* object, u64 hArrayName, DynamicData v
 
 			if (findName(pObject->flattened.names, hArrayName, &i))
 			{
-				pObject->flattened.values[i].asArray()->values.push_back(value);
+				pObject->flattened.dirty = true;
+				//pObject->flattened.values[i].asArray()->values.push_back(value);
 			}
 			else
 			{
@@ -796,12 +815,14 @@ void DynamicData_apply_obj_edit(eastl::vector<u64>& names, eastl::vector<Dynamic
 	switch (edit.type)
 	{
 	case DynamicEdit::Type_ArrayAppend:
+	{
 		u64 i;
 		if (findName(names, hName, &i))
 		{
 			values[i].asArray()->values.push_back(edit.arrayAppend.value);
 		}
 		break;
+	}
 	case DynamicEdit::Type_ArrayPop:
 	case DynamicEdit::Type_ArraySet:
 		assert(false && " not implemented ");
@@ -826,8 +847,8 @@ void DynamicData_apply_obj_edit(eastl::vector<u64>& names, eastl::vector<Dynamic
 		{
 			values[i] = edit.objectSet.value;
 		}
+		break;
 	}
-	break;
 	}
 }
 
@@ -848,20 +869,20 @@ void DynamicData_obj_compose(DDObject* pObject, eastl::vector<u64>& names, eastl
 	}
 	if (pPrototype)
 	{
-		//if (pObject->flattened.basedOnVersion == pPrototype->version && !pObject->flattened.dirty && !pPrototype->flattened.dirty)
-		//{
-		//	// todo if we have no edits at top level we can directly reference the arrays
-		//	// why isnt return ok here
-		//	names = pObject->flattened.names;
-		//	values = pObject->flattened.values;
-		//	
-		//	return;
-		//}
+		if (DDObject_is_up_to_date(pObject, pPrototype))
+		{
+			// todo if we have no edits at top level we can directly reference the arrays
+			names = pObject->flattened.names;
+			values = pObject->flattened.values;
+			return;
+		}
 		DynamicData_obj_compose(pPrototype, names, values);
 		pObject->flattened.basedOnVersion = pPrototype->version;
+		pObject->version++;
 	}
 
 	// Redirect instances and assign flattened state
+	// TODO SOON is the logic correct?
 	for (u64 i = 0; i < pObject->instantiated.names.size(); ++i)
 	{
 		u64 hName = pObject->instantiated.names[i];
@@ -877,11 +898,6 @@ void DynamicData_obj_compose(DDObject* pObject, eastl::vector<u64>& names, eastl
 
 			if (values[prototypeIndex].type == DynamicData::Type_Object)
 			{
-				DDObject* original = lookup_obj(values[prototypeIndex].hObject);
-				DDObject* pInstantiated = lookup_obj(hObject);
-
-				pInstantiated->flattened.values = original->flattened.values;
-				pInstantiated->flattened.names = original->flattened.names;
 				values[prototypeIndex].hObject = hObject;
 			}
 		}
@@ -892,6 +908,17 @@ void DynamicData_obj_compose(DDObject* pObject, eastl::vector<u64>& names, eastl
 	{
 		u64 hName = pObject->edits.names[i];
 		eastl::vector<DynamicEdit>& edits = pObject->edits.edits[i];
+
+		u64 index;
+		if (findName(names, hName, &index))
+		{
+			if (values[index].type == DynamicData::Type_Array)
+			{
+				// this is not a real object
+				DynamicData arrayCopy = DynamicData_clone(&values[index]);
+				values[index] = arrayCopy;
+			}
+		}
 
 		for (auto& edit : edits)
 		{

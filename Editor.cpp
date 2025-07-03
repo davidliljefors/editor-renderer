@@ -696,6 +696,15 @@ void EditorApp::DrawDynamicEntity(DynamicData& entityData)
 	if (ImGui::IsItemClicked())
 	{
 		m_focused = entityData;
+		if (ImGui::IsKeyDown(ImGuiKey_LeftShift))
+		{
+			__debugbreak();
+		}
+
+		if (ImGui::IsKeyDown(ImGuiKey_LeftCtrl))
+		{
+			entityData.asObject()->flattened.dirty = true;
+		}
 	}
 
 	if (r)
@@ -723,7 +732,8 @@ void EditorApp::DrawSelectedEntity()
 		//DDEntityEditor editor = {&entity};
 
 		DynamicData emptyEntity = DynamicData_createFromTemplate(ENTITY_TYPE_ID);
-
+		static int s_next_num = 0;
+		DynamicData_obj_set(&emptyEntity, string_repository_hash("name"), DynamicData_make_str(Printf("Entity num %d", s_next_num++)));
 		DynamicData_obj_arr_push(&m_focused, string_repository_hash("children"), emptyEntity);
 
 		//editor.editChildren().push_back(emptyEntity);
