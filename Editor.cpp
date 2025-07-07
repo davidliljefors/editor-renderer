@@ -757,8 +757,8 @@ void EditorApp::DrawSelectedEntity()
 
 	if (s_clipboard.id() != 0)
 	{
-		DDObject* selected = lookup_obj(m_focused.hObject);
-		DDObject* clipboard = lookup_obj(s_clipboard.hObject);
+		DynamicObject* selected = lookup_obj(m_focused.hObject);
+		DynamicObject* clipboard = lookup_obj(s_clipboard.hObject);
 
 		if (ImGui::Button("Paste Entity"))
 		{

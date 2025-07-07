@@ -42,7 +42,7 @@ Position get_position(ReadOnlySnapshot s, truth::Key objectId)
 DynamicObjectDebugView DynamicData_DebugExpression(u64 hObject)
 {
 	DynamicObjectDebugView debugData;
-	if (DDObject* pObject = lookup_obj(hObject))
+	if (DynamicObject* pObject = lookup_obj(hObject))
 	{
 		for (u64 i = 0; i < pObject->flattened.names.size(); ++i)
 		{
@@ -129,7 +129,7 @@ void DynamicData_view_impl(DynamicData* pValue, DynamicData_MemberStatus status,
 	switch (pValue->type) {
 	case DynamicData::Type_Object:
 	{
-		DDObject* pObject = pValue->asObject();
+		DynamicObject* pObject = pValue->asObject();
 		DynamicData_obj_before_read(pObject);
 
 		if (ImGui::TreeNodeEx(Printf("Object ID : %llu", pValue->hObject), ImGuiTreeNodeFlags_Leaf))
@@ -200,7 +200,7 @@ void DynamicData_view_impl(DynamicData* pValue, DynamicData_MemberStatus status,
 						DynamicData_obj_before_read(pObject);
 
 						DynamicData next = pObject->flattened.values[i];
-						if (DDObject* pNext = next.asObject())
+						if (DynamicObject* pNext = next.asObject())
 						{
 							pNext->flattened.basedOnVersion = 0;
 							DynamicData_obj_before_read(pNext);
@@ -295,7 +295,7 @@ void DynamicData_view_impl(DynamicData* pValue, DynamicData_MemberStatus status,
 static eastl::unordered_map<u64, const char*> s_string_repository;
 static std::unordered_map<u64, DynamicData> g_templates;
 static std::unordered_map<u64, DynamicDataParser_i> g_parsers;
-static std::unordered_map<u64, DDObject*> g_objects;
+static std::unordered_map<u64, DynamicObject*> g_objects;
 static std::unordered_map<u64, DDEdits*> g_edits;
 
 DynamicDataParser_i* lookup_parser(u64 typeId)
@@ -304,7 +304,7 @@ DynamicDataParser_i* lookup_parser(u64 typeId)
 	return find != g_parsers.end() ? &find->second : nullptr;
 }
 
-DDObject* lookup_obj(u64 hObject)
+DynamicObject* lookup_obj(u64 hObject)
 {
 	auto find = g_objects.find(hObject);
 	return find != g_objects.end() ? find->second : nullptr;
@@ -316,7 +316,7 @@ DDEdits* lookup_edits(u64 hEdits)
 	return find != g_edits.end() ? find->second : nullptr;
 }
 
-bool has_field(DDObject* pObject, u64 hName)
+bool has_field(DynamicObject* pObject, u64 hName)
 {
 	for (i32 i = 0; i < pObject->owned.names.size(); ++i)
 	{
@@ -341,7 +341,7 @@ bool findName(const eastl::vector<u64>& vecNames, u64 hName, u64* outIndex)
 }
 
 
-bool DynamicData_isOverridden(DDObject* pObject, u64 hName)
+bool DynamicData_isOverridden(DynamicObject* pObject, u64 hName)
 {
 	u64 i;
 	if (findName(pObject->overrides.names, hName, &i))
@@ -351,13 +351,13 @@ bool DynamicData_isOverridden(DDObject* pObject, u64 hName)
 	return false;
 }
 
-bool DDObject_is_up_to_date(DDObject* pObject, DDObject* pPrototype)
+bool DDObject_is_up_to_date(DynamicObject* pObject, DynamicObject* pPrototype)
 {
 	if (pObject->flattened.basedOnVersion == pPrototype->version && !pObject->flattened.dirty && !pPrototype->flattened.dirty)
 	{
 		if (pPrototype->hPrototype != 0)
 		{
-			DDObject* pNextPrototype = lookup_obj(pPrototype->hPrototype);
+			DynamicObject* pNextPrototype = lookup_obj(pPrototype->hPrototype);
 			return DDObject_is_up_to_date(pPrototype, pNextPrototype);
 		}
 		else
@@ -372,7 +372,7 @@ DynamicData DynamicData_obj_new()
 {
 	DynamicData value;
 
-	DDObject* pObject = new DDObject();
+	DynamicObject* pObject = new DynamicObject();
 
 	u64 id = random_u64();
 
@@ -391,7 +391,7 @@ DynamicData DynamicData_instance_new(DynamicData* prototype)
 {
 	DynamicData value;
 
-	DDObject* pObject = new DDObject();
+	DynamicObject* pObject = new DynamicObject();
 
 	u64 id = random_u64();
 	value.type = DynamicData::Type_Object;
@@ -413,7 +413,7 @@ DynamicData DynamicData_new_from_prototype(DynamicData* pPrototype)
 	return instance;
 }
 
-DynamicData DynamicData_instantiate_member_impl(DDObject* pObject, u64 hName)
+DynamicData DynamicData_instantiate_member_impl(DynamicObject* pObject, u64 hName)
 {
 	DynamicData_obj_before_read(pObject);
 	u64 i;
@@ -442,18 +442,18 @@ DynamicData DynamicData_instantiate_member_impl(DDObject* pObject, u64 hName)
 
 DynamicData DynamicData_instantiate_member(DynamicData* pValue, u64 hName)
 {
-	DDObject* pObject = pValue->asObject();
+	DynamicObject* pObject = pValue->asObject();
 	return DynamicData_instantiate_member_impl(pObject, hName);
 }
 
 void DynamicData_instantiate_clear(DynamicData* pValue, u64 hName)
 {
-	DDObject* pObject = pValue->asObject();
+	DynamicObject* pObject = pValue->asObject();
 	u64 i;
 	if (findName(pObject->instantiated.names, hName, &i))
 	{
 		DynamicData instance = pObject->instantiated.values[i];
-		DDObject* pInstance = instance.asObject();
+		DynamicObject* pInstance = instance.asObject();
 		pInstance->tombstone = true;
 
 		pObject->instantiated.values.erase(pObject->instantiated.values.begin() + i);
@@ -467,12 +467,12 @@ DynamicData DynamicData_obj_from_type(u64 typeId)
 {
 	DynamicData value;
 
-	void* mem = malloc(sizeof(DDObject));
-	memset(mem, 0, sizeof(DDObject));
+	void* mem = malloc(sizeof(DynamicObject));
+	memset(mem, 0, sizeof(DynamicObject));
 
 	u64 id = random_u64();
 
-	DDObject* pObject = (DDObject*)mem;
+	DynamicObject* pObject = (DynamicObject*)mem;
 	g_objects[id] = pObject;
 
 	value.type = DynamicData::Type_Object;
@@ -558,7 +558,7 @@ DynamicData DynamicData_make_num(f64 number)
 
 bool DynamicData_obj_is_editable(DynamicData* pValue, u64 hName)
 {
-	if (DDObject* pObject = pValue->asObject())
+	if (DynamicObject* pObject = pValue->asObject())
 	{
 		if (pObject->hPrototype)
 		{
@@ -583,7 +583,7 @@ bool DynamicData_obj_is_editable(DynamicData* pValue, u64 hName)
 	return false;
 }
 
-void DynamicData_instantiate_path_impl(DynamicEditorPath* pPath, DDObject* pCurrent, u64 depth, u64 hName)
+void DynamicData_instantiate_path_impl(DynamicEditorPath* pPath, DynamicObject* pCurrent, u64 depth, u64 hName)
 {
 	if (depth > pPath->nameStack.size())
 	{
@@ -599,14 +599,14 @@ void DynamicData_instantiate_path_impl(DynamicEditorPath* pPath, DDObject* pCurr
 		if (findName(pCurrent->instantiated.names, hCurrentName, &i))
 		{
 			// already instantiated at this depth
-			DDObject* pNext = pCurrent->instantiated.values[i].asObject();
+			DynamicObject* pNext = pCurrent->instantiated.values[i].asObject();
 			DynamicData_instantiate_path_impl(pPath, pNext, depth + 1, hName);
 		}
 		else if (findName(pCurrent->flattened.names, hCurrentName, &i))
 		{
 			// not instantiated, but exists in the flattened state. Instantiate it.
 			DynamicData next = DynamicData_instantiate_member_impl(pCurrent, hCurrentName);
-			DDObject* pNext = next.asObject();
+			DynamicObject* pNext = next.asObject();
 			DynamicData_obj_before_read(pNext);
 			DynamicData_instantiate_path_impl(pPath, pNext, depth + 1, hName);
 		}
@@ -617,7 +617,7 @@ void DynamicData_instantiate_path_impl(DynamicEditorPath* pPath, DDObject* pCurr
 		if (findName(pCurrent->owned.names, hCurrentName, &i))
 		{
 			// Value is owned, nothing to do at this level
-			DDObject* pNext = pCurrent->owned.values[i].asObject();
+			DynamicObject* pNext = pCurrent->owned.values[i].asObject();
 			DynamicData_instantiate_path_impl(pPath, pNext, depth + 1, hName);
 		}
 	}
@@ -625,7 +625,7 @@ void DynamicData_instantiate_path_impl(DynamicEditorPath* pPath, DDObject* pCurr
 
 void DynamicData_instantiate_path(DynamicEditorPath* pPath, u64 hName)
 {
-	DDObject* pCurrent = pPath->root;
+	DynamicObject* pCurrent = pPath->root;
 	u64 depth = 0;
 	DynamicData_instantiate_path_impl(pPath, pCurrent, 0, hName);
 }
@@ -649,7 +649,7 @@ const char* to_string(DynamicData_MemberStatus status)
 }
 
 
-DynamicData_MemberStatus DynamicData_get_member_status_impl(DynamicEditorPath* pPath, DDObject* pCurrent, u64 depth, u64 hName)
+DynamicData_MemberStatus DynamicData_get_member_status_impl(DynamicEditorPath* pPath, DynamicObject* pCurrent, u64 depth, u64 hName)
 {
 	bool isAtEnd = pPath->nameStack.size() == depth;
 	u64 hCurrentName = isAtEnd ? hName : pPath->nameStack[depth];
@@ -664,7 +664,7 @@ DynamicData_MemberStatus DynamicData_get_member_status_impl(DynamicEditorPath* p
 				return MemberStatus_Instantiated;
 			}
 			// already instantiated at this depth
-			DDObject* pNext = pCurrent->instantiated.values[i].asObject();
+			DynamicObject* pNext = pCurrent->instantiated.values[i].asObject();
 			return DynamicData_get_member_status_impl(pPath, pNext, depth + 1, hName);
 		}
 		else if (findName(pCurrent->flattened.names, hCurrentName, &i))
@@ -684,7 +684,7 @@ DynamicData_MemberStatus DynamicData_get_member_status_impl(DynamicEditorPath* p
 			}
 
 			// Value is owned, nothing to do at this level. can continue
-			DDObject* pNext = pCurrent->owned.values[i].asObject();
+			DynamicObject* pNext = pCurrent->owned.values[i].asObject();
 			return DynamicData_get_member_status_impl(pPath, pNext, depth + 1, hName);
 		}
 	}
@@ -694,14 +694,14 @@ DynamicData_MemberStatus DynamicData_get_member_status_impl(DynamicEditorPath* p
 
 DynamicData_MemberStatus DynamicData_get_member_status(DynamicEditorPath* pPath, u64 hName)
 {
-	DDObject* pCurrent = pPath->root;
+	DynamicObject* pCurrent = pPath->root;
 	u64 depth = 0;
 	return DynamicData_get_member_status_impl(pPath, pCurrent, 0, hName);
 }
 
 DynamicData_MemberStatus DynamicData_get_member_status(DynamicData* pValue, u64 hName)
 {
-	if (DDObject* pObject = pValue->asObject())
+	if (DynamicObject* pObject = pValue->asObject())
 	{
 		if (pObject->hPrototype != 0)
 		{
@@ -731,7 +731,7 @@ DynamicData_MemberStatus DynamicData_get_member_status(DynamicData* pValue, u64 
 
 u64 DynamicData_size(DynamicData* pValue)
 {
-	if (DDObject* pObject = pValue->asObject())
+	if (DynamicObject* pObject = pValue->asObject())
 	{
 		DynamicData_obj_before_read(pObject);
 		return pObject->flattened.values.size();
@@ -753,8 +753,8 @@ void DynamicData_clone_internal(DynamicData* src, DynamicData* dst)
 	{
 		*dst = DynamicData_obj_new();
 		u64 size = DynamicData_size(src);
-		DDObject* pObject = dst->asObject();
-		DDObject* pSrcObject = src->asObject();
+		DynamicObject* pObject = dst->asObject();
+		DynamicObject* pSrcObject = src->asObject();
 		DynamicData_obj_before_read(pObject);
 		DynamicData_obj_before_read(pSrcObject);
 
@@ -826,7 +826,7 @@ DynamicData DynamicData_obj_find(DynamicData* pValue, u64 hName)
 {
 	if (pValue->type == DynamicData::Type_Object)
 	{
-		DDObject* pObject = pValue->asObject();
+		DynamicObject* pObject = pValue->asObject();
 		DynamicData_obj_before_read(pObject);
 		u64 i;
 		if (findName(pObject->flattened.names, hName, &i))
@@ -844,7 +844,7 @@ void DynamicData_assign_root(DynamicData* newRoot, DynamicData* value)
 
 	if (rootId)
 	{
-		if (DDObject* pObject = value->asObject())
+		if (DynamicObject* pObject = value->asObject())
 		{
 			pObject->hRoot = newRoot->id();
 		}
@@ -858,7 +858,7 @@ void DynamicData_assign_root(DynamicData* newRoot, DynamicData* value)
 
 void DynamicData_obj_add(DynamicData* target, u64 hName, DynamicData add)
 {
-	if (DDObject* pObject = target->asObject())
+	if (DynamicObject* pObject = target->asObject())
 	{
 		pObject->version++;
 
@@ -886,7 +886,7 @@ void DynamicData_obj_add(DynamicData* target, u64 hName, DynamicData add)
 
 void DynamicData_obj_set(DynamicData* target, u64 hName, DynamicData value)
 {
-	if (DDObject* pObject = target->asObject())
+	if (DynamicObject* pObject = target->asObject())
 	{
 		DynamicData_obj_before_read(pObject);
 
@@ -1074,9 +1074,9 @@ void DynamicData_apply_obj_edit(eastl::vector<u64>& names, eastl::vector<Dynamic
 	}
 }
 
-void DynamicData_obj_compose(DDObject* pObject, eastl::vector<u64>& names, eastl::vector<DynamicData>& values)
+void DynamicData_obj_compose(DynamicObject* pObject, eastl::vector<u64>& names, eastl::vector<DynamicData>& values)
 {
-	DDObject* pPrototype = pObject->hPrototype != 0 ? lookup_obj(pObject->hPrototype) : nullptr;
+	DynamicObject* pPrototype = pObject->hPrototype != 0 ? lookup_obj(pObject->hPrototype) : nullptr;
 
 	while (pPrototype && pPrototype->tombstone)
 	{
@@ -1165,7 +1165,7 @@ void DynamicData_obj_compose(DDObject* pObject, eastl::vector<u64>& names, eastl
 	pObject->flattened.dirty = false;
 }
 
-void DynamicData_obj_before_read(DDObject* pObject)
+void DynamicData_obj_before_read(DynamicObject* pObject)
 {
 	eastl::vector<u64> names;
 	eastl::vector<DynamicData> values;
@@ -1579,7 +1579,7 @@ DynamicData DynamicData_createFromTemplate(u64 hTemplate)
 
 	u64 hFields = string_repository_hash(s_fieldsKey);
 
-	if (DDObject* fields = DynamicData_obj_find(pTemplate, hFields).asObject())
+	if (DynamicObject* fields = DynamicData_obj_find(pTemplate, hFields).asObject())
 	{
 		u64 numFields = fields->owned.values.size();
 		for (u64 i = 0; i < numFields; ++i)

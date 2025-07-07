@@ -80,7 +80,7 @@ struct Position
 Position get_position(ReadOnlySnapshot snap, truth::Key objectId);
 void set_position(Transaction& tx, truth::Key objectId, Position p);
 
-struct DDObject;
+struct DynamicObject;
 struct DDArray;
 struct DDEdits;
 
@@ -90,7 +90,7 @@ struct DDInstance
 	u64 hEdits;
 };
 
-DDObject* lookup_obj(u64 hObject);
+DynamicObject* lookup_obj(u64 hObject);
 DDEdits* lookup_edits(u64 hEdits);
 
 struct DynamicData
@@ -126,12 +126,12 @@ struct DynamicData
 		return type == Type_String ? string : "";
 	}
 
-	DDObject* asObject()
+	DynamicObject* asObject()
 	{
 		return type == Type_Object ? lookup_obj(hObject) : nullptr;
 	}
 
-	const DDObject* asObject() const
+	const DynamicObject* asObject() const
 	{
 		return type == Type_Object ? lookup_obj(hObject) : nullptr;
 	}
@@ -168,7 +168,7 @@ struct DynamicData
 
 struct DynamicEditorPath
 {
-	DDObject* root;
+	DynamicObject* root;
 	eastl::vector<u64> nameStack;
 };
 
@@ -210,7 +210,7 @@ struct DynamicEdit
 };
 
 
-struct DDObject
+struct DynamicObject
 {
 	u64 hRoot;
 	u64 hPrototype;
@@ -262,7 +262,7 @@ struct SetModification
 
 };
 
-struct DDObjectSet
+struct DynamicSet
 {
 	u64 hRoot;
 	u64 hPrototype;
@@ -273,13 +273,13 @@ struct DDObjectSet
 		eastl::vector<DynamicData> values;
 	};
 
-	struct Adds
+	struct Added
 	{
 		eastl::vector<u64> ids;
 		eastl::vector<DynamicData> values;
 	};
 
-	struct Removes
+	struct Removed
 	{
 		eastl::vector<u64> ids;
 		eastl::vector<DynamicData> values;
@@ -299,18 +299,21 @@ struct DDObjectSet
 		bool dirty;
 	};
 
+
+	Owned owned;
+	Added added;
+	Removed removed;
 	Instantiated instantiated;
+
 	Flattened flattened;
-	Adds adds;
-	Removes removes;
 
 	u64 version;
 };
 
 
-bool DynamicData_isOverridden(DDObject* pObject, u64 hName);
+bool DynamicData_isOverridden(DynamicObject* pObject, u64 hName);
 
-bool DDObject_is_up_to_date(DDObject* pObject, DDObject* pPrototype);
+bool DDObject_is_up_to_date(DynamicObject* pObject, DynamicObject* pPrototype);
 
 inline DynamicEdit DynamicEdit_arrayAdd(DynamicData value)
 {
@@ -387,7 +390,7 @@ void DynamicData_obj_set_add(DynamicData* object, u64 hSet, DynamicData value);
 
 void DynamicData_array_pop(DynamicData* array, DynamicData value);
 
-void DynamicData_obj_before_read(DDObject* pObject);
+void DynamicData_obj_before_read(DynamicObject* pObject);
 
 eastl::vector<DynamicData> DynamicData_array_compose(DynamicData* object, u64 hName);
 
@@ -428,7 +431,7 @@ struct ObjectEditor
 
 	struct Owned
 	{
-		DDObject* pObject;
+		DynamicObject* pObject;
 	};
 
 	void set(DynamicData value, u64 hName);
