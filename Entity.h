@@ -51,7 +51,7 @@ struct Printf
 	char buf[128];
 };
 
-u64 random_u64();
+u64 next_obj_id();
 
 namespace eastl = std;
 
@@ -81,17 +81,10 @@ Position get_position(ReadOnlySnapshot snap, truth::Key objectId);
 void set_position(Transaction& tx, truth::Key objectId, Position p);
 
 struct DynamicObject;
-struct DDArray;
-struct DDEdits;
-
-struct DDInstance
-{
-	u64 hPrototype;
-	u64 hEdits;
-};
+struct DynamicSet;
 
 DynamicObject* lookup_obj(u64 hObject);
-DDEdits* lookup_edits(u64 hEdits);
+DynamicSet* lookup_set(u64 hSet);
 
 struct DynamicData
 {
@@ -99,8 +92,7 @@ struct DynamicData
 	{
 		Type_Null,
 		Type_Object,
-		Type_Array,
-		Type_Instance,
+		Type_Set,
 		Type_Integer,
 		Type_Number,
 		Type_String
@@ -136,28 +128,34 @@ struct DynamicData
 		return type == Type_Object ? lookup_obj(hObject) : nullptr;
 	}
 
-	DDArray* asArray()
+	DynamicSet* asSet()
 	{
-		return type == Type_Array ? pArray : nullptr;
-	}
-
-	const DDArray* asArray() const
-	{
-		return type == Type_Array ? pArray : nullptr;
+		return type == Type_Set ? lookup_set(hSet) : nullptr;
 	}
 
 	u64 id() const
 	{
 		if (type == Type_Object)
+		{
 			return hObject;
+		}
+		if (type == Type_Set)
+		{
+			return hSet;
+		}
+
 		return 0ull;
+	}
+
+	bool isContainer()
+	{
+		return type == Type_Set || type == Type_Object;
 	}
 
 	union
 	{
-		DDInstance instance;
 		u64 hObject;
-		DDArray* pArray;
+		u64 hSet;
 		i64 integer;
 		f64 number;
 		char* string;
@@ -170,43 +168,6 @@ struct DynamicEditorPath
 {
 	DynamicObject* root;
 	eastl::vector<u64> nameStack;
-};
-
-struct DynamicEdit
-{
-	enum Type : u8
-	{
-		Type_ArrayAppend,
-		Type_ArrayPop,
-		Type_ArraySet,
-
-		Type_ObjectAssign,
-	};
-
-	struct ArrayAppend
-	{
-		DynamicData value;
-	};
-
-	struct ArraySet
-	{
-		i32 index;
-		DynamicData value;
-	};
-
-	struct ObjectAssign
-	{
-		DynamicData value;
-	};
-
-	union
-	{
-		ObjectAssign objectAssign;
-		ArrayAppend arrayAppend;
-		ArraySet arraySet;
-	};
-
-	Type type;
 };
 
 
@@ -266,6 +227,7 @@ struct DynamicSet
 {
 	u64 hRoot;
 	u64 hPrototype;
+	bool tombstone;
 
 	struct Owned
 	{
@@ -299,7 +261,6 @@ struct DynamicSet
 		bool dirty;
 	};
 
-
 	Owned owned;
 	Added added;
 	Removed removed;
@@ -315,32 +276,11 @@ bool DynamicData_isOverridden(DynamicObject* pObject, u64 hName);
 
 bool DDObject_is_up_to_date(DynamicObject* pObject, DynamicObject* pPrototype);
 
-inline DynamicEdit DynamicEdit_arrayAdd(DynamicData value)
-{
-	DynamicEdit e;
-	e.type = DynamicEdit::Type_ArrayAppend;
-	e.arrayAppend.value = value;
-	return e;
-}
-
-inline DynamicEdit DynamicEdit_arrayPop()
-{
-	DynamicEdit e;
-	e.type = DynamicEdit::Type_ArrayPop;
-	return e;
-}
-
-struct DDArray
-{
-	u64 hRoot;
-	eastl::vector<DynamicData> values;
-};
-
 DynamicData DynamicData_obj_new();
 DynamicData DynamicData_new_from_prototype(DynamicData* pPrototype);
 DynamicData DynamicData_instantiate_member(DynamicData* pValue, u64 hName);
 void	    DynamicData_instantiate_clear(DynamicData* pValue, u64 hName);
-DynamicData DynamicData_array_new();
+DynamicData DynamicData_set_new();
 DynamicData DynamicData_str_new();
 DynamicData DynamicData_int_new();
 DynamicData DynamicData_num_new();
@@ -380,17 +320,20 @@ void DynamicData_obj_add(DynamicData* target, u64 hName, DynamicData add);
 
 DynamicData DynamicData_obj_get(DynamicData* target, u64 hName);
 
-void DynamicData_obj_set(DynamicData* target, u64 hName, DynamicData value);
+void DynamicData_obj_set(DynamicData* object, u64 hName, DynamicData value);
 
 void _DynamicData_obj_arr_push(DynamicData* object, u64 hArrayName, DynamicData value);
 
-void DynamicData_obj_set_add(DynamicData* object, u64 hSet, DynamicData value);
+void DynamicData_add_to_set(DynamicData* object, u64 hMember, DynamicData item);
+void DynamicData_remove_from_set(DynamicData* object, u64 hMember, DynamicData item);
 
 //void DynamicData_array_add(DynamicData* array, DynamicData value);
 
 void DynamicData_array_pop(DynamicData* array, DynamicData value);
 
 void DynamicData_obj_before_read(DynamicObject* pObject);
+
+void DynamicData_set_before_read(DynamicSet* pSet);
 
 eastl::vector<DynamicData> DynamicData_array_compose(DynamicData* object, u64 hName);
 
@@ -402,13 +345,8 @@ struct ArrayEditor
 		//DDObject::Edits* pEdits;
 	};
 
-	struct Owned
-	{
-		DDArray* pArray;
-	};
 
 	Instance instance;
-	Owned owned;
 
 	u64 hName;
 	bool isInstanced;
@@ -478,9 +416,22 @@ struct DDEntity
 	u64 editedMask;
 	u64 id;
 
+	void addChild(DynamicData child);
+	void removeChild(u64 id);
+
 	const char* name;
 	eastl::vector<DynamicData> children;
 	eastl::vector<DynamicData> components;
+
+	struct AddedChild
+	{
+		u64 id;
+		DynamicData data;
+	};
+
+	eastl::vector<AddedChild> addedChildren;
+	eastl::vector<u64> removedChildren;
+
 	f64 test_number;
 };
 
