@@ -11,6 +11,7 @@ i32 main()
 {
 	registerEntityTemplate();
 	registerComponent_TransformTemplate();
+	registerComponent_ColorTemplate();
 
 	HeapAllocator gHeap;
 	GLOBAL_HEAP = &gHeap;

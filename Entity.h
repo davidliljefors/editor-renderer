@@ -553,9 +553,12 @@ void DynamicData_writeBack(DynamicData* pData, void* pValue);
 
 constexpr u64 ENTITY_TYPE_ID = TM_STATIC_HASH("ENTITY_TYPE_ID", 0x5bf6f54407a5c834ULL);
 constexpr u64 COMPONENT_ID_TRANSFORM = TM_STATIC_HASH("COMPONENT_ID_TRANSFORM", 0x24e93d7df3c9e6f0ULL);
+constexpr u64 COMPONENT_ID_COLOR = TM_STATIC_HASH("COMPONENT_ID_COLOR", 0xa8d3f5d15f0236abULL);
+//constexpr u64 COMPONENT_ID_NAME = TM_STATIC_HASH("COMPONENT_ID_NAME", 0xfc4e5c54ba84ba26ULL);
 
 void registerEntityTemplate();
 void registerComponent_TransformTemplate();
+void registerComponent_ColorTemplate();
 
 DynamicData* DynamicData_getTemplate(u64 id);
 

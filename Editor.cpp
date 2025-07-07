@@ -538,6 +538,14 @@ void EditorApp::update()
 		ImGui::PopID();
 	}
 
+	if (ImGui::CollapsingHeader("ComponentTemplate_Color"))
+	{
+		DynamicData* temp = DynamicData_getTemplate(COMPONENT_ID_COLOR);
+		ImGui::PushID((int)COMPONENT_ID_COLOR);
+		DynamicData_view(temp);
+		ImGui::PopID();
+	}
+
 	if (ImGui::Button("Add new root entity"))
 	{
 		DynamicData entity = DynamicData_createFromTemplate(ENTITY_TYPE_ID);
@@ -565,12 +573,19 @@ void EditorApp::update()
 
 			u64 hName = MetroHash64::HashStr("name");
 			DynamicData_obj_add(&childEntity, hName, DynamicData_make_str("Child Entity"));
+
+			//if (DynamicData_get_member_status())
 			DynamicData_add_to_set(&value, string_repository_hash("children"), childEntity);
 		}
-		if (ImGui::Button("Add Transform"))
+		if (ImGui::Button("Add Transform Component"))
 		{
-			DynamicData transformComponent = DynamicData_createFromTemplate(COMPONENT_ID_TRANSFORM);
-			//DynamicData_obj_arr_push(&value, string_repository_hash("components"), transformComponent);
+			DynamicData transformComp = DynamicData_createFromTemplate(COMPONENT_ID_TRANSFORM);
+			DynamicData_add_to_set(&value, string_repository_hash("components"), transformComp);
+		}
+		if (ImGui::Button("Add Color Component"))
+		{
+			DynamicData colorComp = DynamicData_createFromTemplate(COMPONENT_ID_COLOR);
+			DynamicData_add_to_set(&value, string_repository_hash("components"), colorComp);
 		}
 		ImGui::PopID();
 	}
@@ -746,9 +761,7 @@ void EditorApp::DrawSelectedEntity()
 		if (ImGui::Button("Add transform component"))
 		{ 
 			DynamicData transformComponent = DynamicData_createFromTemplate(COMPONENT_ID_TRANSFORM);
-
-			DynamicData components = DynamicData_obj_find(&m_focused, string_repository_hash("components"), );
-			DynamicData_obj_arr_push(&m_focused, string_repository_hash("components"), transformComponent);
+			DynamicData_add_to_set(&m_focused, string_repository_hash("components"), transformComponent);
 		}
 	}
 	else
