@@ -236,7 +236,17 @@ void DynamicData_view_impl(DynamicData* pValue, DynamicData_MemberStatus status,
 					}
 
 					pPath->nameStack.push_back(hMemberName);
+					if (memberStatus == MemberStatus_Inherited)
+					{
+						ImGui::PushStyleVar(ImGuiStyleVar_Alpha, 0.5);
+					}
+
 					DynamicData_view_impl(&pObject->flattened.values[i], memberStatus, pPath);
+
+					if (memberStatus == MemberStatus_Inherited)
+					{
+						ImGui::PopStyleVar();
+					}
 					pPath->nameStack.pop_back();
 
 					ImGui::TreePop();
@@ -1394,12 +1404,12 @@ void registerEntityTemplate()
 	//DynamicData_obj_add(&field_children, string_repository_hash("test_number"), DynamicData_num_new());
 
 	DynamicData entity_subobject = DynamicData_obj_new();
-	DynamicData_obj_add(&entity_subobject, string_repository_hash("suh"), DynamicData_num_new());
-	DynamicData_obj_add(&entity_subobject, string_repository_hash("dude"), DynamicData_num_new());
+	DynamicData_obj_add(&entity_subobject, string_repository_hash("sub-float"), DynamicData_num_new());
+	DynamicData_obj_add(&entity_subobject, string_repository_hash("sub-int"), DynamicData_num_new());
 
 	DynamicData nested_subobject = DynamicData_obj_new();
-	DynamicData_obj_add(&nested_subobject, string_repository_hash("nested-suh"), DynamicData_num_new());
-	DynamicData_obj_add(&nested_subobject, string_repository_hash("nested-dude"), DynamicData_num_new());
+	DynamicData_obj_add(&nested_subobject, string_repository_hash("nested-float"), DynamicData_num_new());
+	DynamicData_obj_add(&nested_subobject, string_repository_hash("nested-int"), DynamicData_num_new());
 	DynamicData_obj_add(&entity_subobject, string_repository_hash("nested-subobject"), nested_subobject);
 
 	DynamicData_obj_add(&field_children, string_repository_hash("subobject"), entity_subobject);
