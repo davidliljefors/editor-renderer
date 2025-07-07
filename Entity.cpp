@@ -46,7 +46,7 @@ DynamicObjectDebugView DynamicData_DebugExpression(u64 hObject)
 	{
 		for (u64 i = 0; i < pObject->flattened.names.size(); ++i)
 		{
-			DebugValuePair& pair = debugData.flattned.emplace_back();
+			DebugValuePair& pair = debugData.flattened.emplace_back();
 			pair.name = string_repository_get(pObject->flattened.names[i]);
 			pair.value = pObject->flattened.values[i];
 		}
@@ -56,6 +56,11 @@ DynamicObjectDebugView DynamicData_DebugExpression(u64 hObject)
 			DebugValuePair& pair = debugData.owned.emplace_back();
 			pair.name = string_repository_get(pObject->owned.names[i]);
 			pair.value = pObject->owned.values[i];
+		}
+
+		for (u64 i = 0; i < pObject->instantiated.names.size(); ++i)
+		{
+			debugData.instantiated.emplace_back(string_repository_get(pObject->instantiated.names[i]));
 		}
 	}
 
@@ -119,35 +124,40 @@ void DynamicData_format_value(Printf& buf, DynamicData value)
 	}
 }
 
-void DynamicData_view_impl(DynamicData* pData)
+void DynamicData_view_impl(DynamicData* pValue, DynamicData_MemberStatus status, DynamicEditorPath* pPath)
 {
-	switch (pData->type) {
+	switch (pValue->type) {
 	case DynamicData::Type_Object:
 	{
-		DDObject* pObject = pData->asObject();
+		DDObject* pObject = pValue->asObject();
 		DynamicData_obj_before_read(pObject);
 
-		if (ImGui::TreeNodeEx(Printf("Object ID : %llu", pData->hObject), ImGuiTreeNodeFlags_Leaf))
+		if (ImGui::TreeNodeEx(Printf("Object ID : %llu", pValue->hObject), ImGuiTreeNodeFlags_Leaf))
 		{
 			ImGui::TreePop();
 		}
-		if (pObject->hPrototype)
-		{
-			if (ImGui::TreeNodeEx(Printf("Prototype ID : %llu", pObject->hPrototype), ImGuiTreeNodeFlags_Leaf))
-			{
-				ImGui::TreePop();
-			}
+		//if (status == MemberStatus_Instantiated)
+		//{
+		//	if (pObject->hPrototype)
+		//	{
+		//		if (ImGui::TreeNodeEx(Printf("Prototype ID : %llu", pObject->hPrototype), ImGuiTreeNodeFlags_Leaf))
+		//		{
+		//			ImGui::TreePop();
+		//		}
 
-			if (ImGui::TreeNodeEx(Printf("Based on version : %llu", pObject->flattened.basedOnVersion), ImGuiTreeNodeFlags_Leaf))
-			{
-				ImGui::TreePop();
-			}
-		}
+		//		/*if (ImGui::TreeNodeEx(Printf("Based on version : %llu", pObject->flattened.basedOnVersion), ImGuiTreeNodeFlags_Leaf))
+		//		{
+		//			ImGui::TreePop();
+		//		}*/
+		//	}
+		//}
 
 		for (u64 i = 0; i < pObject->flattened.names.size(); ++i)
 		{
+			u64 hMemberName = pObject->flattened.names[i];
+			DynamicData_MemberStatus memberStatus = DynamicData_get_member_status(pPath, hMemberName);
 
-			const char* name = string_repository_get(pObject->flattened.names[i]);
+			const char* name = string_repository_get(hMemberName);
 
 			if (DynamicData_size(&pObject->flattened.values[i]) == 0)
 			{
@@ -167,10 +177,10 @@ void DynamicData_view_impl(DynamicData* pData)
 				if (element.type == DynamicData::Type_Number && ImGui::IsItemClicked())
 				{
 					DynamicData newPos = DynamicData_make_num(element.asNumber() + 1);
-					DynamicData_obj_set(pData, pObject->flattened.names[i], newPos);
+					DynamicData_obj_set(pValue, hMemberName, newPos);
 				}
 			}
-			else 
+			else
 			{
 				Printf buf;
 				if (auto* parr = pObject->flattened.values[i].asArray())
@@ -187,31 +197,48 @@ void DynamicData_view_impl(DynamicData* pData)
 					if (ImGui::IsItemClicked(0) && ImGui::IsKeyDown(ImGuiKey_LeftCtrl))
 					{
 						pObject->flattened.basedOnVersion = 0;
+						DynamicData_obj_before_read(pObject);
+
+						DynamicData next = pObject->flattened.values[i];
+						if (DDObject* pNext = next.asObject())
+						{
+							pNext->flattened.basedOnVersion = 0;
+							DynamicData_obj_before_read(pNext);
+						}
 					}
 
-					bool canInstantiate = pObject->hPrototype;
+					
+
 					if (ImGui::IsItemClicked(1))
 					{
 						ImGui::OpenPopup("dd_view_context_menu");
 					}
 
-					if (ImGui::BeginPopup("dd_view_context_menu")) {
+					if (ImGui::BeginPopup("dd_view_context_menu")) 
+					{
+						ImGui::MenuItem(Printf("Member status : %s", to_string(memberStatus)));
 
-						ImGui::BeginDisabled(!canInstantiate);
-			            if (ImGui::MenuItem("Instantiate subobject")) 
+						ImGui::BeginDisabled(memberStatus != MemberStatus_Inherited);
+						if (ImGui::MenuItem("Instantiate object"))
 						{
-							DynamicData_instantiate_member(pData, pObject->flattened.names[i]);
-			            }
+							DynamicData_instantiate_path(pPath, hMemberName);
+						}
 						ImGui::EndDisabled();
 
-						if (ImGui::MenuItem("Un-instantiate subobject"))
+						ImGui::BeginDisabled(memberStatus != MemberStatus_Instantiated);
+						if (ImGui::MenuItem("Revert to prototype"))
 						{
-							DynamicData_instantiate_clear(pData, pObject->flattened.names[i]);
+							DynamicData_instantiate_clear(pValue, hMemberName);
 						}
-			            ImGui::EndPopup();
-			        }
+						ImGui::EndDisabled();
 
-					DynamicData_view_impl(&pObject->flattened.values[i]);
+						ImGui::EndPopup();
+					}
+
+					pPath->nameStack.push_back(hMemberName);
+					DynamicData_view_impl(&pObject->flattened.values[i], memberStatus, pPath);
+					pPath->nameStack.pop_back();
+
 					ImGui::TreePop();
 				}
 			}
@@ -220,13 +247,13 @@ void DynamicData_view_impl(DynamicData* pData)
 	}
 	case DynamicData::Type_Array:
 	{
-		DDArray* pArray = pData->pArray;
-		u64 size = DynamicData_size(pData);
+		DDArray* pArray = pValue->pArray;
+		u64 size = DynamicData_size(pValue);
 		for (u64 i = 0; i < size; ++i)
 		{
 			if (ImGui::TreeNode(Printf("Element %d", i)))
 			{
-				DynamicData_view_impl(&pArray->values[i]);
+				DynamicData_view_impl(&pArray->values[i], {}, pPath);
 				ImGui::TreePop();
 			}
 		}
@@ -244,7 +271,7 @@ void DynamicData_view_impl(DynamicData* pData)
 	case DynamicData::Type_Null:
 	{
 		Printf buf;
-		DynamicData_format_value(buf, *pData);
+		DynamicData_format_value(buf, *pValue);
 		bool r = ImGui::TreeNodeEx(buf.cstr(), ImGuiTreeNodeFlags_Leaf);
 		if (r)
 		{
@@ -363,6 +390,8 @@ DynamicData DynamicData_instance_new(DynamicData* prototype)
 	pObject->flattened.basedOnVersion = 0;
 	pObject->version = 1;
 
+	DynamicData_obj_before_read(pObject);
+
 	g_objects[id] = pObject;
 
 	return value;
@@ -374,13 +403,10 @@ DynamicData DynamicData_new_from_prototype(DynamicData* pPrototype)
 	return instance;
 }
 
-DynamicData DynamicData_instantiate_member(DynamicData* pValue, u64 hName)
+DynamicData DynamicData_instantiate_member_impl(DDObject* pObject, u64 hName)
 {
-	DDObject* pObject = pValue->asObject();
 	DynamicData_obj_before_read(pObject);
-
 	u64 i;
-
 	// make sure its not already instantiated
 	if (!findName(pObject->instantiated.names, hName, &i))
 	{
@@ -404,12 +430,22 @@ DynamicData DynamicData_instantiate_member(DynamicData* pValue, u64 hName)
 	return DynamicData_make_null();
 }
 
+DynamicData DynamicData_instantiate_member(DynamicData* pValue, u64 hName)
+{
+	DDObject* pObject = pValue->asObject();
+	return DynamicData_instantiate_member_impl(pObject, hName);
+}
+
 void DynamicData_instantiate_clear(DynamicData* pValue, u64 hName)
 {
 	DDObject* pObject = pValue->asObject();
 	u64 i;
 	if (findName(pObject->instantiated.names, hName, &i))
 	{
+		DynamicData instance = pObject->instantiated.values[i];
+		DDObject* pInstance = instance.asObject();
+		pInstance->tombstone = true;
+
 		pObject->instantiated.values.erase(pObject->instantiated.values.begin() + i);
 		pObject->instantiated.names.erase(pObject->instantiated.names.begin() + i);
 		pObject->flattened.dirty = true;	
@@ -510,15 +546,188 @@ DynamicData DynamicData_make_num(f64 number)
 	return value;
 }
 
-u64 DynamicData_size(DynamicData* value)
+bool DynamicData_obj_is_editable(DynamicData* pValue, u64 hName)
 {
-	if (DDObject* pObject = value->asObject())
+	if (DDObject* pObject = pValue->asObject())
+	{
+		if (pObject->hPrototype)
+		{
+			u64 i;
+			if (findName(pObject->instantiated.names, hName, &i))
+			{
+				return true;
+			}
+
+			// todo can we add names in a variant?
+		}
+		else
+		{
+			u64 i;
+			if (findName(pObject->owned.names, hName, &i))
+			{
+				return true;
+			}
+		}
+	}
+
+	return false;
+}
+
+void DynamicData_instantiate_path_impl(DynamicEditorPath* pPath, DDObject* pCurrent, u64 depth, u64 hName)
+{
+	if (depth > pPath->nameStack.size())
+	{
+		return; // were done
+	}
+
+	bool isAtEnd = pPath->nameStack.size() == depth;
+	u64 hCurrentName = isAtEnd ? hName : pPath->nameStack[depth];
+
+	if (pCurrent->hPrototype)
+	{
+		u64 i;
+		if (findName(pCurrent->instantiated.names, hCurrentName, &i))
+		{
+			// already instantiated at this depth
+			DDObject* pNext = pCurrent->instantiated.values[i].asObject();
+			DynamicData_instantiate_path_impl(pPath, pNext, depth + 1, hName);
+		}
+		else if (findName(pCurrent->flattened.names, hCurrentName, &i))
+		{
+			// not instantiated, but exists in the flattened state. Instantiate it.
+			DynamicData next = DynamicData_instantiate_member_impl(pCurrent, hCurrentName);
+			DDObject* pNext = next.asObject();
+			DynamicData_obj_before_read(pNext);
+			DynamicData_instantiate_path_impl(pPath, pNext, depth + 1, hName);
+		}
+	}
+	else
+	{
+		u64 i;
+		if (findName(pCurrent->owned.names, hCurrentName, &i))
+		{
+			// Value is owned, nothing to do at this level
+			DDObject* pNext = pCurrent->owned.values[i].asObject();
+			DynamicData_instantiate_path_impl(pPath, pNext, depth + 1, hName);
+		}
+	}
+}
+
+void DynamicData_instantiate_path(DynamicEditorPath* pPath, u64 hName)
+{
+	DDObject* pCurrent = pPath->root;
+	u64 depth = 0;
+	DynamicData_instantiate_path_impl(pPath, pCurrent, 0, hName);
+}
+
+const char* to_string(DynamicData_MemberStatus status)
+{
+	switch (status) {
+	case MemberStatus_Owned:
+		return "Owned";
+	case MemberStatus_Inherited:
+		return "Inherited";
+	case MemberStatus_Instantiated:
+		return "Instantiated";
+	case MemberStatus_None:
+		return "None";
+	}
+
+	assert(false && "enum out of range");
+
+	return "enum : error";
+}
+
+
+DynamicData_MemberStatus DynamicData_get_member_status_impl(DynamicEditorPath* pPath, DDObject* pCurrent, u64 depth, u64 hName)
+{
+	bool isAtEnd = pPath->nameStack.size() == depth;
+	u64 hCurrentName = isAtEnd ? hName : pPath->nameStack[depth];
+
+	if (pCurrent->hPrototype)
+	{
+		u64 i;
+		if (findName(pCurrent->instantiated.names, hCurrentName, &i))
+		{
+			if (isAtEnd)
+			{
+				return MemberStatus_Instantiated;
+			}
+			// already instantiated at this depth
+			DDObject* pNext = pCurrent->instantiated.values[i].asObject();
+			return DynamicData_get_member_status_impl(pPath, pNext, depth + 1, hName);
+		}
+		else if (findName(pCurrent->flattened.names, hCurrentName, &i))
+		{
+			// if we enter any inhertied value we can early out.
+			return MemberStatus_Inherited;
+		}
+	}
+	else
+	{
+		u64 i;
+		if (findName(pCurrent->owned.names, hCurrentName, &i))
+		{
+			if (isAtEnd)
+			{
+				return MemberStatus_Owned;
+			}
+
+			// Value is owned, nothing to do at this level. can continue
+			DDObject* pNext = pCurrent->owned.values[i].asObject();
+			return DynamicData_get_member_status_impl(pPath, pNext, depth + 1, hName);
+		}
+	}
+
+	return MemberStatus_None;
+}
+
+DynamicData_MemberStatus DynamicData_get_member_status(DynamicEditorPath* pPath, u64 hName)
+{
+	DDObject* pCurrent = pPath->root;
+	u64 depth = 0;
+	return DynamicData_get_member_status_impl(pPath, pCurrent, 0, hName);
+}
+
+DynamicData_MemberStatus DynamicData_get_member_status(DynamicData* pValue, u64 hName)
+{
+	if (DDObject* pObject = pValue->asObject())
+	{
+		if (pObject->hPrototype != 0)
+		{
+			u64 i;
+			if (findName(pObject->instantiated.names, hName, &i))
+			{
+				return MemberStatus_Instantiated;
+			}
+			if (findName(pObject->flattened.names, hName, &i))
+			{
+				return MemberStatus_Inherited;
+			}
+			return MemberStatus_None;
+		}
+		else
+		{
+			u64 i;
+			if (findName(pObject->owned.names, hName, &i))
+			{
+				return MemberStatus_Owned;
+			}
+		}
+	}
+
+	return MemberStatus_None;
+}
+
+u64 DynamicData_size(DynamicData* pValue)
+{
+	if (DDObject* pObject = pValue->asObject())
 	{
 		DynamicData_obj_before_read(pObject);
 		return pObject->flattened.values.size();
 	}
 
-	if (const DDArray* pArray = value->asArray())
+	if (const DDArray* pArray = pValue->asArray())
 	{
 		return pArray->values.size();
 	}
@@ -859,6 +1068,12 @@ void DynamicData_obj_compose(DDObject* pObject, eastl::vector<u64>& names, eastl
 {
 	DDObject* pPrototype = pObject->hPrototype != 0 ? lookup_obj(pObject->hPrototype) : nullptr;
 
+	while (pPrototype && pPrototype->tombstone)
+	{
+		pObject->hPrototype = pPrototype->hPrototype;
+		pPrototype = lookup_obj(pObject->hPrototype);
+	}
+
 	// evaluate prototype
 	if (!pPrototype)
 	{
@@ -1174,9 +1389,9 @@ void registerEntityTemplate()
 
 	DynamicData field_children = DynamicData_obj_new();
 	DynamicData_obj_add(&field_children, string_repository_hash("name"), DynamicData_make_str("Unnamed Entity"));
-	DynamicData_obj_add(&field_children, string_repository_hash("children"), DynamicData_array_new());
-	DynamicData_obj_add(&field_children, string_repository_hash("components"), DynamicData_array_new());
-	DynamicData_obj_add(&field_children, string_repository_hash("test_number"), DynamicData_num_new());
+	//DynamicData_obj_add(&field_children, string_repository_hash("children"), DynamicData_array_new());
+	//DynamicData_obj_add(&field_children, string_repository_hash("components"), DynamicData_array_new());
+	//DynamicData_obj_add(&field_children, string_repository_hash("test_number"), DynamicData_num_new());
 
 	DynamicData entity_subobject = DynamicData_obj_new();
 	DynamicData_obj_add(&entity_subobject, string_repository_hash("suh"), DynamicData_num_new());
@@ -1209,17 +1424,13 @@ void registerEntityTemplate()
 				//__debugbreak();
 			}
 		}
-		DDObject* pObject = value->asObject();
-		(void)pObject;
+		//DDObject* pObject = value->asObject();
+		//(void)pObject;
 		pEntity->name = DynamicData_obj_find(value, hNameField).asString();
-		DynamicData arr =  DynamicData_obj_find(value, hChildrenField);
+		//DynamicData arr =  DynamicData_obj_find(value, hChildrenField);
 
-		if (arr.type == DynamicData::Type_Object)
-		{
-			__debugbreak();
-		}
-		pEntity->children = arr.asArray()->values;
-		pEntity->components = DynamicData_obj_find(value, hComponentsField).asArray()->values;
+		//pEntity->children = arr.asArray()->values;
+		//pEntity->components = DynamicData_obj_find(value, hComponentsField).asArray()->values;
 	};
 
 	parser.write_back = [](DynamicData* value, void* source)
@@ -1374,7 +1585,9 @@ DynamicData DynamicData_createFromTemplate(u64 hTemplate)
 
 void DynamicData_view(DynamicData* pData)
 {
-	DynamicData_view_impl(pData);
+	DynamicEditorPath path;
+	path.root = pData->asObject();
+	DynamicData_view_impl(pData, MemberStatus_Owned, &path);
 }
 
 Entity* Entity::create(Allocator* a)

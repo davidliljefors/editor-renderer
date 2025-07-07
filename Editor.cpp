@@ -764,8 +764,10 @@ void EditorApp::DrawSelectedEntity()
 		{
 			DynamicData instantiated = DynamicData_new_from_prototype(&s_clipboard);
 
-			DynamicData_obj_set(&instantiated, string_repository_hash("name"), DynamicData_make_str("Instantiated Entity"));
+			u64 hNameField = string_repository_hash("name");
 
+			const char* name = DynamicData_obj_find(&s_clipboard, hNameField).asString();
+			DynamicData_obj_set(&instantiated, string_repository_hash("name"), DynamicData_make_str(Printf("Instance of [%s]", name)));
 			m_roots.push_back(instantiated);
 		}
 	}

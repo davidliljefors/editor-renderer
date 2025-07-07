@@ -166,6 +166,12 @@ struct DynamicData
 	Type type;
 };
 
+struct DynamicEditorPath
+{
+	DDObject* root;
+	eastl::vector<u64> nameStack;
+};
+
 struct DynamicEdit
 {
 	enum Type : u8
@@ -208,6 +214,7 @@ struct DDObject
 {
 	u64 hRoot;
 	u64 hPrototype;
+	bool tombstone;
 
 	struct Owned
 	{
@@ -340,7 +347,23 @@ DynamicData DynamicData_make_str(const char* str);
 DynamicData DynamicData_make_null();
 DynamicData DynamicData_make_num(f64 number);
 
-u64 DynamicData_size(DynamicData* value);
+bool DynamicData_obj_is_editable(DynamicData* pValue, u64 hName);
+
+void DynamicData_instantiate_path(DynamicEditorPath* pPath, u64 hName);
+
+enum DynamicData_MemberStatus
+{
+	MemberStatus_Owned,
+	MemberStatus_Inherited,
+	MemberStatus_Instantiated,
+	MemberStatus_None
+};
+
+const char* to_string(DynamicData_MemberStatus status);
+
+DynamicData_MemberStatus DynamicData_get_member_status(DynamicEditorPath* pPath, u64 hName);
+
+u64 DynamicData_size(DynamicData* pValue);
 
 void DynamicData_clone_internal(DynamicData* src, DynamicData* dst);
 
@@ -428,8 +451,8 @@ struct DebugValuePair
 struct DynamicObjectDebugView
 {
 	eastl::vector<DebugValuePair> owned;
-	eastl::vector<DebugValuePair> flattned;
-	eastl::vector<DebugValuePair> edits;
+	eastl::vector<eastl::string> instantiated;
+	eastl::vector<DebugValuePair> flattened;
 };
 
 DynamicObjectDebugView DynamicData_DebugExpression(u64 hObject);
