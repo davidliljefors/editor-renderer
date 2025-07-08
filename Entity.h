@@ -253,8 +253,6 @@ struct DynamicSet
 };
 
 
-bool DynamicData_isOverridden(DynamicObject* pObject, u64 hName);
-
 bool DDObject_is_up_to_date(DynamicObject* pObject, DynamicObject* pPrototype);
 
 DynamicData DynamicData_obj_new();

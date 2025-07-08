@@ -1,6 +1,6 @@
 #include "Entity.h"
 
-#include <atomic>
+#include <algorithm>
 #include <stdio.h>
 
 #include "Editor.h"
@@ -335,32 +335,49 @@ void DynamicData_view_impl(DynamicData* pValue, DynamicData_MemberStatus status,
 	}
 	case DynamicData::Type_Set:
 	{
+		eastl::vector<DynamicData> set; // include removed items for display
+
 		DynamicSet* pSet = lookup_set(pValue->hSet);
 		DynamicData_set_before_read(pSet);
-		u64 size = DynamicData_size(pValue);
-		for (u64 i = 0; i < size; ++i)
+		
+		for (DynamicData member : pSet->flattened.values)
 		{
-			DynamicData member = pSet->flattened.values[i];
+			set.push_back(member);
+		}
+		for (DynamicData removed : pSet->removed.values)
+		{
+			set.push_back(removed);
 
-			DynamicData_MemberStatus memberStatus = MemberStatus_None;
+		}
 
-			bool isContainer = pSet->flattened.values[i].isContainer();
-			if (isContainer)
-			{
-				memberStatus = DynamicData_get_member_status(pPath, member);
-				pPath->values.push_back(pSet->flattened.values[i]);
-			}
+		eastl::sort(set.begin(), set.end(), [](const DynamicData& a, const DynamicData& b) { return a.hObject < b.hObject; });
+
+		for (DynamicData member : set)
+		{
+			DynamicData_MemberStatus memberStatus = DynamicData_get_member_status(pPath, member);
+
+			pPath->values.push_back(member);
 
 			if (memberStatus == MemberStatus_Inherited)
 			{
 				ImGui::PushStyleVar(ImGuiStyleVar_Alpha, 0.5);
 			}
+			if (memberStatus == MemberStatus_Removed)
+			{
+				ImGui::PushStyleColor(ImGuiCol_Text, IM_COL32(255, 0, 0, 255));
+			}
+				
 
-			bool open = ImGui::TreeNode(Printf("Element %d", i));
 			ImGui::PushID((int)member.hObject);
-			if (ImGui::IsItemClicked(1) && isContainer)
+			bool open = ImGui::TreeNodeEx("Set Element");
+			if (ImGui::IsItemClicked(1))
 			{
 				ImGui::OpenPopup("dd_view_context_menu");
+			}
+
+			if (memberStatus == MemberStatus_Removed)
+			{
+				ImGui::PopStyleColor();
 			}
 
 			if (ImGui::BeginPopup("dd_view_context_menu"))
@@ -396,6 +413,13 @@ void DynamicData_view_impl(DynamicData* pValue, DynamicData_MemberStatus status,
 						//DynamicData_remove_from_set_(pSet, memberId);
 					}
 				}
+				if (memberStatus == MemberStatus_Removed)
+				{
+					if (ImGui::MenuItem("Cancel remove"))
+					{
+
+					}
+				}
 
 				ImGui::PopStyleVar();
 				ImGui::EndPopup();
@@ -404,48 +428,100 @@ void DynamicData_view_impl(DynamicData* pValue, DynamicData_MemberStatus status,
 
 			if (open)
 			{
-				DynamicData_view_impl(&pSet->flattened.values[i], memberStatus, pPath);
+				DynamicData_view_impl(&member, memberStatus, pPath);
 				ImGui::TreePop();
 			}
+
 
 			if (memberStatus == MemberStatus_Inherited)
 			{
 				ImGui::PopStyleVar();
 			}
 
-			if (isContainer)
-			{
-				pPath->values.pop_back();
-			}
+			pPath->values.pop_back();
 		}
 
-		for (u64 i = 0; i < pSet->removed.values.size(); ++i)
-		{
-			ImGui::PushStyleColor(ImGuiCol_Text, IM_COL32(255, 0, 0, 255));
-			bool open = ImGui::TreeNodeEx(Printf("Element %d", i + size), ImGuiTreeNodeFlags_Leaf);
-			ImGui::PopStyleColor();
+		//
+		//}u64 size = DynamicData_size(pValue);
+		//for (u64 i = 0; i < size; ++i)
+		//{
+		//	DynamicData member = pSet->flattened.values[i];
 
-			ImGui::PushID((int)pSet->removed.values[i].hObject);
-			if (ImGui::IsItemClicked(1))
-			{
-				ImGui::OpenPopup("dd_view_context_menu");
-			}
+		//	DynamicData_MemberStatus memberStatus = MemberStatus_None;
 
-			if (ImGui::BeginPopup("dd_view_context_menu"))
-			{
-				if (ImGui::MenuItem("Cancel remove"))
-				{
-					
-				}
-				ImGui::EndPopup();
-			}
-			ImGui::PopID();
+		//	bool isContainer = pSet->flattened.values[i].isContainer();
+		//	if (isContainer)
+		//	{
+		//		memberStatus = DynamicData_get_member_status(pPath, member);
+		//		pPath->values.push_back(pSet->flattened.values[i]);
+		//	}
 
-			if (open)
-			{
-				ImGui::TreePop();
-			}
-		}
+		//	if (memberStatus == MemberStatus_Inherited)
+		//	{
+		//		ImGui::PushStyleVar(ImGuiStyleVar_Alpha, 0.5);
+		//	}
+
+		//	bool open = ImGui::TreeNode(Printf("Element %d", i));
+		//	ImGui::PushID((int)member.hObject);
+		//	if (ImGui::IsItemClicked(1) && isContainer)
+		//	{
+		//		ImGui::OpenPopup("dd_view_context_menu");
+		//	}
+
+		//	if (ImGui::BeginPopup("dd_view_context_menu"))
+		//	{
+		//		ImGui::PushStyleVar(ImGuiStyleVar_Alpha, 1.0f);
+		//		ImGui::MenuItem(Printf("Member status : %s", to_string(memberStatus)));
+
+		//		ImGui::BeginDisabled(memberStatus != MemberStatus_Inherited);
+		//		if (ImGui::MenuItem("Instantiate object"))
+		//		{
+		//			//DynamicData_instantiate_path(pPath, memberId);
+		//		}
+		//		ImGui::EndDisabled();
+
+		//		ImGui::BeginDisabled(memberStatus != MemberStatus_Instantiated);
+		//		if (ImGui::MenuItem("Revert to prototype"))
+		//		{
+		//			//DynamicData_instantiate_clear(pValue, );
+		//		}
+		//		ImGui::EndDisabled();
+		//		
+		//		if (memberStatus == MemberStatus_Added || memberStatus == MemberStatus_Owned || memberStatus == MemberStatus_Inherited)
+		//		{
+		//			if (ImGui::MenuItem("Delete"))
+		//			{
+		//				DynamicData_remove_from_set_(pSet, member);
+		//			}
+		//		}
+		//		if (memberStatus == MemberStatus_Instantiated)
+		//		{
+		//			if (ImGui::MenuItem("Revert"))
+		//			{
+		//				//DynamicData_remove_from_set_(pSet, memberId);
+		//			}
+		//		}
+
+		//		ImGui::PopStyleVar();
+		//		ImGui::EndPopup();
+		//	}
+		//	ImGui::PopID();
+
+		//	if (open)
+		//	{
+		//		DynamicData_view_impl(&pSet->flattened.values[i], memberStatus, pPath);
+		//		ImGui::TreePop();
+		//	}
+
+		//	if (memberStatus == MemberStatus_Inherited)
+		//	{
+		//		ImGui::PopStyleVar();
+		//	}
+
+		//	if (isContainer)
+		//	{
+		//		pPath->values.pop_back();
+		//	}
 		break;
 	}
 	case DynamicData::Type_Integer:
@@ -489,19 +565,6 @@ DynamicSet* lookup_set(u64 hSet)
 	return find != g_sets.end() ? find->second : nullptr;
 }
 
-
-
-
-bool DynamicData_isOverridden(DynamicObject* pObject, u64 hName)
-{
-	u64 i;
-	if (findName(pObject->overrides.names, hName, &i))
-	{
-		return true;
-	}
-	return false;
-}
-
 bool DDObject_is_up_to_date(DynamicObject* pObject, DynamicObject* pPrototype)
 {
 	if (pObject->flattened.basedOnVersion == pPrototype->version && !pObject->flattened.dirty && !pPrototype->flattened.dirty)
@@ -537,10 +600,9 @@ DynamicData DynamicData_obj_new()
 	return value;
 }
 
-
 DynamicData DynamicData_instance_new(DynamicData* prototype)
-{
-	DynamicData value;
+ {
+	DynamicData value = DynamicData_make_null();
 
 	if (prototype->type == DynamicData::Type_Object)
 	{
@@ -570,8 +632,6 @@ DynamicData DynamicData_instance_new(DynamicData* prototype)
 
 		g_sets[id] = pSet;
 	}
-
-	
 
 	return value;
 }
@@ -824,6 +884,8 @@ DynamicData DyancmiData_instantiate_subobject_from_set(DynamicData* pValue, u64 
 			DYNAMIC_DATA_ERROR(Printf("Object does not contain member [%s]", string_repository_get(hSetMember)).cstr());
 		}
 	} 
+
+	return DynamicData_make_null();
 }
 
 void DynamicData_add_to_subobject_set(DynamicData* pValue, u64 hSetMember, DynamicData item)
@@ -1109,6 +1171,8 @@ const char* to_string(DynamicData_MemberStatus status)
 		return "Owned";
 	case MemberStatus_Added:
 		return "Added";
+	case MemberStatus_Removed:
+		return "Removed";
 	case MemberStatus_Inherited:
 		return "Inherited";
 	case MemberStatus_Instantiated:
@@ -1151,9 +1215,13 @@ DynamicData_MemberStatus DynamicData_set_get_member_status_impl(DynamicEditorPat
 				return DynamicData_set_get_member_status_impl(pPath, pNext, depth + 1, targetValue);
 			}
 		}
-		if (findValue(pCurrent->added.values, &currentValue, &i))
+		else if (findValue(pCurrent->added.values, &currentValue, &i))
 		{
 			return MemberStatus_Added;
+		}
+		else if (findValue(pCurrent->removed.values, &currentValue, &i))
+		{
+			return MemberStatus_Removed;
 		}
 		else if (findValue(pCurrent->flattened.values, &currentValue, &i))
 		{
@@ -1740,6 +1808,8 @@ void DynamicData_obj_compose(DynamicObject* pObject, eastl::vector<u64>& names, 
 
 bool DynamicSet_is_up_to_date(DynamicSet* pSet, DynamicSet* pPrototype)
 {
+	return false;
+
 	if (pSet->flattened.basedOnVersion == pPrototype->version && !pSet->flattened.dirty && !pPrototype->flattened.dirty)
 	{
 		if (pPrototype->hPrototype != 0)
