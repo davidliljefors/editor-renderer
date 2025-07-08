@@ -26,7 +26,7 @@ struct Printf
 	{
 		va_list args;
 		va_start(args, fmt);
-		int result = vsnprintf(buf, 128, fmt, args);
+		int result = vsnprintf(buf, 256, fmt, args);
 		va_end(args);
 	}
 
@@ -34,7 +34,7 @@ struct Printf
 	{
 		va_list args;
 		va_start(args, fmt);
-		int result = vsnprintf(buf, 128, fmt, args);
+		int result = vsnprintf(buf, 256, fmt, args);
 		va_end(args);
 	}
 
@@ -48,7 +48,7 @@ struct Printf
 		return buf;
 	}
 
-	char buf[128];
+	char buf[256];
 };
 
 u64 next_obj_id();
@@ -76,6 +76,7 @@ struct Position
 		return {x,y,z};
 	}
 };
+
 
 Position get_position(ReadOnlySnapshot snap, truth::Key objectId);
 void set_position(Transaction& tx, truth::Key objectId, Position p);
@@ -162,12 +163,13 @@ struct DynamicData
 	};
 
 	Type type;
+	u8 _pad[7];
 };
 
 struct DynamicEditorPath
 {
 	DynamicObject* root;
-	eastl::vector<u64> nameStack;
+	eastl::vector<DynamicData> values;
 };
 
 
@@ -212,38 +214,19 @@ struct DynamicObject
 	u64 version;
 };
 
-struct SetModification
-{
-	enum 
-	{
-		Modification_Add,
-		Modification_Remove,
-	};
-	
-
-};
-
 struct DynamicSet
 {
 	u64 hRoot;
 	u64 hPrototype;
 	bool tombstone;
 
-	struct Owned
-	{
-		eastl::vector<u64> ids;
-		eastl::vector<DynamicData> values;
-	};
-
 	struct Added
 	{
-		eastl::vector<u64> ids;
 		eastl::vector<DynamicData> values;
 	};
 
 	struct Removed
 	{
-		eastl::vector<u64> ids;
 		eastl::vector<DynamicData> values;
 	};
 
@@ -255,13 +238,11 @@ struct DynamicSet
 
 	struct Flattened
 	{
-		eastl::vector<u64> ids;
 		eastl::vector<DynamicData> values;
 		u64 basedOnVersion;
 		bool dirty;
 	};
 
-	Owned owned;
 	Added added;
 	Removed removed;
 	Instantiated instantiated;
@@ -290,13 +271,28 @@ DynamicData DynamicData_make_str(const char* str);
 DynamicData DynamicData_make_null();
 DynamicData DynamicData_make_num(f64 number);
 
+// set operations
+DynamicData DyancmiData_instantiate_subobject_from_set(DynamicData* pValue, u64 hSetMember, DynamicData item);
+
+void DynamicData_add_to_subobject_set(DynamicData* pValue, u64 hSetMember, DynamicData item);
+void DynamicData_remove_from_subobject_set(DynamicData* pValue, u64 hMember, DynamicData item);
+
+void DynamicData_remove_from_prototype_subobject_set(DynamicData* pValue, u64 hName, u64 id);
+void DynamicData_cancel_remove_from_prototype_subobject_set(DynamicData* pValue, u64 hName, u64 id);
+
+// todo api return temp allocated arrays
+eastl::vector<DynamicData> DynamicData_get_subobject_set(DynamicData* pValue, u64 hSetName);
+eastl::vector<DynamicData> DynamicData_locally_removed(DynamicData* pValue, u64 hSetName);
+
 bool DynamicData_obj_is_editable(DynamicData* pValue, u64 hName);
 
-void DynamicData_instantiate_path(DynamicEditorPath* pPath, u64 hName);
+void DynamicData_instantiate_path(DynamicEditorPath* pPath, DynamicData value);
 
 enum DynamicData_MemberStatus
 {
 	MemberStatus_Owned,
+	MemberStatus_Added,
+	MemberStatus_Removed,
 	MemberStatus_Inherited,
 	MemberStatus_Instantiated,
 	MemberStatus_None
@@ -304,7 +300,7 @@ enum DynamicData_MemberStatus
 
 const char* to_string(DynamicData_MemberStatus status);
 
-DynamicData_MemberStatus DynamicData_get_member_status(DynamicEditorPath* pPath, u64 hName);
+DynamicData_MemberStatus DynamicData_get_member_status(DynamicEditorPath* pPath, DynamicData value);
 
 u64 DynamicData_size(DynamicData* pValue);
 
@@ -324,8 +320,6 @@ void DynamicData_obj_set(DynamicData* object, u64 hName, DynamicData value);
 
 void _DynamicData_obj_arr_push(DynamicData* object, u64 hArrayName, DynamicData value);
 
-void DynamicData_add_to_set(DynamicData* object, u64 hMember, DynamicData item);
-void DynamicData_remove_from_set(DynamicData* object, u64 hMember, DynamicData item);
 
 //void DynamicData_array_add(DynamicData* array, DynamicData value);
 

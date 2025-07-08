@@ -1,5 +1,6 @@
 #include "Entity.h"
 
+#include <atomic>
 #include <stdio.h>
 
 #include "Editor.h"
@@ -44,6 +45,8 @@ Position get_position(ReadOnlySnapshot s, truth::Key objectId)
 	return res;
 }
 
+#define BREAK_ON_ERROR 1
+#define DYNAMIC_DATA_ERROR(msg) printf("error: %s. line:%d\n", msg, __LINE__); if(BREAK_ON_ERROR)__debugbreak()
 
 DynamicObjectDebugView DynamicData_DebugExpression(u64 hObject)
 {
@@ -143,14 +146,52 @@ bool findName(const eastl::vector<u64>& vecNames, u64 hName, u64* outIndex)
 	return false;
 }
 
-void DynamicData_remove_from_set_(DynamicSet* pSet, u64 member)
+bool findId(const eastl::vector<u64>& vecIds, u64 hName, u64* outIndex)
+{
+	for (u64 i = 0; i < vecIds.size(); ++i)
+	{
+		if (hName == vecIds[i])
+		{
+			*outIndex = i;
+			return true;
+		}
+	}
+	return false;
+}
+
+bool findValue(const eastl::vector<DynamicData>& vecValues, DynamicData* pValue, u64* outIndex)
+{
+	for (u64 i = 0; i < vecValues.size(); ++i)
+	{
+		if (vecValues[i].type == pValue->type && vecValues[i].hObject == pValue->hObject)
+		{
+			*outIndex = i;
+			return true;
+		}
+	}
+	return false;
+}
+
+void DynamicData_remove_from_set_(DynamicSet* pSet, DynamicData value)
 {
 	u64 i;
-	if (findName(pSet->owned.ids, member, &i))
+	if (findValue(pSet->added.values, &value, &i))
 	{
-		pSet->owned.ids.erase(pSet->owned.ids.begin() + i);
-		pSet->owned.values.erase(pSet->owned.values.begin() + i);
+		pSet->added.values.erase(pSet->added.values.begin() + i);
+		pSet->flattened.dirty = true;
 		pSet->version++;
+	}
+	else if (findValue(pSet->instantiated.values, &value, &i))
+	{
+		pSet->instantiated.ids.erase(pSet->instantiated.ids.begin() + i);
+		pSet->instantiated.values.erase(pSet->instantiated.values.begin() + i);
+		pSet->flattened.dirty = true;
+		pSet->version++;
+	}
+	else if (findValue(pSet->flattened.values, &value, &i))
+	{
+		pSet->removed.values.push_back(value);
+		pSet->flattened.dirty = true;
 	}
 }
 
@@ -181,13 +222,14 @@ void DynamicData_view_impl(DynamicData* pValue, DynamicData_MemberStatus status,
 		for (u64 i = 0; i < pObject->flattened.names.size(); ++i)
 		{
 			u64 hMemberName = pObject->flattened.names[i];
+			DynamicData member = pObject->flattened.values[i];
 
 			DynamicData_MemberStatus memberStatus = MemberStatus_None;
 			bool isContainer = pObject->flattened.values[i].isContainer();
 			if (isContainer)
 			{
-				memberStatus = DynamicData_get_member_status(pPath, hMemberName);
-				pPath->nameStack.push_back(hMemberName);
+				memberStatus = DynamicData_get_member_status(pPath, member);
+				pPath->values.push_back(pObject->flattened.values[i]);
 			}
 
 			const char* name = string_repository_get(hMemberName);
@@ -206,7 +248,7 @@ void DynamicData_view_impl(DynamicData* pValue, DynamicData_MemberStatus status,
 				{
 					__debugbreak();
 
-					memberStatus = DynamicData_get_member_status(pPath, hMemberName);
+					memberStatus = DynamicData_get_member_status(pPath, member);
 				}
 
 				if (element.type == DynamicData::Type_Number && ImGui::IsItemClicked())
@@ -222,6 +264,14 @@ void DynamicData_view_impl(DynamicData* pValue, DynamicData_MemberStatus status,
 					ImGui::PushStyleVar(ImGuiStyleVar_Alpha, 0.5f);
 				bool childOpen = ImGui::TreeNode(name);
 
+				if (ImGui::IsItemClicked(0) && ImGui::IsKeyDown(ImGuiKey_LeftShift))
+				{
+					__debugbreak();
+					pPath->values.pop_back();
+					memberStatus = DynamicData_get_member_status(pPath, member);
+					pPath->values.push_back(pObject->flattened.values[i]);
+				}
+
 				ImGui::PushID((int)i);
 				if (ImGui::IsItemClicked(1))
 				{
@@ -236,7 +286,7 @@ void DynamicData_view_impl(DynamicData* pValue, DynamicData_MemberStatus status,
 					ImGui::BeginDisabled(memberStatus != MemberStatus_Inherited);
 					if (ImGui::MenuItem("Instantiate object"))
 					{
-						DynamicData_instantiate_path(pPath, hMemberName);
+						DynamicData_instantiate_path(pPath, member);
 					}
 					ImGui::EndDisabled();
 
@@ -278,7 +328,7 @@ void DynamicData_view_impl(DynamicData* pValue, DynamicData_MemberStatus status,
 				if (memberStatus == MemberStatus_Inherited)
 					ImGui::PopStyleVar();
 
-				pPath->nameStack.pop_back();
+				pPath->values.pop_back();
 			}
 		}
 		break;
@@ -290,15 +340,15 @@ void DynamicData_view_impl(DynamicData* pValue, DynamicData_MemberStatus status,
 		u64 size = DynamicData_size(pValue);
 		for (u64 i = 0; i < size; ++i)
 		{
-			u64 memberId = pSet->flattened.ids[i];
+			DynamicData member = pSet->flattened.values[i];
 
 			DynamicData_MemberStatus memberStatus = MemberStatus_None;
 
 			bool isContainer = pSet->flattened.values[i].isContainer();
 			if (isContainer)
 			{
-				memberStatus = DynamicData_get_member_status(pPath, memberId);
-				pPath->nameStack.push_back(pSet->flattened.ids[i]);
+				memberStatus = DynamicData_get_member_status(pPath, member);
+				pPath->values.push_back(pSet->flattened.values[i]);
 			}
 
 			if (memberStatus == MemberStatus_Inherited)
@@ -306,9 +356,8 @@ void DynamicData_view_impl(DynamicData* pValue, DynamicData_MemberStatus status,
 				ImGui::PushStyleVar(ImGuiStyleVar_Alpha, 0.5);
 			}
 
-			bool childOpen = ImGui::TreeNode(Printf("Element %d", i));
-			ImGui::PushID((int)i);
-
+			bool open = ImGui::TreeNode(Printf("Element %d", i));
+			ImGui::PushID((int)member.hObject);
 			if (ImGui::IsItemClicked(1) && isContainer)
 			{
 				ImGui::OpenPopup("dd_view_context_menu");
@@ -322,22 +371,29 @@ void DynamicData_view_impl(DynamicData* pValue, DynamicData_MemberStatus status,
 				ImGui::BeginDisabled(memberStatus != MemberStatus_Inherited);
 				if (ImGui::MenuItem("Instantiate object"))
 				{
-					DynamicData_instantiate_path(pPath, memberId);
+					//DynamicData_instantiate_path(pPath, memberId);
 				}
 				ImGui::EndDisabled();
 
 				ImGui::BeginDisabled(memberStatus != MemberStatus_Instantiated);
 				if (ImGui::MenuItem("Revert to prototype"))
 				{
-					DynamicData_instantiate_clear(pValue, memberId);
+					//DynamicData_instantiate_clear(pValue, );
 				}
 				ImGui::EndDisabled();
 				
-				if (memberStatus == MemberStatus_Owned || memberStatus == MemberStatus_Instantiated)
+				if (memberStatus == MemberStatus_Added || memberStatus == MemberStatus_Owned || memberStatus == MemberStatus_Inherited)
 				{
 					if (ImGui::MenuItem("Delete"))
 					{
-						DynamicData_remove_from_set_(pSet, memberId);
+						DynamicData_remove_from_set_(pSet, member);
+					}
+				}
+				if (memberStatus == MemberStatus_Instantiated)
+				{
+					if (ImGui::MenuItem("Revert"))
+					{
+						//DynamicData_remove_from_set_(pSet, memberId);
 					}
 				}
 
@@ -346,7 +402,7 @@ void DynamicData_view_impl(DynamicData* pValue, DynamicData_MemberStatus status,
 			}
 			ImGui::PopID();
 
-			if (childOpen)
+			if (open)
 			{
 				DynamicData_view_impl(&pSet->flattened.values[i], memberStatus, pPath);
 				ImGui::TreePop();
@@ -359,7 +415,35 @@ void DynamicData_view_impl(DynamicData* pValue, DynamicData_MemberStatus status,
 
 			if (isContainer)
 			{
-				pPath->nameStack.pop_back();
+				pPath->values.pop_back();
+			}
+		}
+
+		for (u64 i = 0; i < pSet->removed.values.size(); ++i)
+		{
+			ImGui::PushStyleColor(ImGuiCol_Text, IM_COL32(255, 0, 0, 255));
+			bool open = ImGui::TreeNodeEx(Printf("Element %d", i + size), ImGuiTreeNodeFlags_Leaf);
+			ImGui::PopStyleColor();
+
+			ImGui::PushID((int)pSet->removed.values[i].hObject);
+			if (ImGui::IsItemClicked(1))
+			{
+				ImGui::OpenPopup("dd_view_context_menu");
+			}
+
+			if (ImGui::BeginPopup("dd_view_context_menu"))
+			{
+				if (ImGui::MenuItem("Cancel remove"))
+				{
+					
+				}
+				ImGui::EndPopup();
+			}
+			ImGui::PopID();
+
+			if (open)
+			{
+				ImGui::TreePop();
 			}
 		}
 		break;
@@ -525,19 +609,19 @@ DynamicData DynamicData_instantiate_member_impl(DynamicObject* pObject, u64 hNam
 	return DynamicData_make_null();
 }
 
-DynamicData DynamicData_instantiate_from_set_impl(DynamicSet* pSet, u64 id)
+DynamicData DynamicData_instantiate_from_set_impl(DynamicSet* pSet, DynamicData value)
 {
 	DynamicData_set_before_read(pSet);
 	u64 i;
 	// make sure its not already instantiated
-	if (!findName(pSet->instantiated.ids, id, &i))
+	if (!findValue(pSet->instantiated.values, &value, &i))
 	{
 		// find our value from the prototype
-		if (findName(pSet->flattened.ids, id, &i))
+		if (findValue(pSet->flattened.values, &value, &i))
 		{
 			DynamicData* pPrototype = &pSet->flattened.values[i];
 			DynamicData instance = DynamicData_new_from_prototype(pPrototype);
-			pSet->instantiated.ids.push_back(id);
+			pSet->instantiated.ids.push_back(pPrototype->id());
 			pSet->instantiated.values.push_back(instance);
 
 			// todo this has to be set so we dont have to reset
@@ -695,6 +779,173 @@ DynamicData DynamicData_make_num(f64 number)
 	return value;
 }
 
+DynamicData DyancmiData_instantiate_subobject_from_set(DynamicData* pValue, u64 hSetMember, DynamicData item)
+{
+	if (DynamicObject* pObject = pValue->asObject())
+	{
+		if (pObject->hPrototype == 0)
+		{
+			DYNAMIC_DATA_ERROR("Instantiate only valid on objects with a prototype");
+		}
+
+		u64 i;
+		if (findName(pObject->instantiated.names, hSetMember, &i))
+		{
+			if (DynamicSet* pSet = pObject->instantiated.values[i].asSet())
+			{
+				if (findValue(pSet->flattened.values, &item, &i))
+				{
+					DynamicData prototype = pSet->flattened.values[i];
+					DynamicData instantiated = DynamicData_new_from_prototype(&prototype);
+					pSet->instantiated.ids.push_back(item.id());
+					pSet->instantiated.values.push_back(instantiated);
+					pSet->flattened.dirty = true;
+					return instantiated;
+				}
+			}
+		}
+		else if (findName(pObject->owned.names, hSetMember, &i))
+		{
+			if (DynamicSet* pSet = pObject->owned.values[i].asSet())
+			{
+				if (findValue(pSet->flattened.values, &item, &i))
+				{
+					DynamicData prototype = pSet->flattened.values[i];
+					DynamicData instantiated = DynamicData_new_from_prototype(&prototype);
+					pSet->instantiated.ids.push_back(item.id());
+					pSet->instantiated.values.push_back(instantiated);
+					pSet->flattened.dirty = true;
+					return instantiated;
+				}
+			}
+		}
+		else
+		{
+			DYNAMIC_DATA_ERROR(Printf("Object does not contain member [%s]", string_repository_get(hSetMember)).cstr());
+		}
+	} 
+}
+
+void DynamicData_add_to_subobject_set(DynamicData* pValue, u64 hSetMember, DynamicData item)
+{
+	if (DynamicObject* pObject = pValue->asObject())
+	{
+		u64 i;
+		if (findName(pObject->owned.names, hSetMember, &i))
+		{
+			if (DynamicSet* pSet = pObject->owned.values[i].asSet())
+			{
+				pSet->added.values.push_back(item);
+				pSet->flattened.dirty = true;
+				pSet->version++;
+			}
+		}
+		else if (findName(pObject->instantiated.names, hSetMember, &i))
+		{
+			if (DynamicSet* pSet = pObject->instantiated.values[i].asSet())
+			{
+				pSet->added.values.push_back(item);
+				pSet->flattened.dirty = true;
+				pSet->version++;
+			}
+		}
+		else if (findName(pObject->overrides.names, hSetMember, &i))
+		{
+			if (DynamicSet* pSet = pObject->overrides.values[i].asSet())
+			{
+				pSet->added.values.push_back(item);
+				pSet->flattened.dirty = true;
+				pSet->version++;
+			}
+		}
+		else
+		{
+			DYNAMIC_DATA_ERROR(Printf("Object does not contain member [%s]", string_repository_get(hSetMember)).cstr());
+		}
+	}
+	else
+	{
+		DYNAMIC_DATA_ERROR("pValue is not of type Object");
+	}
+}
+
+void DynamicData_remove_from_subobject_set(DynamicData* pValue, u64 hMember, DynamicData item)
+{
+	if (DynamicObject* pObject = pValue->asObject())
+	{
+		DynamicData_obj_before_read(pObject);
+
+		if (pObject->hPrototype == 0)
+		{
+			u64 i;
+			if (findName(pObject->owned.names, hMember, &i))
+			{
+				if (DynamicSet* pSet = pObject->owned.values[i].asSet())
+				{
+					if (findValue(pSet->added.values, &item, &i))
+					{
+						pSet->added.values.erase(pSet->added.values.begin() + i);
+						pSet->flattened.dirty = true;
+						pSet->version++;
+						pObject->version++;
+
+						return;
+					}
+					DYNAMIC_DATA_ERROR("object not in set");
+				}
+				DYNAMIC_DATA_ERROR("no set in object[hMember]");
+			}
+			DYNAMIC_DATA_ERROR("didnt find key");
+		}
+	}
+}
+
+void DynamicData_remove_from_prototype_subobject_set(DynamicData* pValue, u64 hName, u64 id)
+{
+}
+
+void DynamicData_cancel_remove_from_prototype_subobject_set(DynamicData* pValue, u64 hName, u64 id)
+{
+}
+
+eastl::vector<DynamicData> DynamicData_get_subobject_set(DynamicData* pValue, u64 hSetName)
+{
+	eastl::vector<DynamicData> setMembers;
+
+	if (DynamicObject* pObject = pValue->asObject())
+	{
+		u64 i;
+		if (findName(pObject->flattened.names, hSetName, &i))
+		{
+			if (DynamicSet* pSet = pObject->flattened.values[i].asSet())
+			{
+				setMembers = pSet->flattened.values;
+			}
+		}
+	}
+
+	return setMembers;
+}
+
+eastl::vector<DynamicData> DynamicData_locally_removed(DynamicData* pValue, u64 hSetName)
+{
+	eastl::vector<DynamicData> setMembers;
+
+	if (DynamicObject* pObject = pValue->asObject())
+	{
+		u64 i;
+		if (findName(pObject->flattened.names, hSetName, &i))
+		{
+			if (DynamicSet* pSet = pObject->flattened.values[i].asSet())
+			{
+				setMembers = pSet->removed.values;
+			}
+		}
+	}
+
+	return setMembers;
+}
+
 bool DynamicData_obj_is_editable(DynamicData* pValue, u64 hName)
 {
 	if (DynamicObject* pObject = pValue->asObject())
@@ -722,134 +973,133 @@ bool DynamicData_obj_is_editable(DynamicData* pValue, u64 hName)
 	return false;
 }
 
-void DynamicData_instantiate_path_impl(DynamicEditorPath* pPath, DynamicObject* pCurrent, u64 depth, u64 hName);
+void DynamicData_instantiate_path_impl(DynamicEditorPath* pPath, DynamicObject* pCurrent, u64 depth, DynamicData targetValue);
 
-void DynamicData_instantiate_path_impl(DynamicEditorPath* pPath, DynamicSet* pCurrent, u64 depth, u64 id)
+void DynamicData_instantiate_path_impl(DynamicEditorPath* pPath, DynamicSet* pCurrent, u64 depth, DynamicData targetValue)
 {
-	if (depth > pPath->nameStack.size())
+	if (depth > pPath->values.size())
 	{
 		return; // were done
 	}
 
-	bool isAtEnd = pPath->nameStack.size() == depth;
-	u64 currentId = isAtEnd ? id : pPath->nameStack[depth];
+	bool isAtEnd = pPath->values.size() == depth;
+	DynamicData currentValue = isAtEnd ? targetValue : pPath->values[depth];
 
 	if (pCurrent->hPrototype)
 	{
 		u64 i;
-		if (findName(pCurrent->instantiated.ids, currentId, &i))
+		if (findValue(pCurrent->instantiated.values, &currentValue, &i))
 		{
 			// already instantiated at this depth
 			DynamicObject* pNext = pCurrent->instantiated.values[i].asObject();
-			DynamicData_instantiate_path_impl(pPath, pNext, depth + 1, id);
+			DynamicData_instantiate_path_impl(pPath, pNext, depth + 1, currentValue);
 		}
-		else if (findName(pCurrent->flattened.ids, currentId, &i))
+		else if (findValue(pCurrent->flattened.values, &currentValue, &i))
 		{
 			// not instantiated, but exists in the flattened state. Instantiate it.
-			DynamicData next = DynamicData_instantiate_from_set_impl(pCurrent, currentId);
+			DynamicData next = DynamicData_instantiate_from_set_impl(pCurrent, targetValue);
 			if (next.type == DynamicData::Type_Object)
 			{
 				DynamicObject* pNext = next.asObject();
 				DynamicData_obj_before_read(pNext);
-				DynamicData_instantiate_path_impl(pPath, pNext, depth + 1, id);
+				DynamicData_instantiate_path_impl(pPath, pNext, depth + 1, targetValue);
 			}
 			else
 			{
 				DynamicSet* pNext = next.asSet();
 				DynamicData_set_before_read(pNext);
-				DynamicData_instantiate_path_impl(pPath, pNext, depth + 1, id);
+				DynamicData_instantiate_path_impl(pPath, pNext, depth + 1, targetValue);
 			}
 		}
 	}
 	else
 	{
 		u64 i;
-		if (findName(pCurrent->owned.ids, currentId, &i))
+		if (findValue(pCurrent->added.values, &currentValue, &i))
 		{
-			// Value is owned, nothing to do at this level
-			if (pCurrent->owned.values[i].type == DynamicData::Type_Object)
+			// Value is added, nothing to do at this level
+			if (pCurrent->added.values[i].type == DynamicData::Type_Object)
 			{
-				DynamicObject* pNext = pCurrent->owned.values[i].asObject();
-				DynamicData_instantiate_path_impl(pPath, pNext, depth + 1, id);
+				DynamicObject* pNext = pCurrent->added.values[i].asObject();
+				DynamicData_instantiate_path_impl(pPath, pNext, depth + 1, targetValue);
 			}
-			else if (pCurrent->owned.values[i].type == DynamicData::Type_Set)
+			else if (pCurrent->added.values[i].type == DynamicData::Type_Set)
 			{
-				DynamicSet* pNext = pCurrent->owned.values[i].asSet();
-				DynamicData_instantiate_path_impl(pPath, pNext, depth + 1, id);
+				DynamicSet* pNext = pCurrent->added.values[i].asSet();
+				DynamicData_instantiate_path_impl(pPath, pNext, depth + 1, targetValue);
 			}
 		}
 	}
 }
 
-void DynamicData_instantiate_path_impl(DynamicEditorPath* pPath, DynamicObject* pCurrent, u64 depth, u64 hName)
+void DynamicData_instantiate_path_impl(DynamicEditorPath* pPath, DynamicObject* pCurrent, u64 depth, DynamicData targetValue)
 {
-	if (depth > pPath->nameStack.size())
+	if (depth > pPath->values.size())
 	{
 		return; // were done
 	}
 
-	bool isAtEnd = pPath->nameStack.size() == depth;
-	u64 hCurrentName = isAtEnd ? hName : pPath->nameStack[depth];
+	bool isAtEnd = pPath->values.size() == depth;
+	DynamicData currentValue = isAtEnd ? targetValue : pPath->values[depth];
 
 	if (pCurrent->hPrototype)
 	{
 		u64 i;
-		if (findName(pCurrent->instantiated.names, hCurrentName, &i))
+		if (findValue(pCurrent->instantiated.values, &currentValue, &i))
 		{
 			// already instantiated at this depth
 			DynamicData next = pCurrent->instantiated.values[i];
 			if (next.type == DynamicData::Type_Object)
 			{
-				DynamicData_instantiate_path_impl(pPath, next.asObject(), depth + 1, hName);
+				DynamicData_instantiate_path_impl(pPath, next.asObject(), depth + 1, targetValue);
 			}
 			if (next.type == DynamicData::Type_Set)
 			{
-				DynamicData_instantiate_path_impl(pPath, next.asSet(), depth + 1, hName);
+				DynamicData_instantiate_path_impl(pPath, next.asSet(), depth + 1, targetValue);
 			}
 		}
-		else if (findName(pCurrent->flattened.names, hCurrentName, &i))
+		else if (findValue(pCurrent->flattened.values, &currentValue, &i))
 		{
 			// not instantiated, but exists in the flattened state. Instantiate it.
-			DynamicData next = DynamicData_instantiate_member_impl(pCurrent, hCurrentName);
+			DynamicData next = DynamicData_instantiate_member_impl(pCurrent, pCurrent->flattened.names[i]);
 			if (next.type == DynamicData::Type_Object)
 			{
 				DynamicObject* pNext = next.asObject();
 				DynamicData_obj_before_read(pNext);
-				DynamicData_instantiate_path_impl(pPath, pNext, depth + 1, hName);
+				DynamicData_instantiate_path_impl(pPath, pNext, depth + 1, targetValue);
 			}
 			else
 			{
 				DynamicSet* pNext = next.asSet();
 				DynamicData_set_before_read(pNext);
-				DynamicData_instantiate_path_impl(pPath, pNext, depth + 1, hName);
+				DynamicData_instantiate_path_impl(pPath, pNext, depth + 1, targetValue);
 			}
 		}
 	}
 	else
 	{
 		u64 i;
-		if (findName(pCurrent->owned.names, hCurrentName, &i))
+		if (findValue(pCurrent->owned.values, &currentValue, &i))
 		{
 			// Value is owned, nothing to do at this level
 			if (pCurrent->owned.values[i].type == DynamicData::Type_Object)
 			{
 				DynamicObject* pNext = pCurrent->owned.values[i].asObject();
-				DynamicData_instantiate_path_impl(pPath, pNext, depth + 1, hName);
+				DynamicData_instantiate_path_impl(pPath, pNext, depth + 1, targetValue);
 			}
 			else if (pCurrent->owned.values[i].type == DynamicData::Type_Set)
 			{
 				DynamicSet* pNext = pCurrent->owned.values[i].asSet();
-				DynamicData_instantiate_path_impl(pPath, pNext, depth + 1, hName);
+				DynamicData_instantiate_path_impl(pPath, pNext, depth + 1, targetValue);
 			}
 		}
 	}
 }
 
-void DynamicData_instantiate_path(DynamicEditorPath* pPath, u64 hName)
+void DynamicData_instantiate_path(DynamicEditorPath* pPath, DynamicData value)
 {
 	DynamicObject* pCurrent = pPath->root;
-	u64 depth = 0;
-	DynamicData_instantiate_path_impl(pPath, pCurrent, 0, hName);
+	DynamicData_instantiate_path_impl(pPath, pCurrent, 0, value);
 }
 
 const char* to_string(DynamicData_MemberStatus status)
@@ -857,6 +1107,8 @@ const char* to_string(DynamicData_MemberStatus status)
 	switch (status) {
 	case MemberStatus_Owned:
 		return "Owned";
+	case MemberStatus_Added:
+		return "Added";
 	case MemberStatus_Inherited:
 		return "Inherited";
 	case MemberStatus_Instantiated:
@@ -870,17 +1122,17 @@ const char* to_string(DynamicData_MemberStatus status)
 	return "enum : error";
 }
 
-DynamicData_MemberStatus DynamicData_obj_get_member_status_impl(DynamicEditorPath* pPath, DynamicObject* pCurrent, u64 depth, u64 hName);
+DynamicData_MemberStatus DynamicData_obj_get_member_status_impl(DynamicEditorPath* pPath, DynamicObject* pCurrent, u64 depth, DynamicData targetValue);
 
-DynamicData_MemberStatus DynamicData_set_get_member_status_impl(DynamicEditorPath* pPath, DynamicSet* pCurrent, u64 depth, u64 hName)
+DynamicData_MemberStatus DynamicData_set_get_member_status_impl(DynamicEditorPath* pPath, DynamicSet* pCurrent, u64 depth, DynamicData targetValue)
 {
-	bool isAtEnd = pPath->nameStack.size() == depth;
-	u64 hCurrentName = isAtEnd ? hName : pPath->nameStack[depth];
+	bool isAtEnd = pPath->values.size() == depth;
+	DynamicData currentValue = isAtEnd ? targetValue : pPath->values[depth];
 
 	if (pCurrent->hPrototype)
 	{
 		u64 i;
-		if (findName(pCurrent->instantiated.ids, hCurrentName, &i))
+		if (findValue(pCurrent->instantiated.values, &currentValue, &i))
 		{
 			if (isAtEnd)
 			{
@@ -891,15 +1143,19 @@ DynamicData_MemberStatus DynamicData_set_get_member_status_impl(DynamicEditorPat
 			if (pCurrent->instantiated.values[i].type == DynamicData::Type_Object)
 			{
 				DynamicObject* pNext = pCurrent->instantiated.values[i].asObject();
-				return DynamicData_obj_get_member_status_impl(pPath, pNext, depth + 1, hName);
+				return DynamicData_obj_get_member_status_impl(pPath, pNext, depth + 1, targetValue);
 			}
 			else
 			{
 				DynamicSet* pNext = pCurrent->instantiated.values[i].asSet();
-				return DynamicData_set_get_member_status_impl(pPath, pNext, depth + 1, hName);
+				return DynamicData_set_get_member_status_impl(pPath, pNext, depth + 1, targetValue);
 			}
 		}
-		else if (findName(pCurrent->flattened.ids, hCurrentName, &i))
+		if (findValue(pCurrent->added.values, &currentValue, &i))
+		{
+			return MemberStatus_Added;
+		}
+		else if (findValue(pCurrent->flattened.values, &currentValue, &i))
 		{
 			// if we enter any inhertied value we can early out.
 			return MemberStatus_Inherited;
@@ -908,23 +1164,23 @@ DynamicData_MemberStatus DynamicData_set_get_member_status_impl(DynamicEditorPat
 	else
 	{
 		u64 i;
-		if (findName(pCurrent->owned.ids, hCurrentName, &i))
+		if (findValue(pCurrent->added.values, &currentValue, &i))
 		{
 			if (isAtEnd)
 			{
-				return MemberStatus_Owned;
+				return MemberStatus_Added;
 			}
 
-			// Value is owned, nothing to do at this level. can continue
-			if (pCurrent->owned.values[i].type == DynamicData::Type_Object)
+			// Value is added, nothing to do at this level. can continue
+			if (pCurrent->added.values[i].type == DynamicData::Type_Object)
 			{
-				DynamicObject* pNext = pCurrent->owned.values[i].asObject();
-				return DynamicData_obj_get_member_status_impl(pPath, pNext, depth + 1, hName);
+				DynamicObject* pNext = pCurrent->added.values[i].asObject();
+				return DynamicData_obj_get_member_status_impl(pPath, pNext, depth + 1, targetValue);
 			}
 			else
 			{
-				DynamicSet* pNext = pCurrent->owned.values[i].asSet();
-				return DynamicData_set_get_member_status_impl(pPath, pNext, depth + 1, hName);
+				DynamicSet* pNext = pCurrent->added.values[i].asSet();
+				return DynamicData_set_get_member_status_impl(pPath, pNext, depth + 1, targetValue);
 			}
 		}
 	}
@@ -932,15 +1188,15 @@ DynamicData_MemberStatus DynamicData_set_get_member_status_impl(DynamicEditorPat
 	return MemberStatus_None;
 }
 
-DynamicData_MemberStatus DynamicData_obj_get_member_status_impl(DynamicEditorPath* pPath, DynamicObject* pCurrent, u64 depth, u64 hName)
+DynamicData_MemberStatus DynamicData_obj_get_member_status_impl(DynamicEditorPath* pPath, DynamicObject* pCurrent, u64 depth, DynamicData targetValue)
 {
-	bool isAtEnd = pPath->nameStack.size() == depth;
-	u64 hCurrentName = isAtEnd ? hName : pPath->nameStack[depth];
+	bool isAtEnd = pPath->values.size() == depth;
+	DynamicData currentValue = isAtEnd ? targetValue : pPath->values[depth];
 
 	if (pCurrent->hPrototype)
 	{
 		u64 i;
-		if (findName(pCurrent->instantiated.names, hCurrentName, &i))
+		if (findValue(pCurrent->instantiated.values, &currentValue, &i))
 		{
 			if (isAtEnd)
 			{
@@ -951,15 +1207,15 @@ DynamicData_MemberStatus DynamicData_obj_get_member_status_impl(DynamicEditorPat
 			if (pCurrent->instantiated.values[i].type == DynamicData::Type_Object)
 			{
 				DynamicObject* pNext = pCurrent->instantiated.values[i].asObject();
-				return DynamicData_obj_get_member_status_impl(pPath, pNext, depth + 1, hName);
+				return DynamicData_obj_get_member_status_impl(pPath, pNext, depth + 1, targetValue);
 			}
 			else
 			{
 				DynamicSet* pNext = pCurrent->instantiated.values[i].asSet();
-				return DynamicData_set_get_member_status_impl(pPath, pNext, depth + 1, hName);
+				return DynamicData_set_get_member_status_impl(pPath, pNext, depth + 1, targetValue);
 			}
 		}
-		else if (findName(pCurrent->flattened.names, hCurrentName, &i))
+		else if (findValue(pCurrent->flattened.values, &currentValue, &i))
 		{
 			// if we enter any inhertied value we can early out.
 			return MemberStatus_Inherited;
@@ -968,7 +1224,7 @@ DynamicData_MemberStatus DynamicData_obj_get_member_status_impl(DynamicEditorPat
 	else
 	{
 		u64 i;
-		if (findName(pCurrent->owned.names, hCurrentName, &i))
+		if (findValue(pCurrent->owned.values, &currentValue, &i))
 		{
 			if (isAtEnd)
 			{
@@ -979,12 +1235,12 @@ DynamicData_MemberStatus DynamicData_obj_get_member_status_impl(DynamicEditorPat
 			if (pCurrent->owned.values[i].type == DynamicData::Type_Object)
 			{
 				DynamicObject* pNext = pCurrent->owned.values[i].asObject();
-				return DynamicData_obj_get_member_status_impl(pPath, pNext, depth + 1, hName);
+				return DynamicData_obj_get_member_status_impl(pPath, pNext, depth + 1, targetValue);
 			}
 			else
 			{
 				DynamicSet* pNext = pCurrent->owned.values[i].asSet();
-				return DynamicData_set_get_member_status_impl(pPath, pNext, depth + 1, hName);
+				return DynamicData_set_get_member_status_impl(pPath, pNext, depth + 1, targetValue);
 			}
 		}
 	}
@@ -992,42 +1248,71 @@ DynamicData_MemberStatus DynamicData_obj_get_member_status_impl(DynamicEditorPat
 	return MemberStatus_None;
 }
 
-DynamicData_MemberStatus DynamicData_get_member_status(DynamicEditorPath* pPath, u64 hName)
+DynamicData_MemberStatus DynamicData_get_member_status(DynamicEditorPath* pPath, DynamicData value)
 {
 	DynamicObject* pCurrent = pPath->root;
 	u64 depth = 0;
-	return DynamicData_obj_get_member_status_impl(pPath, pCurrent, 0, hName);
+	return DynamicData_obj_get_member_status_impl(pPath, pCurrent, 0, value);
 }
 
-DynamicData_MemberStatus DynamicData_get_member_status(DynamicData* pValue, u64 hName)
-{
-	if (DynamicObject* pObject = pValue->asObject())
-	{
-		if (pObject->hPrototype != 0)
-		{
-			u64 i;
-			if (findName(pObject->instantiated.names, hName, &i))
-			{
-				return MemberStatus_Instantiated;
-			}
-			if (findName(pObject->flattened.names, hName, &i))
-			{
-				return MemberStatus_Inherited;
-			}
-			return MemberStatus_None;
-		}
-		else
-		{
-			u64 i;
-			if (findName(pObject->owned.names, hName, &i))
-			{
-				return MemberStatus_Owned;
-			}
-		}
-	}
-
-	return MemberStatus_None;
-}
+//DynamicData_MemberStatus DynamicData_get_member_status(DynamicData* pValue, u64 hName)
+//{
+//	if (DynamicObject* pObject = pValue->asObject())
+//	{
+//		if (pObject->hPrototype != 0)
+//		{
+//			u64 i;
+//			if (findName(pObject->instantiated.names, hName, &i))
+//			{
+//				return MemberStatus_Instantiated;
+//			}
+//			if (findName(pObject->flattened.names, hName, &i))
+//			{
+//				return MemberStatus_Inherited;
+//			}
+//			return MemberStatus_None;
+//		}
+//		else
+//		{
+//			u64 i;
+//			if (findName(pObject->owned.names, hName, &i))
+//			{
+//				return MemberStatus_Owned;
+//			}
+//		}
+//	}
+//
+//	if (DynamicSet* pSet = pValue->asSet())
+//	{
+//		if (pSet->hPrototype != 0)
+//		{
+//			u64 i;
+//			if (findName(pSet->added.ids, hName, &i))
+//			{
+//				return MemberStatus_Added;
+//			}
+//			if (findName(pSet->removed.ids, hName, &i))
+//			{
+//				return MemberStatus_Removed;
+//			}
+//			if (findName(pSet->instantiated.ids, hName, &i))
+//			{
+//				return MemberStatus_Instantiated;
+//			}
+//			return MemberStatus_None;
+//		}
+//		else
+//		{
+//			u64 i;
+//			if (findName(pSet->owned.ids, hName, &i))
+//			{
+//				return MemberStatus_Owned;
+//			}
+//		}
+//	}
+//
+//	return MemberStatus_None;
+//}
 
 u64 DynamicData_size(DynamicData* pValue)
 {
@@ -1037,8 +1322,9 @@ u64 DynamicData_size(DynamicData* pValue)
 		return pObject->flattened.values.size();
 	}
 
-	if (const DynamicSet* pSet = pValue->asSet())
+	if (DynamicSet* pSet = pValue->asSet())
 	{
+		DynamicData_set_before_read(pSet);
 		return pSet->flattened.values.size();
 	}
 
@@ -1074,14 +1360,12 @@ void DynamicData_clone_internal(DynamicData* src, DynamicData* dst)
 		*dst = DynamicData_set_new();
 		u64 size = DynamicData_size(src);
 		DynamicSet* pSet = dst->asSet();
-		pSet->owned.ids.resize(size);
-		pSet->owned.values.resize(size);
+		pSet->added.values.resize(size);
 		DynamicSet* pSrcSet = src->asSet();
 
 		for (u64 i = 0; i < size; ++i)
 		{
-			pSet->owned.ids[i] = pSrcSet->flattened.ids[i];
-			DynamicData_clone_internal(&pSrcSet->flattened.values[i], &pSet->owned.values[i]);
+			DynamicData_clone_internal(&pSrcSet->flattened.values[i], &pSet->added.values[i]);
 		}
 
 		break;
@@ -1233,88 +1517,64 @@ void DynamicData_obj_set(DynamicData* object, u64 hName, DynamicData value)
 	assert(false && "didnt find key");
 }
 
-void DynamicData_add_to_set(DynamicData* object, u64 hMember, DynamicData item)
-{
-	if (DynamicObject* pObject = object->asObject())
-	{
-		DynamicData_obj_before_read(pObject);
-		
-		if (pObject->hPrototype == 0)
-		{
-			u64 i;
-			if (findName(pObject->owned.names, hMember, &i))
-			{
-				if (DynamicSet* pSet = pObject->owned.values[i].asSet())
-				{
-					pSet->owned.ids.push_back(item.id());
-					pSet->owned.values.push_back(item);
+//void DynamicData_add_to_set(DynamicData* object, u64 hMember, DynamicData item)
+//{
+//	if (DynamicObject* pObject = object->asObject())
+//	{
+//		DynamicData_obj_before_read(pObject);
+//		
+//		if (pObject->hPrototype == 0)
+//		{
+//			u64 i;
+//			if (findName(pObject->owned.names, hMember, &i))
+//			{
+//				if (DynamicSet* pSet = pObject->owned.values[i].asSet())
+//				{
+//					pSet->owned.ids.push_back(item.id());
+//					pSet->owned.values.push_back(item);
+//
+//					pSet->flattened.ids.push_back(item.id());
+//					pSet->flattened.values.push_back(item);
+//
+//					pSet->version++;
+//					pObject->version++;
+//					return;
+//				}
+//
+//				assert(false && "Type mismatch");
+//				return;
+//			}
+//			assert(false && "didnt find key");
+//		}
+//		else
+//		{
+//			u64 i;
+//			if (findName(pObject->instantiated.names, hMember, &i))
+//			{
+//				DynamicSet* pSet = pObject->instantiated.values[i].asSet();
+//				if (findName(pSet->added.ids, item.id(), &i))
+//				{
+//					assert(false && "we shouldnt add the same item twice");
+//				}
+//
+//				pSet->added.ids.push_back(item.id());
+//				pSet->added.values.push_back(item);
+//
+//				pSet->flattened.ids.push_back(item.id());
+//				pSet->flattened.values.push_back(item);
+//
+//				pSet->version++;
+//				pObject->version++;
+//			}
+//			else
+//			{
+//				DYNAMIC_DATA_ERROR("need to instantiate set/member does not exist");
+//			}
+//		}
+//	}
+//}
 
-					pSet->flattened.ids.push_back(item.id());
-					pSet->flattened.values.push_back(item);
 
-					pSet->version++;
-					pObject->version++;
-					return;
-				}
-
-				assert(false && "Type mismatch");
-				return;
-			}
-			assert(false && "didnt find key");
-		}
-		else
-		{
-			u64 i;
-			if (findName(pObject->instantiated.names, hMember, &i))
-			{
-				DynamicSet* pSet = pObject->instantiated.values[i].asSet();
-				if (findName(pSet->added.ids, item.id(), &i))
-				{
-					assert(false && "we shouldnt add the same item twice");
-				}
-
-				pSet->added.ids.push_back(item.id());
-				pSet->added.values.push_back(item);
-				pSet->version++;
-				pObject->version++;
-			}
-			else
-			{
-				assert(false  && "need to instantiate the set / member does not exist");
-			}
-		}
-	}
-}
-
-void DynamicData_remove_from_set(DynamicData* object, u64 hMember, DynamicData item)
-{
-	if (DynamicObject* pObject = object->asObject())
-	{
-		DynamicData_obj_before_read(pObject);
-
-		if (pObject->hPrototype == 0)
-		{
-			u64 i;
-			if (findName(pObject->owned.names, hMember, &i))
-			{
-				if (DynamicSet* pSet = pObject->owned.values[i].asSet())
-				{
-					if (findName(pSet->owned.ids, item.id(), &i))
-					{
-						pSet->owned.ids.erase(pSet->owned.ids.begin() + i);
-						pSet->owned.values.erase(pSet->owned.values.begin() + i);
-						pSet->version++;
-						pObject->version++;
-						return;
-					}
-					assert(false && "object not in set");
-				}
-				assert(false && "no set in object[hMember]");
-			}
-			assert(false && "didnt find key");
-		}
-	}
-}
 
 //void _DynamicData_obj_arr_push(DynamicData* object, u64 hArrayName, DynamicData value)
 //{
@@ -1401,6 +1661,8 @@ void DynamicData_obj_compose(DynamicObject* pObject, eastl::vector<u64>& names, 
 
 		names = pObject->owned.names;
 		values = pObject->owned.values;
+		pObject->flattened.dirty = false;
+
 		return;
 	}
 	if (pPrototype)
@@ -1414,7 +1676,6 @@ void DynamicData_obj_compose(DynamicObject* pObject, eastl::vector<u64>& names, 
 		}
 		DynamicData_obj_compose(pPrototype, names, values);
 		pObject->flattened.basedOnVersion = pPrototype->version;
-		pObject->version++;
 	}
 
 	// Redirect instances and assign flattened state
@@ -1494,9 +1755,6 @@ bool DynamicSet_is_up_to_date(DynamicSet* pSet, DynamicSet* pPrototype)
 	return false;
 }
 
-
-// fix it
-asdfasdfasdfasdfasdf
 void DynamicData_set_compose(DynamicSet* pSet, eastl::vector<u64>& ids, eastl::vector<DynamicData>& values)
 {
 	DynamicSet* pPrototype = pSet->hPrototype != 0 ? lookup_set(pSet->hPrototype) : nullptr;
@@ -1510,12 +1768,14 @@ void DynamicData_set_compose(DynamicSet* pSet, eastl::vector<u64>& ids, eastl::v
 	// evaluate prototype
 	if (!pPrototype)
 	{
-		// todo remove
-		pSet->flattened.ids = pSet->owned.ids;
-		pSet->flattened.values = pSet->owned.values;
+		// todo remove these allocation/copies
+		pSet->flattened.values = pSet->added.values;
+		values = pSet->added.values;
 
-		ids = pSet->owned.ids;
-		values = pSet->owned.values;
+		for (auto& d : pSet->added.values)
+			ids.push_back(d.id());
+
+		pSet->flattened.dirty = false;
 		return;
 	}
 	if (pPrototype)
@@ -1523,66 +1783,65 @@ void DynamicData_set_compose(DynamicSet* pSet, eastl::vector<u64>& ids, eastl::v
 		if (DynamicSet_is_up_to_date(pSet, pPrototype))
 		{
 			// todo if we have no edits at top level we can directly reference the arrays
-			ids = pSet->flattened.ids;
 			values = pSet->flattened.values;
+			for (auto& d : pSet->flattened.values)
+				ids.push_back(d.id());
+
+			pSet->flattened.dirty = false;
+
 			return;
 		}
 		DynamicData_set_compose(pPrototype, ids, values);
 		pSet->flattened.basedOnVersion = pPrototype->version;
-		pSet->version++;
 	}
 
 	// Redirect instances and assign flattened state
 	// TODO SOON is the logic correct?
 	for (u64 i = 0; i < pSet->instantiated.ids.size(); ++i)
 	{
-		u64 hName = pSet->instantiated.ids[i];
+		u64 originalId = pSet->instantiated.ids[i];
 
-		u64 prototypeIndex;
+		u64 index;
 		// for an instance we need to redirect the values to our instance. applying the instance edits.
 		// todo if its no longer in prototype clean it up
-		if (findName(ids, hName, &prototypeIndex))
+		if (findId(ids, originalId, &index))
 		{
-			//assert(values[prototypeIndex].type == DynamicData::Type_Object);
-			//assert(pObject->instantiated.values[i].type == DynamicData::Type_Object);
-
-			if (values[prototypeIndex].type == DynamicData::Type_Object)
+			if (values[index].type == DynamicData::Type_Object)
 			{
-				values[prototypeIndex].hObject = pSet->instantiated.values[i].hObject;
+				ids[index] = pSet->instantiated.values[i].id();
+				values[index].hObject = pSet->instantiated.values[i].hObject;
 			}
 
-			if (values[prototypeIndex].type == DynamicData::Type_Set)
+			if (values[index].type == DynamicData::Type_Set)
 			{
-				values[prototypeIndex].hSet = pSet->instantiated.values[i].hSet;
+				ids[index] = pSet->instantiated.values[i].id();
+				values[index].hSet = pSet->instantiated.values[i].hSet;
 			}
 		}
 	}
 
 	// apply edits
-	for (u64 i = 0; i < pSet->added.ids.size(); ++i)
+	for (u64 i = 0; i < pSet->added.values.size(); ++i)
 	{
-		u64 id = pSet->added.ids[i];
+		u64 id = pSet->added.values[i].id();
 		DynamicData value = pSet->added.values[i];
-
-		pSet->flattened.ids.push_back(id);
-		pSet->flattened.values.push_back(value);
+		ids.push_back(id);
+		values.push_back(value);
 	}
 
-	for (u64 i = 0; i < pSet->removed.ids.size(); ++i)
+	for (u64 i = 0; i < pSet->removed.values.size(); ++i)
 	{
-		u64 id = pSet->removed.ids[i];
-		DynamicData value = pSet->removed.values[i];
-
+		u64 id = pSet->removed.values[i].id();
 		u64 index;
-		if (findName(ids, id, &index))
+		if (findId(ids, id, &index))
 		{
-			values[index] = DynamicData_make_null();
+			ids.erase(ids.begin() + index);
+			values.erase(values.begin() + index);
 		}
 	}
 
 	if (pSet->hPrototype != 0)
 	{
-		pSet->flattened.ids = ids;
 		pSet->flattened.values = values;
 	}
 
