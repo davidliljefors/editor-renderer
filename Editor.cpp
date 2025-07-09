@@ -756,7 +756,7 @@ void EditorApp::DrawSelectedEntity()
 		//DynamicData_writeBack(&m_focused, &entity);
 	}
 	
-	if (DynamicData_size(&components) == 0)
+	if (components.type == DynamicData::Type_Set && components.asSet()->flattened.values.size() == 0)
 	{
 		if (ImGui::Button("Add transform component"))
 		{ 

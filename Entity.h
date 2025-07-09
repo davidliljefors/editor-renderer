@@ -131,7 +131,7 @@ struct DynamicData
 
 	DynamicSet* asSet()
 	{
-		return type == Type_Set ? lookup_set(hSet) : nullptr;
+		return type == Type_Set ? pSet : nullptr;
 	}
 
 	u64 id() const
@@ -139,10 +139,6 @@ struct DynamicData
 		if (type == Type_Object)
 		{
 			return hObject;
-		}
-		if (type == Type_Set)
-		{
-			return hSet;
 		}
 
 		return 0ull;
@@ -156,7 +152,7 @@ struct DynamicData
 	union
 	{
 		u64 hObject;
-		u64 hSet;
+		DynamicSet* pSet;
 		i64 integer;
 		f64 number;
 		char* string;
@@ -175,6 +171,7 @@ struct DynamicEditorPath
 
 struct DynamicObject
 {
+	u64 id;
 	u64 hRoot;
 	u64 hPrototype;
 	bool tombstone;
@@ -216,10 +213,6 @@ struct DynamicObject
 
 struct DynamicSet
 {
-	u64 hRoot;
-	u64 hPrototype;
-	bool tombstone;
-
 	struct Added
 	{
 		eastl::vector<DynamicData> values;
@@ -252,6 +245,12 @@ struct DynamicSet
 	u64 version;
 };
 
+struct ComposedSet
+{
+	eastl::vector<DynamicData> values;
+};
+
+ComposedSet DynamicData_compose_set(DynamicData* pValue, u64 hMember);
 
 bool DDObject_is_up_to_date(DynamicObject* pObject, DynamicObject* pPrototype);
 
@@ -280,7 +279,7 @@ void DynamicData_cancel_remove_from_prototype_subobject_set(DynamicData* pValue,
 
 // todo api return temp allocated arrays
 eastl::vector<DynamicData> DynamicData_get_subobject_set(DynamicData* pValue, u64 hSetName);
-eastl::vector<DynamicData> DynamicData_locally_removed(DynamicData* pValue, u64 hSetName);
+eastl::vector<DynamicData> DynamicData_get_subobject_set_locally_removed(DynamicData* pValue, u64 hSetName);
 
 bool DynamicData_obj_is_editable(DynamicData* pValue, u64 hName);
 
@@ -299,8 +298,6 @@ enum DynamicData_MemberStatus
 const char* to_string(DynamicData_MemberStatus status);
 
 DynamicData_MemberStatus DynamicData_get_member_status(DynamicEditorPath* pPath, DynamicData value);
-
-u64 DynamicData_size(DynamicData* pValue);
 
 void DynamicData_clone_internal(DynamicData* src, DynamicData* dst);
 
@@ -325,9 +322,9 @@ void DynamicData_array_pop(DynamicData* array, DynamicData value);
 
 void DynamicData_obj_before_read(DynamicObject* pObject);
 
-void DynamicData_set_before_read(DynamicSet* pSet);
+void DynamicData_set_before_read(DynamicObject* pObject, u64 hMember);
 
-eastl::vector<DynamicData> DynamicData_array_compose(DynamicData* object, u64 hName);
+void DynamicData_set_before_read(DynamicData* pValue, u64 hMember);
 
 struct ArrayEditor
 {
