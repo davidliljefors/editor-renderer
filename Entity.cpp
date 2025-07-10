@@ -6,6 +6,7 @@
 #include "Editor.h"
 #include "imgui.h"
 
+
 static i32 s_nextId = 0;
 
 static u64 s_object_id = 0;
@@ -273,45 +274,45 @@ void DynamicData_view_object_context_menu(DynamicObject* pObject, u64 hMember, D
 void DynamicData_view_draw_object(DynamicData* pValue, DynamicEditorPath* pPath)
 {
 
-	u64 objectType = DynamicData_obj_find(pValue, string_repository_hash(s_typeIdKey)).asUint();
+	//u64 objectType = DynamicData_obj_find(pValue, string_repository_hash(s_typeIdKey)).asUint();
 
-	DynamicData* pTemplate = DynamicData_get_template(objectType);
+	//DynamicData* pTemplate = DynamicData_get_template(objectType);
 
-	eastl::vector<u64> fields = pTemplate ? pTemplate
+	//eastl::vector<u64> fields = pTemplate ? pTemplate
 
-	DynamicObject* pObject = pValue->asObject();
+	//DynamicObject* pObject = pValue->asObject();
 
-	DynamicData_view_draw_object_id(pObject);
+	//DynamicData_view_draw_object_id(pObject);
 
-	for (u64 i = 0; i < size; ++i)
-	{
-		u64 hMember = pObject->flattened.names[i];
-		DynamicData value = pObject->flattened.values[i];
+	//for (u64 i = 0; i < size; ++i)
+	//{
+	//	u64 hMember = pObject->flattened.names[i];
+	//	DynamicData value = pObject->flattened.values[i];
 
-		const char* memberName = string_repository_get(hMember);
+	//	const char* memberName = string_repository_get(hMember);
 
-		DynamicData_MemberStatus status = DynamicData_get_member_status(pPath, value);
+	//	DynamicData_MemberStatus status = DynamicData_get_member_status(pPath, value);
 
-		if (!value.isContainer())
-		{
-			DynamicData_view_draw_value(&value, status);
-		}
-		else
-		{
-			ImGui::PushID((int)value.id());
-			bool childOpen = ImGui::TreeNode(memberName);
+	//	if (!value.isContainer())
+	//	{
+	//		DynamicData_view_draw_value(&value, status);
+	//	}
+	//	else
+	//	{
+	//		ImGui::PushID((int)value.id());
+	//		bool childOpen = ImGui::TreeNode(memberName);
 
-			DynamicData_view_object_context_menu(pObject, hMember, status, pPath);
+	//		DynamicData_view_object_context_menu(pObject, hMember, status, pPath);
 
-			if (childOpen)
-			{
-				ImGui::TreePop();
-			}
+	//		if (childOpen)
+	//		{
+	//			ImGui::TreePop();
+	//		}
 
 
-			ImGui::PopID();
-		}
-	}
+	//		ImGui::PopID();
+	//	}
+	//}
 }
 
 void DynamicData_view_draw_object_set(DynamicData* pValue, u64 hSetName, DynamicEditorPath* pPath)
@@ -2069,146 +2070,146 @@ void DynamicData_writeBack(DynamicData* pData, void* pValue)
 	}
 }
 
-void registerEntityTemplate()
-{
-	DynamicData root = DynamicData_obj_new();
+//void registerEntityTemplate()
+//{
+//	DynamicData root = DynamicData_obj_new();
+//
+//	u64 hTypeName = string_repository_hash(s_typeNameKey);
+//	u64 hFields = string_repository_hash(s_fieldsKey);
+//
+//	DynamicData entityName = DynamicData_make_str("entity");
+//	DynamicData_obj_add(&root, hTypeName, entityName);
+//
+//
+//	DynamicData field_children = DynamicData_obj_new();
+//	DynamicData_obj_add(&field_children, string_repository_hash("name"), DynamicData_make_str("Unnamed Entity"));
+//	DynamicData_obj_add(&field_children, string_repository_hash("children"), DynamicData_set_new());
+//	DynamicData_obj_add(&field_children, string_repository_hash("components"), DynamicData_set_new());
+//
+//	DynamicData entity_subobject = DynamicData_obj_new();
+//	DynamicData_obj_add(&entity_subobject, string_repository_hash("sub-float"), DynamicData_num_new());
+//	DynamicData_obj_add(&entity_subobject, string_repository_hash("sub-int"), DynamicData_num_new());
+//
+//	DynamicData nested_subobject = DynamicData_obj_new();
+//	DynamicData_obj_add(&nested_subobject, string_repository_hash("nested-float"), DynamicData_num_new());
+//	DynamicData_obj_add(&nested_subobject, string_repository_hash("nested-int"), DynamicData_num_new());
+//	DynamicData_obj_add(&entity_subobject, string_repository_hash("nested-subobject"), nested_subobject);
+//
+//	DynamicData_obj_add(&field_children, string_repository_hash("subobject"), entity_subobject);
+//
+//	DynamicData_obj_add(&root, hFields, field_children);
+//
+//	DynamicDataParser_i parser;
+//
+//	parser.parse = [](DynamicData* value, void* target)
+//	{
+//		DDEntity* pEntity = (DDEntity*)target;
+//
+//		u64 hNameField = string_repository_hash("name");
+//		u64 hChildrenField = string_repository_hash("children");
+//		u64 hComponentsField = string_repository_hash("components");
+//		
+//		pEntity->name = DynamicData_obj_find(value, hNameField).asString();
+//
+//		DynamicSet* pChildren = DynamicData_obj_find(value, hChildrenField).asSet();
+//
+//		pEntity->children = pChildren->flattened.values;
+//
+//		DynamicSet* pComponents = DynamicData_obj_find(value, hComponentsField).asSet();
+//		pEntity->components = pComponents->flattened.values;
+//	};
+//
+//	parser.write_back = [](DynamicData* value, void* source)
+//	{
+//		DDEntity* pEntity = (DDEntity*)source;
+//
+//		if ((pEntity->editedMask & DDEntity::FieldMask_Name) != 0)
+//		{
+//			u64 hNameField = MetroHash64::HashStr("name");
+//			DynamicData_obj_set(value, hNameField, DynamicData_make_str(pEntity->name));
+//		}
+//
+//		if ((pEntity->editedMask & DDEntity::FieldMask_Children) != 0)
+//		{
+//			//u64 hChildrenField = MetroHash64::HashStr("children");
+//			//DynamicData setChildren = DynamicData_set_new();
+//			////arrChildren.pArray->values = pEntity->children;
+//			//DynamicData_obj_set(value, hChildrenField, setChildren);
+//		}
+//
+//		if ((pEntity->editedMask & DDEntity::FieldMask_Components) != 0)
+//		{
+//			//u64 hComponentsField = MetroHash64::HashStr("components");
+//			//DynamicData arrComponents = DynamicData_set_new();
+//			////arrComponents.pArray->values = pEntity->components;
+//			//DynamicData_obj_set(value, hComponentsField, arrComponents);
+//		}
+//	};
+//
+//	DynamicData_registerParser(ENTITY_TYPE_ID, parser);
+//
+//	g_templates[ENTITY_TYPE_ID] = root;
+//}
 
-	u64 hTypeName = string_repository_hash(s_typeNameKey);
-	u64 hFields = string_repository_hash(s_fieldsKey);
-
-	DynamicData entityName = DynamicData_make_str("entity");
-	DynamicData_obj_add(&root, hTypeName, entityName);
-
-
-	DynamicData field_children = DynamicData_obj_new();
-	DynamicData_obj_add(&field_children, string_repository_hash("name"), DynamicData_make_str("Unnamed Entity"));
-	DynamicData_obj_add(&field_children, string_repository_hash("children"), DynamicData_set_new());
-	DynamicData_obj_add(&field_children, string_repository_hash("components"), DynamicData_set_new());
-
-	DynamicData entity_subobject = DynamicData_obj_new();
-	DynamicData_obj_add(&entity_subobject, string_repository_hash("sub-float"), DynamicData_num_new());
-	DynamicData_obj_add(&entity_subobject, string_repository_hash("sub-int"), DynamicData_num_new());
-
-	DynamicData nested_subobject = DynamicData_obj_new();
-	DynamicData_obj_add(&nested_subobject, string_repository_hash("nested-float"), DynamicData_num_new());
-	DynamicData_obj_add(&nested_subobject, string_repository_hash("nested-int"), DynamicData_num_new());
-	DynamicData_obj_add(&entity_subobject, string_repository_hash("nested-subobject"), nested_subobject);
-
-	DynamicData_obj_add(&field_children, string_repository_hash("subobject"), entity_subobject);
-
-	DynamicData_obj_add(&root, hFields, field_children);
-
-	DynamicDataParser_i parser;
-
-	parser.parse = [](DynamicData* value, void* target)
-	{
-		DDEntity* pEntity = (DDEntity*)target;
-
-		u64 hNameField = string_repository_hash("name");
-		u64 hChildrenField = string_repository_hash("children");
-		u64 hComponentsField = string_repository_hash("components");
-		
-		pEntity->name = DynamicData_obj_find(value, hNameField).asString();
-
-		DynamicSet* pChildren = DynamicData_obj_find(value, hChildrenField).asSet();
-
-		pEntity->children = pChildren->flattened.values;
-
-		DynamicSet* pComponents = DynamicData_obj_find(value, hComponentsField).asSet();
-		pEntity->components = pComponents->flattened.values;
-	};
-
-	parser.write_back = [](DynamicData* value, void* source)
-	{
-		DDEntity* pEntity = (DDEntity*)source;
-
-		if ((pEntity->editedMask & DDEntity::FieldMask_Name) != 0)
-		{
-			u64 hNameField = MetroHash64::HashStr("name");
-			DynamicData_obj_set(value, hNameField, DynamicData_make_str(pEntity->name));
-		}
-
-		if ((pEntity->editedMask & DDEntity::FieldMask_Children) != 0)
-		{
-			//u64 hChildrenField = MetroHash64::HashStr("children");
-			//DynamicData setChildren = DynamicData_set_new();
-			////arrChildren.pArray->values = pEntity->children;
-			//DynamicData_obj_set(value, hChildrenField, setChildren);
-		}
-
-		if ((pEntity->editedMask & DDEntity::FieldMask_Components) != 0)
-		{
-			//u64 hComponentsField = MetroHash64::HashStr("components");
-			//DynamicData arrComponents = DynamicData_set_new();
-			////arrComponents.pArray->values = pEntity->components;
-			//DynamicData_obj_set(value, hComponentsField, arrComponents);
-		}
-	};
-
-	DynamicData_registerParser(ENTITY_TYPE_ID, parser);
-
-	g_templates[ENTITY_TYPE_ID] = root;
-}
-
-void registerComponent_TransformTemplate()
-{
-	DynamicData root = DynamicData_obj_new();
-
-	u64 hTypeName = string_repository_hash(s_typeNameKey);
-	u64 hFields = string_repository_hash(s_fieldsKey);
-
-	DynamicData componentName = DynamicData_make_str("component_transform");
-	DynamicData_obj_add(&root, hTypeName, componentName);
-
-	DynamicData field_children = DynamicData_obj_new();
-
-	DynamicData_obj_add(&field_children, string_repository_hash("x"), DynamicData_num_new());
-	DynamicData_obj_add(&field_children, string_repository_hash("y"), DynamicData_num_new());
-	DynamicData_obj_add(&field_children, string_repository_hash("z"), DynamicData_num_new());
-
-	DynamicData_obj_add(&root, hFields, field_children);
-
-	DynamicDataParser_i parser;
-
-	parser.parse = [](DynamicData* value, void* data)
-	{
-		DDTransformComponent* pComponent = (DDTransformComponent*)data;
-
-		u64 hXField = MetroHash64::HashStr("x");
-		u64 hYField = MetroHash64::HashStr("y");
-		u64 hZField = MetroHash64::HashStr("z");
-
-		pComponent->x = (f32)DynamicData_obj_find(value, hXField).asNumber();
-		pComponent->y = (f32)DynamicData_obj_find(value, hYField).asNumber();
-		pComponent->z = (f32)DynamicData_obj_find(value, hZField).asNumber();
-	};
-
-	parser.write_back = [](DynamicData* value, void* data)
-	{
-		DDTransformComponent* pComponent = (DDTransformComponent*)data;
-
-		if ((pComponent->editedMask & DDTransformComponent::FieldMask_X) != 0)
-		{
-			u64 hXField = MetroHash64::HashStr("x");
-			DynamicData_obj_set(value, hXField, DynamicData_make_num(pComponent->x));
-		}
-
-		if ((pComponent->editedMask & DDTransformComponent::FieldMask_Y) != 0)
-		{
-			u64 hYField = MetroHash64::HashStr("y");
-			DynamicData_obj_set(value, hYField, DynamicData_make_num(pComponent->y));
-		}
-
-		if ((pComponent->editedMask & DDTransformComponent::FieldMask_Z) != 0)
-		{
-			u64 hZField = MetroHash64::HashStr("z");
-			DynamicData_obj_set(value, hZField, DynamicData_make_num(pComponent->z));
-		}
-	};
-
-	DynamicData_registerParser(COMPONENT_ID_TRANSFORM, parser);
-	g_templates[COMPONENT_ID_TRANSFORM] = root;
-}
+//void registerComponent_TransformTemplate()
+//{
+//	DynamicData root = DynamicData_obj_new();
+//
+//	u64 hTypeName = string_repository_hash(s_typeNameKey);
+//	u64 hFields = string_repository_hash(s_fieldsKey);
+//
+//	DynamicData componentName = DynamicData_make_str("component_transform");
+//	DynamicData_obj_add(&root, hTypeName, componentName);
+//
+//	DynamicData field_children = DynamicData_obj_new();
+//
+//	DynamicData_obj_add(&field_children, string_repository_hash("x"), DynamicData_num_new());
+//	DynamicData_obj_add(&field_children, string_repository_hash("y"), DynamicData_num_new());
+//	DynamicData_obj_add(&field_children, string_repository_hash("z"), DynamicData_num_new());
+//
+//	DynamicData_obj_add(&root, hFields, field_children);
+//
+//	DynamicDataParser_i parser;
+//
+//	parser.parse = [](DynamicData* value, void* data)
+//	{
+//		DDTransformComponent* pComponent = (DDTransformComponent*)data;
+//
+//		u64 hXField = MetroHash64::HashStr("x");
+//		u64 hYField = MetroHash64::HashStr("y");
+//		u64 hZField = MetroHash64::HashStr("z");
+//
+//		pComponent->x = (f32)DynamicData_obj_find(value, hXField).asNumber();
+//		pComponent->y = (f32)DynamicData_obj_find(value, hYField).asNumber();
+//		pComponent->z = (f32)DynamicData_obj_find(value, hZField).asNumber();
+//	};
+//
+//	parser.write_back = [](DynamicData* value, void* data)
+//	{
+//		DDTransformComponent* pComponent = (DDTransformComponent*)data;
+//
+//		if ((pComponent->editedMask & DDTransformComponent::FieldMask_X) != 0)
+//		{
+//			u64 hXField = MetroHash64::HashStr("x");
+//			DynamicData_obj_set(value, hXField, DynamicData_make_num(pComponent->x));
+//		}
+//
+//		if ((pComponent->editedMask & DDTransformComponent::FieldMask_Y) != 0)
+//		{
+//			u64 hYField = MetroHash64::HashStr("y");
+//			DynamicData_obj_set(value, hYField, DynamicData_make_num(pComponent->y));
+//		}
+//
+//		if ((pComponent->editedMask & DDTransformComponent::FieldMask_Z) != 0)
+//		{
+//			u64 hZField = MetroHash64::HashStr("z");
+//			DynamicData_obj_set(value, hZField, DynamicData_make_num(pComponent->z));
+//		}
+//	};
+//
+//	DynamicData_registerParser(COMPONENT_ID_TRANSFORM, parser);
+//	g_templates[COMPONENT_ID_TRANSFORM] = root;
+//}
 
 void registerComponent_ColorTemplate()
 {
@@ -2235,11 +2236,93 @@ void registerComponent_ColorTemplate()
 	g_templates[COMPONENT_ID_COLOR] = root;
 }
 
-
 DynamicData* DynamicData_get_template(u64 id)
 {
 	return &g_templates[id];
 }
+
+eastl::vector<u64> DynamicData_get_all_types()
+{
+	eastl::vector<u64> res;
+	for (eastl::pair<const u64, DynamicData>& kvp : g_templates)
+	{
+		res.push_back(kvp.first);
+	}
+	return res;
+}
+
+u64 DynamicData_register_type(const char* name, const DynamicDataPropertyDef* properties, u32 num_properties)
+{
+	DynamicData root = DynamicData_obj_new();
+	u64 hTypeId = string_repository_hash(name);
+
+	u64 hTypeName = string_repository_hash(s_typeNameKey);
+	u64 hFields = string_repository_hash(s_fieldsKey);
+
+	DynamicData typeName = DynamicData_make_str(name);
+	DynamicData_obj_add(&root, hTypeName, typeName);
+
+	DynamicData field_children = DynamicData_obj_new();
+	for (u32 i = 0; i < num_properties; ++i)
+	{
+		DynamicData value = DynamicData_make_null();
+		const DynamicDataPropertyDef* def = &properties[i];
+
+		switch (properties[i].type)
+		{
+		case DynamicData::Type_Null:
+		{
+			value = DynamicData_make_null();
+			break;
+		}
+		case DynamicData::Type_Object:
+		{
+			if (def->typeHash != 0)
+			{
+				value = DynamicData_createFromTemplate(def->typeHash);
+			}
+			else
+			{
+				value = DynamicData_obj_new();
+			}
+			break;
+		}
+		case DynamicData::Type_Set:
+		{
+			value = DynamicData_set_new();
+			break;
+		}
+		case DynamicData::Type_Integer:
+		{
+			value = DynamicData_int_new();
+			break;
+		}
+		case DynamicData::Type_Number:
+		{
+			value = DynamicData_num_new();
+			break;
+		}
+		case DynamicData::Type_String:
+		{
+			value = DynamicData_str_new();
+			break;
+		}
+		}
+
+		if (value.type == DynamicData::Type_Null)
+		{
+			DYNAMIC_DATA_ERROR("Null field in defintion");
+		}
+
+		DynamicData_obj_add(&field_children, string_repository_hash(def->name), value);
+	}
+	DynamicData_obj_add(&root, hFields, field_children);
+
+	g_templates[hTypeId] = root;
+
+	return hTypeId;
+}
+
 
 DynamicData DynamicData_createFromTemplate(u64 hTemplate)
 {
@@ -2275,8 +2358,8 @@ void DynamicData_view(DynamicData* pData)
 {
 	DynamicEditorPath path;
 	path.root = pData->asObject();
-	DynamicData_view_draw_object(pData, &path);
-	//DynamicData_view_impl(pData, 0ull, &path);
+	//DynamicData_view_draw_object(pData, &path);
+	DynamicData_view_impl(pData, 0ull, &path);
 }
 
 Entity* Entity::create(Allocator* a)

@@ -522,28 +522,16 @@ void EditorApp::update()
 
     ImGui::Begin("MainWindow", nullptr, window_flags);
 	ImGui::Begin("Dynamic Data Templates");
-	if (ImGui::CollapsingHeader("EntityTemplate"))
-	{
-		auto temp = DynamicData_getTemplate(ENTITY_TYPE_ID);
-		ImGui::PushID((int)ENTITY_TYPE_ID);
-		DynamicData_view(temp);
-		ImGui::PopID();
-	}
 
-	if (ImGui::CollapsingHeader("ComponentTemplate_Transform"))
+	for (auto x : DynamicData_get_all_types())
 	{
-		DynamicData* temp = DynamicData_getTemplate(COMPONENT_ID_TRANSFORM);
-		ImGui::PushID((int)COMPONENT_ID_TRANSFORM);
-		DynamicData_view(temp);
-		ImGui::PopID();
-	}
-
-	if (ImGui::CollapsingHeader("ComponentTemplate_Color"))
-	{
-		DynamicData* temp = DynamicData_getTemplate(COMPONENT_ID_COLOR);
-		ImGui::PushID((int)COMPONENT_ID_COLOR);
-		DynamicData_view(temp);
-		ImGui::PopID();
+		if (ImGui::CollapsingHeader(string_repository_get(x)))
+		{
+			auto temp = DynamicData_get_template(x);
+			ImGui::PushID((int)x);
+			DynamicData_view(temp);
+			ImGui::PopID();
+		}
 	}
 
 	if (ImGui::Button("Add new root entity"))
@@ -817,4 +805,6 @@ EditorApp::EditorApp(Allocator* a)
     s_app = this;
     ShowWindow(m_hwnd, SW_SHOW);
 	UpdateWindow(m_hwnd);
+
+
 }

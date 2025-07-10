@@ -18,6 +18,8 @@
 
 #define _CRT_SECURE_NO_WARNINGS 1
 
+#define DD_ARRAY_COUNT(a) (sizeof(a) / sizeof(a[0]))
+
 struct Printf
 {
 	Printf() = default;
@@ -168,6 +170,13 @@ struct DynamicEditorPath
 	eastl::vector<DynamicData> values;
 };
 
+enum class MemberStatus
+{
+	Owned,
+	Inherited,
+	Instantiated,
+	Overridden,
+};
 
 struct DynamicObject
 {
@@ -175,6 +184,13 @@ struct DynamicObject
 	u64 hRoot;
 	u64 hPrototype;
 	bool tombstone;
+
+	struct Members
+	{
+		eastl::vector<u64> names;
+		eastl::vector<DynamicData> values;
+		eastl::vector<MemberStatus> statuses;
+	};
 
 	struct Owned
 	{
@@ -545,15 +561,25 @@ constexpr u64 COMPONENT_ID_TRANSFORM = TM_STATIC_HASH("COMPONENT_ID_TRANSFORM", 
 constexpr u64 COMPONENT_ID_COLOR = TM_STATIC_HASH("COMPONENT_ID_COLOR", 0xa8d3f5d15f0236abULL);
 //constexpr u64 COMPONENT_ID_NAME = TM_STATIC_HASH("COMPONENT_ID_NAME", 0xfc4e5c54ba84ba26ULL);
 
-void registerEntityTemplate();
-void registerComponent_TransformTemplate();
-void registerComponent_ColorTemplate();
 
-DynamicData* DynamicData_getTemplate(u64 id);
+
+struct DynamicDataPropertyDef
+{
+	const char* name;
+	DynamicData::Type type;
+	u64 typeHash;
+};
+
+u64 DynamicData_register_type(const char* name, const DynamicDataPropertyDef* properties, u32 num_properties);
+
+DynamicData* DynamicData_get_template(u64 id);
+
+eastl::vector<u64> DynamicData_get_all_types();
 
 DynamicData DynamicData_createFromTemplate(u64 hTemplate);
 
 void DynamicData_view(DynamicData* pData);
+
 
 struct Entity : TruthElement
 {
