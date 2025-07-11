@@ -1162,13 +1162,31 @@ DynamicData DynamicData_obj_find_impl(DynamicObject* pObject, u64 hName)
 	u64 i;
 	if (findName(pObject->members.names, hName, &i))
 	{
-		return pObject->members.values[i];
+		if (pObject->members.statuses[i] == MemberStatus::Inherited)
+		{
+			return DynamicData_obj_find_impl(lookup_obj(pObject->hPrototype), hName);
+		}
+		else
+		{
+			return pObject->members.values[i];
+		}
 	}
 
 	return DynamicData_make_null();
 }
 
 DynamicData DynamicData_obj_find(DynamicData* pValue, u64 hName)
+{
+	if (pValue->type == DynamicData::Type_Object)
+	{
+		DynamicObject* pObject = pValue->asObject();
+		return DynamicData_obj_find_impl(pObject, hName);
+	}
+
+	return DynamicData_make_null();
+}
+
+DynamicData DynamicData_obj_at(DynamicData* pValue, u64 index)
 {
 	if (pValue->type == DynamicData::Type_Object)
 	{

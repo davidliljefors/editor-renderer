@@ -231,6 +231,7 @@ void DynamicData_clone_internal(DynamicData* src, DynamicData* dst);
 DynamicData DynamicData_clone(DynamicData* src);
 
 DynamicData DynamicData_obj_find(DynamicData* pValue, u64 hName);
+DynamicData DynamicData_obj_at(DynamicData* pValue, u64 index);
 
 void DynamicData_assign_root(DynamicData* newRoot, DynamicData* value);
 
