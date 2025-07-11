@@ -76,6 +76,8 @@ public:
 
 	void onResize(u32 w, u32 h);
 
+	void addRoot(DynamicData root);
+
 private:
 	void DrawDynamicEntity(DynamicData& entityData);
 	void DrawSelectedEntity();

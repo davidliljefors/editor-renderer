@@ -49,6 +49,32 @@ Position get_position(ReadOnlySnapshot s, truth::Key objectId)
 #define BREAK_ON_ERROR 1
 #define DYNAMIC_DATA_ERROR(msg) printf("error: %s. line:%d\n", msg, __LINE__); if(BREAK_ON_ERROR)__debugbreak()
 
+
+void PushStatusStyle(MemberStatus status)
+{
+	constexpr u32 COLOR_OWNED = IM_COL32(255, 255, 255, 255);
+	constexpr u32 COLOR_INHERIT = IM_COL32(100, 100, 100, 255);
+	constexpr u32 COLOR_INSTANTIATED = IM_COL32(180, 180, 255, 255);
+	constexpr u32 COLOR_OVERRIDDEN = IM_COL32(255, 255, 100, 255);
+	constexpr u32 COLOR_ERROR = IM_COL32(255, 0, 0, 255);
+
+	u32 styles[]
+	{
+		COLOR_OWNED,
+		COLOR_INHERIT,
+		COLOR_INSTANTIATED,
+		COLOR_OVERRIDDEN,
+		COLOR_ERROR,
+	};
+
+	ImGui::PushStyleColor(ImGuiCol_Text, styles[(int)status]);
+}
+
+void PopStatusStyle()
+{
+	ImGui::PopStyleColor();
+}
+
 struct DynamicEditorPath
 {
 	DynamicObject* root;
@@ -291,7 +317,7 @@ void DynamicData_view_draw_value(DynamicData* nonContainer, DynamicData_MemberSt
 	}
 }
 
-void DynamicData_view_object_context_menu(DynamicObject* pObject, u64 hMember, DynamicData_MemberStatus memberStatus, DynamicEditorPath* pPath)
+void DynamicData_view_object_context_menu(DynamicData* pValue, u64 hMember, DynamicEditorPath* pPath)
 {
 	if (ImGui::IsItemClicked(1))
 	{
@@ -300,33 +326,45 @@ void DynamicData_view_object_context_menu(DynamicObject* pObject, u64 hMember, D
 
 	if (ImGui::BeginPopup("dd_view_context_menu"))
 	{
-		ImGui::PushStyleVar(ImGuiStyleVar_Alpha, 1.0f);
-		ImGui::MenuItem(Printf("Member status : %s", to_string(memberStatus)));
-
-		ImGui::BeginDisabled(memberStatus != MemberStatus_Inherited);
-		if (ImGui::MenuItem("Instantiate object"))
+		if (ImGui::MenuItem("Create instance of"))
 		{
-			//DynamicData_instantiate_path(pPath, member);
+			Debug_register_root_entity(DynamicData_new_from_prototype(pValue));
 		}
-		ImGui::EndDisabled();
 
-		ImGui::BeginDisabled(memberStatus != MemberStatus_Instantiated);
-		if (ImGui::MenuItem("Revert to prototype"))
+		if (ImGui::MenuItem("Instantiate subobject"))
 		{
-			//DynamicData_instantiate_clear(&value, hMemberName);
+			DynamicData_instantiate_subobject(&pPath->values.back(), hMember);
 		}
-		ImGui::EndDisabled();
 
-		ImGui::PopStyleVar();
+		//ImGui::PushStyleVar(ImGuiStyleVar_Alpha, 1.0f);
+		//ImGui::MenuItem(Printf("Member status : %s", to_string(memberStatus)));
+
+		//ImGui::BeginDisabled(memberStatus != MemberStatus_Inherited);
+		//if (ImGui::MenuItem("Instantiate object"))
+		//{
+		//	//DynamicData_instantiate_path(pPath, member);
+		//}
+		//ImGui::EndDisabled();
+
+		//ImGui::BeginDisabled(memberStatus != MemberStatus_Instantiated);
+		//if (ImGui::MenuItem("Revert to prototype"))
+		//{
+		//	//DynamicData_instantiate_clear(&value, hMemberName);
+		//}
+		//ImGui::EndDisabled();
+
+		//ImGui::PopStyleVar();
 		ImGui::EndPopup();
 	}
 }
 
 void DynamicData_view_impl(DynamicData* parent, u64 hMember, DynamicEditorPath* pPath);
 
-void DynamicData_view_draw_object(DynamicData* pValue, DynamicEditorPath* pPath)
+void DynamicData_view_draw_object(DynamicData* pValue, u64 hMember, DynamicEditorPath* pPath)
 {
 	DynamicObject* pObject = pValue->asObject();
+
+	DynamicData_view_object_context_menu(pValue, hMember, pPath);
 
 	if (pObject->hPrototype == 0)
 	{
@@ -363,10 +401,12 @@ void DynamicData_view_draw_object(DynamicData* pValue, DynamicEditorPath* pPath)
 			Printf buf;
 			DynamicData element = pObject->members.values[i];
 			DynamicData_format_value(buf, pObject->members.values[i]);
+			PushStatusStyle(memberStatus);
 			if (ImGui::TreeNodeEx(Printf("%s : %s", memberName, buf.cstr()), ImGuiTreeNodeFlags_Leaf))
 			{
 				ImGui::TreePop();
 			}
+			PopStatusStyle();
 
 			if (element.type == DynamicData::Type_Number && ImGui::IsItemClicked())
 			{
@@ -376,51 +416,15 @@ void DynamicData_view_draw_object(DynamicData* pValue, DynamicEditorPath* pPath)
 		}
 		else
 		{
-
-			if (memberStatus == MemberStatus::Inherited)
-				ImGui::PushStyleVar(ImGuiStyleVar_Alpha, 0.5f);
+			PushStatusStyle(memberStatus);
 			bool childOpen = ImGui::TreeNode(memberName);
-
-			ImGui::PushID((int)i);
-			if (ImGui::IsItemClicked(1))
-			{
-				ImGui::OpenPopup("dd_view_context_menu");
-			}
-
-			if (ImGui::BeginPopup("dd_view_context_menu"))
-			{
-				ImGui::PushStyleVar(ImGuiStyleVar_Alpha, 1.0f);
-				ImGui::MenuItem(Printf("Member status : %s", to_string(memberStatus)));
-
-				ImGui::BeginDisabled(memberStatus != MemberStatus::Inherited);
-				if (ImGui::MenuItem("Instantiate object"))
-				{
-					DynamicData_instantiate_path(pPath, member);
-				}
-				ImGui::EndDisabled();
-
-				ImGui::BeginDisabled(memberStatus != MemberStatus::Instantiated);
-				if (ImGui::MenuItem("Revert to prototype"))
-				{
-					DynamicData_clear_instantiated_subobject(pValue, hMemberName);
-				}
-				ImGui::EndDisabled();
-
-				ImGui::PopStyleVar();
-				ImGui::EndPopup();
-			}
-
-			ImGui::PopID();
+			PopStatusStyle();
 
 			if (childOpen)
 			{
 				DynamicData_view_impl(pValue, hMemberName, pPath);
-
 				ImGui::TreePop();
 			}
-
-			if (memberStatus == MemberStatus::Inherited)
-				ImGui::PopStyleVar();
 
 			pPath->values.pop_back();
 		}
@@ -446,7 +450,7 @@ void DynamicData_view_draw_object_set(DynamicData* pValue, u64 hSetName, Dynamic
 		ImGui::PushID((int)item->id());
 		if (ImGui::TreeNode(Printf("%s [%d]",setName, (int)i)))
 		{
-			DynamicData_view_draw_object(item, pPath);
+			DynamicData_view_draw_object(item, item->id(), pPath);
 			ImGui::TreePop();
 		}
 		ImGui::PopID();
@@ -460,12 +464,16 @@ void DynamicData_view_impl(DynamicData* parent, u64 hMember, DynamicEditorPath* 
 	{
 	case DynamicData::Type_Object:
 	{
-		DynamicData_view_draw_object(&value, pPath);
+		pPath->values.push_back(*parent);
+		DynamicData_view_draw_object(&value, hMember, pPath);
+		pPath->values.pop_back();
 		break;
 	}
 	case DynamicData::Type_Set:
 	{
+		pPath->values.push_back(*parent);
 		DynamicData_view_draw_object_set(parent, hMember, pPath);
+		pPath->values.pop_back();
 		break;
 	}
 	case DynamicData::Type_Integer:
@@ -473,12 +481,21 @@ void DynamicData_view_impl(DynamicData* parent, u64 hMember, DynamicEditorPath* 
 	case DynamicData::Type_String:
 	case DynamicData::Type_Null:
 	{
+		DynamicObject* obj = parent->asObject();
 		Printf buf;
-		DynamicData_format_value(buf, value);
-		bool r = ImGui::TreeNodeEx(buf.cstr(), ImGuiTreeNodeFlags_Leaf);
-		if (r)
+		u64 i;
+		if (findName(obj->members.names, hMember, &i))
 		{
-			ImGui::TreePop();
+			MemberStatus status = obj->members.statuses[i];
+
+			PushStatusStyle(status);
+			DynamicData_format_value(buf, value);
+			bool r = ImGui::TreeNodeEx(buf.cstr(), ImGuiTreeNodeFlags_Leaf);
+			PopStatusStyle();
+			if (r)
+			{
+				ImGui::TreePop();
+			}
 		}
 		break;
 	}
@@ -528,18 +545,25 @@ DynamicData DynamicData_obj_new()
 	return value;
 }
 
-DynamicData DynamicData_instance_new(DynamicData* prototype)
+DynamicData DynamicData_instance_new(DynamicData* pPrototype)
  {
 	DynamicData value = DynamicData_make_null();
 
-	if (prototype->type == DynamicData::Type_Object)
+	if (pPrototype->type == DynamicData::Type_Object)
 	{
 		DynamicObject* pObject = new DynamicObject();
+
+		DynamicObject* pProtoObject = pPrototype->asObject();
+
+		u64 size = pProtoObject->members.names.size();
+		pObject->members.names = pProtoObject->members.names;
+		pObject->members.values = pProtoObject->members.values;
+		pObject->members.statuses.resize(size, MemberStatus::Inherited);
 
 		u64 id = next_obj_id();
 		value.type = DynamicData::Type_Object;
 		value.hObject = id;
-		pObject->hPrototype = prototype->id();
+		pObject->hPrototype = pPrototype->id();
 		pObject->version = 1;
 
 		g_objects[id] = pObject;
@@ -1208,8 +1232,10 @@ void DynamicData_obj_set(DynamicData* object, u64 hName, DynamicData value)
 			MemberStatus status = pObject->members.statuses[i];
 			if (status == MemberStatus::Inherited)
 			{
+				pObject->members.values[i] = value;
+				pObject->members.statuses[i] = MemberStatus::Overridden;
 			}
-			else if (status == MemberStatus::Owned)
+			else if (status == MemberStatus::Owned || status == MemberStatus::Overridden)
 			{
 				pObject->members.values[i] = value;
 			}
@@ -1713,7 +1739,7 @@ void DynamicData_view(DynamicData* pData)
 {
 	DynamicEditorPath path;
 	path.root = pData->asObject();
-	DynamicData_view_draw_object(pData, &path);
+	DynamicData_view_draw_object(pData, 0, &path);
 	//DynamicData_view_impl(pData, 0ull, &path);
 }
 

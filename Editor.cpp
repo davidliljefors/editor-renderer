@@ -506,6 +506,13 @@ void DrawDynamicEntity(DynamicData& entity)
 	
 }
 
+void Debug_register_root_entity(DynamicData root)
+{
+	DynamicData_obj_set(&root, string_repository_hash("name"), DynamicData_make_str("Instance"));
+	s_app->addRoot(root);
+}
+
+
 void EditorApp::update()
 {
 	ImGuiIO& io = ImGui::GetIO();
@@ -547,12 +554,12 @@ void EditorApp::update()
 	ImGui::Begin("Entity Roots");
 
 	int num = 0;
-	for (DynamicData& value : m_roots)
+	for (u64 i = 0; i < m_roots.size(); ++i)
 	{
-		ImGui::PushID((int)value.id());
+		ImGui::PushID((int)m_roots[i].id());
 		if (ImGui::CollapsingHeader(Printf("Entity Root %d", num++)))
 		{
-			DynamicData_view(&value);
+			DynamicData_view(&m_roots[i]);
 		}
 
 		if (ImGui::Button("Add Child"))
@@ -563,17 +570,17 @@ void EditorApp::update()
 			DynamicData_obj_add(&childEntity, hName, DynamicData_make_str("Child Entity"));
 
 			//if (DynamicData_get_member_status())
-			DynamicData_add_to_subobject_set(&value, string_repository_hash("children"), childEntity);
+			DynamicData_add_to_subobject_set(&m_roots[i], string_repository_hash("children"), childEntity);
 		}
 		if (ImGui::Button("Add Transform Component"))
 		{
 			DynamicData transformComp = DynamicData_createFromTemplate(COMPONENT_ID_TRANSFORM);
-			DynamicData_add_to_subobject_set(&value, string_repository_hash("components"), transformComp);
+			DynamicData_add_to_subobject_set(&m_roots[i], string_repository_hash("components"), transformComp);
 		}
 		if (ImGui::Button("Add Color Component"))
 		{
 			DynamicData colorComp = DynamicData_createFromTemplate(COMPONENT_ID_COLOR);
-			DynamicData_add_to_subobject_set(&value, string_repository_hash("components"), colorComp);
+			DynamicData_add_to_subobject_set(&m_roots[i], string_repository_hash("components"), colorComp);
 		}
 		ImGui::PopID();
 	}
@@ -686,6 +693,11 @@ void EditorApp::onResize(u32 w, u32 h)
     update();
 	renderFrame(m_renderer);
     present(m_renderer);
+}
+
+void EditorApp::addRoot(DynamicData root)
+{
+	m_roots.push_back(root);
 }
 
 void EditorApp::DrawDynamicEntity(DynamicData& entityData)

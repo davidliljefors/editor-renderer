@@ -19,6 +19,7 @@
 
 #define DD_ARRAY_COUNT(a) (sizeof(a) / sizeof(a[0]))
 
+
 struct DynamicEditorPath;
 
 struct Printf
@@ -60,6 +61,9 @@ namespace eastl = std;
 
 struct DDInstance;
 struct DynamicData;
+
+void Debug_register_root_entity(DynamicData root);
+
 
 struct Position
 {
