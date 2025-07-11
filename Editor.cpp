@@ -536,9 +536,9 @@ void EditorApp::update()
 
 	if (ImGui::Button("Add new root entity"))
 	{
-		DynamicData entity = DynamicData_createFromTemplate(ENTITY_TYPE_ID);
+		DynamicData entity = DynamicData_createFromTemplate(string_repository_hash("Entity Type"));
 		u64 hName = MetroHash64::HashStr("name");
-		DynamicData_obj_add(&entity, hName, DynamicData_make_str("Root Entity"));
+		DynamicData_obj_set(&entity, hName, DynamicData_make_str("Root Entity"));
 		m_roots.push_back(entity);
 	}
 
@@ -557,7 +557,7 @@ void EditorApp::update()
 
 		if (ImGui::Button("Add Child"))
 		{
-			DynamicData childEntity = DynamicData_createFromTemplate(ENTITY_TYPE_ID);
+			DynamicData childEntity = DynamicData_createFromTemplate(string_repository_hash("Entity Type"));
 
 			u64 hName = MetroHash64::HashStr("name");
 			DynamicData_obj_add(&childEntity, hName, DynamicData_make_str("Child Entity"));
@@ -582,10 +582,10 @@ void EditorApp::update()
 
 	ImGui::Begin("Entity Throguh Api");
 
-	for (DynamicData& value : m_roots)
+	/*for (DynamicData& value : m_roots)
 	{
 		DrawDynamicEntity(value);
-	}
+	}*/
 
 	ImGui::End();
 
@@ -706,7 +706,7 @@ void EditorApp::DrawDynamicEntity(DynamicData& entityData)
 
 		if (ImGui::IsKeyDown(ImGuiKey_LeftCtrl))
 		{
-			entityData.asObject()->flattened.dirty = true;
+			
 		}
 	}
 
@@ -727,14 +727,13 @@ void EditorApp::DrawSelectedEntity()
 		return;
 	}
 
-	DynamicData components = DynamicData_obj_find(&m_focused, MetroHash64::HashStr("components"));
 
 	if (ImGui::Button("Add Empty Child"))
 	{
 		//DDEntity entity = DynamicData_readEntity(&m_focused);
 		//DDEntityEditor editor = {&entity};
 
-		DynamicData emptyEntity = DynamicData_createFromTemplate(ENTITY_TYPE_ID);
+		DynamicData emptyEntity = DynamicData_createFromTemplate(string_repository_hash("Entity Type"));
 		static int s_next_num = 0;
 		DynamicData_obj_set(&emptyEntity, string_repository_hash("name"), DynamicData_make_str(Printf("Entity num %d", s_next_num++)));
 		//DynamicData_obj_arr_push(&m_focused, string_repository_hash("children"), emptyEntity);
@@ -744,20 +743,6 @@ void EditorApp::DrawSelectedEntity()
 		//DynamicData_writeBack(&m_focused, &entity);
 	}
 	
-	if (components.type == DynamicData::Type_Set && components.asSet()->flattened.values.size() == 0)
-	{
-		if (ImGui::Button("Add transform component"))
-		{ 
-			DynamicData transformComponent = DynamicData_createFromTemplate(COMPONENT_ID_TRANSFORM);
-			DynamicData_add_to_subobject_set(&m_focused, string_repository_hash("components"), transformComponent);
-		}
-	}
-	else
-	{
-		DDTransformComponent transform = DynamicData_readTransform(&m_focused);
-		ImGui::InputFloat3("Entity Position", &transform.x);
-	}
-
 	if (s_clipboard.id() != 0)
 	{
 		DynamicObject* selected = lookup_obj(m_focused.hObject);

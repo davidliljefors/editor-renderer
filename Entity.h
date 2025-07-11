@@ -10,7 +10,6 @@
 #include "Core/HashMap.h"
 
 
-
 #include <vector>
 #include <unordered_map>
 #include <string>
@@ -19,6 +18,8 @@
 #define _CRT_SECURE_NO_WARNINGS 1
 
 #define DD_ARRAY_COUNT(a) (sizeof(a) / sizeof(a[0]))
+
+struct DynamicEditorPath;
 
 struct Printf
 {
@@ -88,6 +89,15 @@ struct DynamicSet;
 
 DynamicObject* lookup_obj(u64 hObject);
 DynamicSet* lookup_set(u64 hSet);
+
+enum class MemberStatus
+{
+	Owned,
+	Inherited,
+	Instantiated,
+	Overridden,
+	None
+};
 
 struct DynamicData
 {
@@ -164,116 +174,13 @@ struct DynamicData
 	u8 _pad[7];
 };
 
-struct DynamicEditorPath
-{
-	DynamicObject* root;
-	eastl::vector<DynamicData> values;
-};
-
-enum class MemberStatus
-{
-	Owned,
-	Inherited,
-	Instantiated,
-	Overridden,
-};
-
-struct DynamicObject
-{
-	u64 id;
-	u64 hRoot;
-	u64 hPrototype;
-	bool tombstone;
-
-	struct Members
-	{
-		eastl::vector<u64> names;
-		eastl::vector<DynamicData> values;
-		eastl::vector<MemberStatus> statuses;
-	};
-
-	struct Owned
-	{
-		eastl::vector<u64> names;
-		eastl::vector<DynamicData> values;
-	};
-
-	struct Overrides
-	{
-		eastl::vector<u64> names;
-		eastl::vector<DynamicData> values;
-	};
-
-	struct Flattened
-	{
-		eastl::vector<u64> names;
-		eastl::vector<DynamicData> values;
-		u64 basedOnVersion;
-		bool dirty;
-	};
-
-	struct Instantiated
-	{
-		eastl::vector<u64> names;
-		eastl::vector<DynamicData> values;
-	};
-
-	Owned owned;
-	Overrides overrides;
-	Instantiated instantiated;
-
-	Flattened flattened;
-
-	u64 version;
-};
-
-struct DynamicSet
-{
-	struct Added
-	{
-		eastl::vector<DynamicData> values;
-	};
-
-	struct Removed
-	{
-		eastl::vector<DynamicData> values;
-	};
-
-	struct Instantiated
-	{
-		eastl::vector<u64> ids;
-		eastl::vector<DynamicData> values;
-	};
-
-	struct Flattened
-	{
-		eastl::vector<DynamicData> values;
-		u64 basedOnVersion;
-		bool dirty;
-	};
-
-	Added added;
-	Removed removed;
-	Instantiated instantiated;
-
-	Flattened flattened;
-
-	u64 version;
-};
-
-struct ComposedSet
-{
-	eastl::vector<DynamicData> values;
-};
-
-ComposedSet DynamicData_compose_set(DynamicData* pValue, u64 hMember);
 
 bool DDObject_is_up_to_date(DynamicObject* pObject, DynamicObject* pPrototype);
 
 DynamicData DynamicData_obj_new();
 DynamicData DynamicData_new_from_prototype(DynamicData* pPrototype);
-DynamicData DynamicData_instantiate_member(DynamicData* pValue, u64 hName);
-void	    DynamicData_instantiate_clear(DynamicData* pValue, u64 hName);
+DynamicData DynamicData_instantiate_subobject(DynamicData* pValue, u64 hName);
+void	    DynamicData_clear_instantiated_subobject(DynamicData* pValue, u64 hName);
 DynamicData DynamicData_set_new();
 DynamicData DynamicData_str_new();
 DynamicData DynamicData_int_new();
@@ -290,7 +197,7 @@ DynamicData DyancmiData_instantiate_subobject_from_set(DynamicData* pValue, u64 
 void DynamicData_add_to_subobject_set(DynamicData* pValue, u64 hSetMember, DynamicData item);
 void DynamicData_remove_from_subobject_set(DynamicData* pValue, u64 hMember, DynamicData item);
 
-void DynamicData_remove_from_prototype_subobject_set(DynamicData* pValue, u64 hName, u64 id);
+void DynamicData_remove_from_prototype_subobject_set(DynamicData* pValue, u64 hMember, u64 id);
 void DynamicData_cancel_remove_from_prototype_subobject_set(DynamicData* pValue, u64 hName, u64 id);
 
 // todo api return temp allocated arrays
@@ -311,9 +218,9 @@ enum DynamicData_MemberStatus
 	MemberStatus_None
 };
 
+const char* to_string(MemberStatus status);
 const char* to_string(DynamicData_MemberStatus status);
 
-DynamicData_MemberStatus DynamicData_get_member_status(DynamicEditorPath* pPath, DynamicData value);
 
 void DynamicData_clone_internal(DynamicData* src, DynamicData* dst);
 
@@ -335,8 +242,6 @@ void _DynamicData_obj_arr_push(DynamicData* object, u64 hArrayName, DynamicData 
 //void DynamicData_array_add(DynamicData* array, DynamicData value);
 
 void DynamicData_array_pop(DynamicData* array, DynamicData value);
-
-void DynamicData_obj_before_read(DynamicObject* pObject);
 
 void DynamicData_set_before_read(DynamicObject* pObject, u64 hMember);
 
@@ -391,14 +296,13 @@ const char* string_repository_get(u64 hName);
 struct DebugValuePair
 {
 	eastl::string name;
+	MemberStatus status;
 	DynamicData value;
 };
 
 struct DynamicObjectDebugView
 {
-	eastl::vector<DebugValuePair> owned;
-	eastl::vector<eastl::string> instantiated;
-	eastl::vector<DebugValuePair> flattened;
+	eastl::vector<DebugValuePair> values;
 };
 
 DynamicObjectDebugView DynamicData_DebugExpression(u64 hObject);
