@@ -199,13 +199,13 @@ DynamicData DynamicData_make_num(f64 number);
 DynamicData DyancmiData_instantiate_subobject_from_set(DynamicData* pValue, u64 hSetMember, DynamicData item);
 
 void DynamicData_add_to_subobject_set(DynamicData* pValue, u64 hSetMember, DynamicData item);
-void DynamicData_remove_from_subobject_set(DynamicData* pValue, u64 hMember, DynamicData item);
+void DynamicData_remove_from_subobject_set(DynamicData* pValue, u64 hSetMember, DynamicData item);
 
-void DynamicData_remove_from_prototype_subobject_set(DynamicData* pValue, u64 hMember, u64 id);
-void DynamicData_cancel_remove_from_prototype_subobject_set(DynamicData* pValue, u64 hName, u64 id);
+void DynamicData_remove_from_prototype_subobject_set(DynamicData* pValue, u64 hMember, DynamicData item);
+void DynamicData_cancel_remove_from_prototype_subobject_set(DynamicData* pValue, u64 hSetMember, DynamicData item);
 
 // todo api return temp allocated arrays
-eastl::vector<DynamicData> DynamicData_get_subobject_set(DynamicData* pValue, u64 hSetName);
+eastl::vector<DynamicData> DynamicData_get_subobject_set(DynamicData* pValue, u64 hSetMember);
 eastl::vector<DynamicData> DynamicData_get_subobject_set_locally_removed(DynamicData* pValue, u64 hSetName);
 
 bool DynamicData_obj_is_editable(DynamicData* pValue, u64 hName);

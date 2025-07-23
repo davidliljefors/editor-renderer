@@ -508,7 +508,6 @@ void DrawDynamicEntity(DynamicData& entity)
 
 void Debug_register_root_entity(DynamicData root)
 {
-	DynamicData_obj_set(&root, string_repository_hash("name"), DynamicData_make_str("Instance"));
 	s_app->addRoot(root);
 }
 
