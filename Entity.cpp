@@ -299,7 +299,7 @@ void DynamicData_view_object_context_menu(DynamicData* pValue, u64 hMember, Dyna
 			DynamicData instance = DynamicData_new_from_prototype(pValue);
 
 			u64 hNameField = string_repository_hash("name");
-			const char* name = DynamicData_obj_find(pValue, hNameField).asString();
+			const char* name = DynamicData_obj_get(pValue, hNameField).asString();
 			DynamicData_obj_set(&instance, hNameField, DynamicData_make_str(Printf("Instance of [%s]", name)));
 			Debug_register_root_entity(instance);
 		}
@@ -432,7 +432,7 @@ void DynamicData_view_draw_object_set(DynamicData* pValue, u64 hSetName, Dynamic
 
 void DynamicData_view_impl(DynamicData* parent, u64 hMember, DynamicEditorPath* pPath)
 {
-	DynamicData value = hMember == 0 ? *parent : DynamicData_obj_find(parent, hMember);
+	DynamicData value = hMember == 0 ? *parent : DynamicData_obj_get(parent, hMember);
 	switch (value.type)
 	{
 	case DynamicData::Type_Object:
@@ -1172,7 +1172,7 @@ void DynamicData_clone_internal(DynamicData* src, DynamicData* dst, u64 hMember)
 	}
 	case DynamicData::Type_Set:
 	{
-		*dst = DynamicData_set_new();
+		/**dst = DynamicData_set_new();
 		DynamicSet* pSet = dst->asSet();
 		DynamicSet* pSrcSet = src->asSet();
 
@@ -1187,7 +1187,7 @@ void DynamicData_clone_internal(DynamicData* src, DynamicData* dst, u64 hMember)
 		for (u64 i = 0; i < size; ++i)
 		{
 			DynamicData_clone_internal(&pSrcSet->flattened.values[i], &pSet->added.values[i]);
-		}
+		}*/
 
 		break;
 	}
@@ -1220,13 +1220,33 @@ void DynamicData_clone_internal(DynamicData* src, DynamicData* dst, u64 hMember)
 	}
 }
 
+void DynamicData_clone_obj(DynamicData* src, DynamicData* dst)
+{
+	DynamicObject* pSrcObj = src->asObject();
+	DynamicObject* pDstObj = dst->asObject();
+
+	u64 size = pSrcObj->members.values.size();
+
+	pDstObj->members.names.resize(size);
+	pDstObj->members.values.resize(size);
+	pDstObj->members.statuses.resize(size);
+
+	for (u64 i = 0; i < size; ++i)
+	{
+		pDstObj->members.names[i] = pSrcObj->members.names[i];
+		pDstObj->members.statuses[i] = MemberStatus::Owned;
+		DynamicData_clone_internal(&pSrcObj->members.values[i], &pDstObj->members.values[i], pDstObj->members.names[i]);
+	}
+}
+
 DynamicData DynamicData_clone(DynamicData* src)
 {
 	if (src->type == DynamicData::Type_Object)
 	{
-		DynamicData value;
-		DynamicData_clone_internal(src, &value);
-		return value;
+		DynamicData dst = DynamicData_obj_new();
+		DynamicData_clone_obj(src, &dst);
+		
+		return dst;
 	}
 	else
 	{
@@ -1236,14 +1256,14 @@ DynamicData DynamicData_clone(DynamicData* src)
 }
 
 
-DynamicData DynamicData_obj_find_impl(DynamicObject* pObject, u64 hName)
+DynamicData DynamicData_obj_get_impl(DynamicObject* pObject, u64 hName)
 {
 	u64 i;
 	if (findName(pObject->members.names, hName, &i))
 	{
 		if (pObject->members.statuses[i] == MemberStatus::Inherited)
 		{
-			return DynamicData_obj_find_impl(lookup_obj(pObject->hPrototype), hName);
+			return DynamicData_obj_get_impl(lookup_obj(pObject->prototype.hObject), hName);
 		}
 		else
 		{
@@ -1254,27 +1274,17 @@ DynamicData DynamicData_obj_find_impl(DynamicObject* pObject, u64 hName)
 	return DynamicData_make_null();
 }
 
-DynamicData DynamicData_obj_find(DynamicData* pValue, u64 hName)
+DynamicData DynamicData_obj_get(DynamicData* pValue, u64 hName)
 {
 	if (pValue->type == DynamicData::Type_Object)
 	{
 		DynamicObject* pObject = pValue->asObject();
-		return DynamicData_obj_find_impl(pObject, hName);
+		return DynamicData_obj_get_impl(pObject, hName);
 	}
 
 	return DynamicData_make_null();
 }
 
-DynamicData DynamicData_obj_at(DynamicData* pValue, u64 index)
-{
-	if (pValue->type == DynamicData::Type_Object)
-	{
-		DynamicObject* pObject = pValue->asObject();
-		//return DynamicData_obj_find_impl(pObject, hName);
-	}
-
-	return DynamicData_make_null();
-}
 
 void DynamicData_assign_root(DynamicData* newRoot, DynamicData* value)
 {
@@ -1458,7 +1468,7 @@ void DynamicData_writeBack(DynamicData* pData, void* pValue)
 {
 	u64 hTypeId = MetroHash64::HashStr(s_typeIdKey);
 
-	DynamicData type = DynamicData_obj_find(pData, hTypeId);
+	DynamicData type = DynamicData_obj_get(pData, hTypeId);
 
 	DynamicDataParser_i* parser = lookup_parser(type.asUint());
 
@@ -1731,14 +1741,14 @@ DynamicData DynamicData_createFromTemplate(u64 hTemplate)
 	u64 hType = string_repository_hash(s_typeNameKey);
 	u64 hTypeId = string_repository_hash(s_typeIdKey);
 
-	const char* typeName = DynamicData_obj_find(pTemplate, hType).asString();
+	const char* typeName = DynamicData_obj_get(pTemplate, hType).asString();
 
 	DynamicData_obj_add(&value, hType, DynamicData_make_str(typeName));
 	DynamicData_obj_add(&value, hTypeId, DynamicData_make_int((i64)hTemplate));
 
 	u64 hFields = string_repository_hash(s_fieldsKey);
 
-	if (DynamicObject* fields = DynamicData_obj_find(pTemplate, hFields).asObject())
+	if (DynamicObject* fields = DynamicData_obj_get(pTemplate, hFields).asObject())
 	{
 		u64 numFields = fields->members.values.size();
 		for (u64 i = 0; i < numFields; ++i)

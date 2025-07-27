@@ -765,7 +765,7 @@ void EditorApp::DrawSelectedEntity()
 
 			u64 hNameField = string_repository_hash("name");
 
-			const char* name = DynamicData_obj_find(&s_clipboard, hNameField).asString();
+			const char* name = DynamicData_obj_get(&s_clipboard, hNameField).asString();
 			DynamicData_obj_set(&instantiated, string_repository_hash("name"), DynamicData_make_str(Printf("Instance of [%s]", name)));
 			m_roots.push_back(instantiated);
 		}
