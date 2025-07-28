@@ -2,7 +2,6 @@
 
 #include "Core/Array.h"
 #include "Math.h"
-#include "mh64.h"
 #include "TruthMap.h"
 
 struct Transaction

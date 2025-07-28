@@ -4,13 +4,13 @@
 
 #include "EditorRenderer.h"
 #include "imgui.h"
-#include "mh64.h"
 #include "pch.h"
 #include "Scene.h"
 #include "Core/HashMap.h"
 
 #include <wincrypt.h>
 
+#include "DynamicTypes.h"
 #include "Entity.h"
 #include "Core/TempAllocator.h"
 
@@ -506,7 +506,7 @@ void DrawDynamicEntity(DynamicData& entity)
 	
 }
 
-void Debug_register_root_entity(DynamicData root)
+void Debug_register_root_object(DynamicData root)
 {
 	s_app->addRoot(root);
 }
@@ -542,44 +542,48 @@ void EditorApp::update()
 
 	if (ImGui::Button("Add new root entity"))
 	{
-		DynamicData entity = DynamicData_createFromTemplate(string_repository_hash("Entity Type"));
-		u64 hName = MetroHash64::HashStr("name");
-		DynamicData_obj_set(&entity, hName, DynamicData_make_str("Root Entity"));
+		DynamicData entity = DynamicData_create_from_template(ENTITY_NAME_HASH);
+		DynamicData_obj_set(&entity, TM_STATIC_HASH("name", 0xd4c943cba60c270bULL), DynamicData_make_str("Root Entity"));
 		m_roots.push_back(entity);
 	}
 
 	ImGui::End();
 
-	ImGui::Begin("Entity Roots");
+	ImGui::Begin("Object Roots");
 
 	int num = 0;
-	for (u64 i = 0; i < m_roots.size(); ++i)
+	for (DynamicData& m_root : m_roots)
 	{
-		ImGui::PushID((int)m_roots[i].id());
-		if (ImGui::CollapsingHeader(Printf("Entity Root %d", num++)))
+		ImGui::PushID((int)m_root.id());
+		if (ImGui::CollapsingHeader(Printf("Object Root %d", num++)))
 		{
-			DynamicData_view(&m_roots[i]);
+			DynamicData value = m_root;
+			DynamicData_view(&value);
 		}
 
 		if (ImGui::Button("Add Child"))
 		{
-			DynamicData childEntity = DynamicData_createFromTemplate(string_repository_hash("Entity Type"));
+			DynamicData childEntity = DynamicData_create_from_template(ENTITY_NAME_HASH);
 
-			u64 hName = MetroHash64::HashStr("name");
-			DynamicData_obj_add(&childEntity, hName, DynamicData_make_str("Child Entity"));
+			DynamicData_obj_add(&childEntity, TM_STATIC_HASH("name", 0xd4c943cba60c270bULL), DynamicData_make_str("Child Entity"));
 
-			//if (DynamicData_get_member_status())
-			DynamicData_add_to_subobject_set(&m_roots[i], string_repository_hash("children"), childEntity);
+			DynamicData_add_to_subobject_set(&m_root, string_repository_hash("children"), childEntity);
 		}
 		if (ImGui::Button("Add Transform Component"))
 		{
-			DynamicData transformComp = DynamicData_createFromTemplate(COMPONENT_ID_TRANSFORM);
-			DynamicData_add_to_subobject_set(&m_roots[i], string_repository_hash("components"), transformComp);
+			DynamicData transformComp = DynamicData_create_from_template(TRANSFORM_NAME_HASH);
+			if (transformComp.type != DynamicData::Type_Null)
+			{
+				DynamicData_add_to_subobject_set(&m_root, string_repository_hash("components"), transformComp);
+			}
 		}
 		if (ImGui::Button("Add Color Component"))
 		{
-			DynamicData colorComp = DynamicData_createFromTemplate(COMPONENT_ID_COLOR);
-			DynamicData_add_to_subobject_set(&m_roots[i], string_repository_hash("components"), colorComp);
+			DynamicData colorComp = DynamicData_create_from_template(COLOR_NAME_HASH);
+			if (colorComp.type != DynamicData::Type_Null)
+			{
+				DynamicData_add_to_subobject_set(&m_root, string_repository_hash("components"), colorComp);
+			}
 		}
 		ImGui::PopID();
 	}
@@ -744,7 +748,7 @@ void EditorApp::DrawSelectedEntity()
 		//DDEntity entity = DynamicData_readEntity(&m_focused);
 		//DDEntityEditor editor = {&entity};
 
-		DynamicData emptyEntity = DynamicData_createFromTemplate(string_repository_hash("Entity Type"));
+		DynamicData emptyEntity = DynamicData_create_from_template(string_repository_hash("Entity Type"));
 		static int s_next_num = 0;
 		DynamicData_obj_set(&emptyEntity, string_repository_hash("name"), DynamicData_make_str(Printf("Entity num %d", s_next_num++)));
 		//DynamicData_obj_arr_push(&m_focused, string_repository_hash("children"), emptyEntity);

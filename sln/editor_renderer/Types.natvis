@@ -24,7 +24,7 @@
 	</Type>
 
 	<Type Name="DynamicData">
-		<DisplayString Condition="type == Type_Null">"test"</DisplayString>
+		<DisplayString Condition="type == Type_Null">"Null"</DisplayString>
 		<DisplayString Condition="type == Type_Object">Object</DisplayString>
 		<DisplayString Condition="type == Type_Set">Set</DisplayString>
 		<DisplayString Condition="type == Type_Integer">Integer: {integer}</DisplayString>
@@ -33,7 +33,7 @@
 
 		<Expand>
 			<Item Name="type">type</Item>
-			<Item Name="value" Condition="type == Type_Null">"test"</Item>
+			<Item Name="value" Condition="type == Type_Null">"Null"</Item>
 			<Item Name="Object" Condition="type == Type_Object">DynamicData_DebugExpression(hObject) </Item>
 			<Item Name="value" Condition="type == Type_Set">integer</Item>
 			<Item Name="value" Condition="type == Type_Integer">integer</Item>

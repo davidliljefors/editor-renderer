@@ -3,7 +3,6 @@
 #include <cstdarg>
 
 #include "Math.h"
-#include "mh64.h"
 #include "TruthMap.h"
 #include "TruthView.h"
 #include "Core/Array.h"
@@ -62,7 +61,7 @@ namespace eastl = std;
 struct DDInstance;
 struct DynamicData;
 
-void Debug_register_root_entity(DynamicData root);
+void Debug_register_root_object(DynamicData root);
 
 
 struct Position
@@ -100,6 +99,7 @@ enum class MemberStatus
 	Inherited,
 	Instantiated,
 	Overridden,
+	Removed,
 	None
 };
 
@@ -165,6 +165,11 @@ struct DynamicData
 		return type == Type_Set || type == Type_Object;
 	}
 
+	bool isPod()
+	{
+		return type == Type_Integer || type == Type_Number || type == Type_String;
+	}
+
 	union
 	{
 		u64 hObject;
@@ -228,26 +233,19 @@ const char* to_string(DynamicData_MemberStatus status);
 
 DynamicData DynamicData_clone(DynamicData* src);
 
+DynamicData DynamicData_get_prototype(DynamicData* pValue);
+
 DynamicData DynamicData_obj_get(DynamicData* pValue, u64 hName);
+
+MemberStatus DynamicData_get_member_status(DynamicData* pValue, u64 hMember);
 
 void DynamicData_assign_root(DynamicData* newRoot, DynamicData* value);
 
 void DynamicData_obj_add(DynamicData* target, u64 hName, DynamicData add);
 
-DynamicData DynamicData_obj_get(DynamicData* target, u64 hName);
-
 void DynamicData_obj_set(DynamicData* object, u64 hName, DynamicData value);
 
-void _DynamicData_obj_arr_push(DynamicData* object, u64 hArrayName, DynamicData value);
-
-
-//void DynamicData_array_add(DynamicData* array, DynamicData value);
-
-void DynamicData_array_pop(DynamicData* array, DynamicData value);
-
-void DynamicData_set_before_read(DynamicObject* pObject, u64 hMember);
-
-void DynamicData_set_before_read(DynamicData* pValue, u64 hMember);
+void DynamicData_obj_clear_override(DynamicData* pValue, u64 hMember);
 
 struct ArrayEditor
 {
@@ -312,8 +310,9 @@ DynamicObjectDebugView DynamicData_DebugExpression(u64 hObject);
 bool float_almost_equal(float a, float b);
 
 constexpr const char* s_typeNameKey = "type_name";
-constexpr const char* s_fieldsKey = "fields";
 constexpr const char* s_typeIdKey = "__type_id";
+
+constexpr static u64 s_hFields = TM_STATIC_HASH("fields", 0xfeae1f7e5ced00a4ULL);
 
 struct DDEntity
 {
@@ -462,13 +461,6 @@ DDTransformComponent DynamicData_readTransform(DynamicData* pEntity);
 
 void DynamicData_writeBack(DynamicData* pData, void* pValue);
 
-constexpr u64 ENTITY_TYPE_ID = TM_STATIC_HASH("ENTITY_TYPE_ID", 0x5bf6f54407a5c834ULL);
-constexpr u64 COMPONENT_ID_TRANSFORM = TM_STATIC_HASH("COMPONENT_ID_TRANSFORM", 0x24e93d7df3c9e6f0ULL);
-constexpr u64 COMPONENT_ID_COLOR = TM_STATIC_HASH("COMPONENT_ID_COLOR", 0xa8d3f5d15f0236abULL);
-//constexpr u64 COMPONENT_ID_NAME = TM_STATIC_HASH("COMPONENT_ID_NAME", 0xfc4e5c54ba84ba26ULL);
-
-
-
 struct DynamicDataPropertyDef
 {
 	const char* name;
@@ -482,7 +474,7 @@ DynamicData* DynamicData_get_template(u64 id);
 
 eastl::vector<u64> DynamicData_get_all_types();
 
-DynamicData DynamicData_createFromTemplate(u64 hTemplate);
+DynamicData DynamicData_create_from_template(u64 hName);
 
 void DynamicData_view(DynamicData* pData);
 

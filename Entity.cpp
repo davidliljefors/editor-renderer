@@ -5,6 +5,7 @@
 
 #include "Editor.h"
 #include "imgui.h"
+#include "murmurhash.inl"
 
 
 static i32 s_nextId = 0;
@@ -54,8 +55,9 @@ void PushStatusStyle(MemberStatus status)
 {
 	constexpr u32 COLOR_OWNED = IM_COL32(255, 255, 255, 255);
 	constexpr u32 COLOR_INHERIT = IM_COL32(100, 100, 100, 255);
-	constexpr u32 COLOR_INSTANTIATED = IM_COL32(180, 180, 255, 255);
-	constexpr u32 COLOR_OVERRIDDEN = COLOR_INSTANTIATED;
+	constexpr u32 COLOR_INSTANTIATED = IM_COL32(255, 255, 180, 255);
+	constexpr u32 COLOR_OVERRIDDEN = IM_COL32(180, 180, 255, 255);
+	constexpr u32 COLOR_REMOVED = IM_COL32(255, 180, 180, 255);
 	constexpr u32 COLOR_ERROR = IM_COL32(255, 0, 0, 255);
 
 	u32 styles[]
@@ -64,6 +66,7 @@ void PushStatusStyle(MemberStatus status)
 		COLOR_INHERIT,
 		COLOR_INSTANTIATED,
 		COLOR_OVERRIDDEN,
+		COLOR_REMOVED,
 		COLOR_ERROR,
 	};
 
@@ -86,6 +89,8 @@ struct DynamicObject
 {
 	u64 id;
 	u64 hRoot;
+	u64 hType;
+
 	DynamicData prototype;
 	bool tombstone;
 
@@ -121,8 +126,6 @@ struct DynamicSet
 	Added added;
 	Removed removed;
 	Instantiated instantiated;
-
-	u64 version;
 };
 
 
@@ -285,7 +288,7 @@ void DynamicData_view_draw_value(DynamicData* nonContainer, DynamicData_MemberSt
 	}
 }
 
-void DynamicData_view_object_context_menu(DynamicData* pValue, u64 hMember, DynamicEditorPath* pPath)
+void DynamicData_view_object_context_menu(DynamicData* pValue, u64 hMember, DynamicEditorPath* pPath, bool parentInherited)
 {
 	if (ImGui::IsItemClicked(1))
 	{
@@ -294,20 +297,39 @@ void DynamicData_view_object_context_menu(DynamicData* pValue, u64 hMember, Dyna
 
 	if (ImGui::BeginPopup("dd_view_context_menu"))
 	{
+		DynamicData member = DynamicData_obj_get(pValue, hMember);
+		MemberStatus status = DynamicData_get_member_status(pValue, hMember);
+
+		if (!parentInherited && status == MemberStatus::Overridden)
+		{
+			if (ImGui::MenuItem("Clear value"))
+			{
+				DynamicData_obj_clear_override(pValue, hMember);
+			}
+		}
+
 		if (ImGui::MenuItem("Create instance of"))
 		{
-			DynamicData instance = DynamicData_new_from_prototype(pValue);
+			DynamicData instance = DynamicData_new_from_prototype(&member);
 
-			u64 hNameField = string_repository_hash("name");
-			const char* name = DynamicData_obj_get(pValue, hNameField).asString();
-			DynamicData_obj_set(&instance, hNameField, DynamicData_make_str(Printf("Instance of [%s]", name)));
-			Debug_register_root_entity(instance);
+			constexpr u64 hNameField = TM_STATIC_HASH("name", 0xd4c943cba60c270bULL);
+			DynamicData name = DynamicData_obj_get(&member, hNameField);
+			if (name.type == DynamicData::Type_String)
+			{
+				DynamicData_obj_set(&instance, hNameField, DynamicData_make_str(Printf("Instance of [%s]", name.asString())));
+			}
+			Debug_register_root_object(instance);
 		}
 
-		if (ImGui::MenuItem("Instantiate subobject"))
+
+		if (!parentInherited && status == MemberStatus::Inherited)
 		{
-			DynamicData_instantiate_subobject(&pPath->values.back(), hMember);
+			if (ImGui::MenuItem("Instantiate subobject"))
+			{
+				DynamicData_instantiate_subobject(&pPath->values.back(), hMember);
+			}
 		}
+
 
 		//ImGui::PushStyleVar(ImGuiStyleVar_Alpha, 1.0f);
 		//ImGui::MenuItem(Printf("Member status : %s", to_string(memberStatus)));
@@ -331,36 +353,31 @@ void DynamicData_view_object_context_menu(DynamicData* pValue, u64 hMember, Dyna
 	}
 }
 
-void DynamicData_view_impl(DynamicData* parent, u64 hMember, DynamicEditorPath* pPath);
+void DynamicData_view_impl(DynamicData* parent, u64 hMember, DynamicEditorPath* pPath, bool isInherited);
 
-void DynamicData_view_draw_object(DynamicData* pValue, u64 hMember, DynamicEditorPath* pPath)
+void DynamicData_view_object_set_context_menu(DynamicData* pValue, u64 hMember, DynamicEditorPath* pPath, bool parentInherited)
+{
+
+}
+
+
+void DynamicData_view_draw_root_object(DynamicData* pRoot)
+{
+	
+}
+
+
+void DynamicData_view_draw_object(DynamicData* pValue, DynamicEditorPath* pPath, bool parentInherited, bool* outOpenCtxMenu)
 {
 	DynamicObject* pObject = pValue->asObject();
-
-	DynamicData_view_object_context_menu(pValue, hMember, pPath);
-
-	if (pObject->prototype.id() == 0)
-	{
-		if (ImGui::TreeNodeEx(Printf("Object ID : %llu", pValue->hObject), ImGuiTreeNodeFlags_Leaf))
-		{
-			ImGui::TreePop();
-		}
-	}
-	else
-	{
-		if (ImGui::TreeNodeEx(Printf("Object ID : %llu [Prototype ID : %llu]", pValue->hObject, pObject->prototype.id()), ImGuiTreeNodeFlags_Leaf))
-		{
-			ImGui::TreePop();
-		}
-	}
 
 	for (u64 i = 0; i < pObject->members.names.size(); ++i)
 	{
 		u64 hMemberName = pObject->members.names[i];
-		DynamicData member = pObject->members.values[i];
 
 		bool isContainer = pObject->members.values[i].isContainer();
 		MemberStatus memberStatus = pObject->members.statuses[i];
+		memberStatus = parentInherited ? MemberStatus::Inherited : memberStatus;
 
 		if (isContainer)
 		{
@@ -372,16 +389,17 @@ void DynamicData_view_draw_object(DynamicData* pValue, u64 hMember, DynamicEdito
 		if (!isContainer)
 		{
 			Printf buf;
-			DynamicData element = pObject->members.values[i];
-			DynamicData_format_value(buf, pObject->members.values[i]);
+			DynamicData element = DynamicData_obj_get(pValue, hMemberName);
+			DynamicData_format_value(buf, element);
 			PushStatusStyle(memberStatus);
+
 			if (ImGui::TreeNodeEx(Printf("%s : %s", memberName, buf.cstr()), ImGuiTreeNodeFlags_Leaf))
 			{
 				ImGui::TreePop();
 			}
 			PopStatusStyle();
 
-			if (element.type == DynamicData::Type_Number && ImGui::IsItemClicked())
+			if (element.type == DynamicData::Type_Number && ImGui::IsItemClicked() && !parentInherited)
 			{
 				DynamicData newPos = DynamicData_make_num(element.asNumber() + 1);
 				DynamicData_obj_set(pValue, hMemberName, newPos);
@@ -391,11 +409,12 @@ void DynamicData_view_draw_object(DynamicData* pValue, u64 hMember, DynamicEdito
 		{
 			PushStatusStyle(memberStatus);
 			bool childOpen = ImGui::TreeNode(memberName);
+			*outOpenCtxMenu = ImGui::IsItemClicked(1);
 			PopStatusStyle();
 
 			if (childOpen)
 			{
-				DynamicData_view_impl(pValue, hMemberName, pPath);
+				DynamicData_view_impl(pValue, hMemberName, pPath, memberStatus == MemberStatus::Inherited);
 				ImGui::TreePop();
 			}
 
@@ -404,48 +423,78 @@ void DynamicData_view_draw_object(DynamicData* pValue, u64 hMember, DynamicEdito
 	}
 }
 
-void DynamicData_view_draw_object_set(DynamicData* pValue, u64 hSetName, DynamicEditorPath* pPath)
+void DynamicData_view_draw_object_set(DynamicData* pValue, u64 hSetName, DynamicEditorPath* pPath, bool parentInherited)
 {
 	eastl::vector<DynamicData> members = DynamicData_get_subobject_set(pValue, hSetName);
 	eastl::vector<DynamicData> removed = DynamicData_get_subobject_set_locally_removed(pValue, hSetName);
 
-	for (auto& r : removed)
-		members.push_back(r);
-
-	eastl::sort(members.begin(), members.end(), [](const DynamicData& a, const DynamicData& b) { return a.hObject < b.hObject; });
-
+	DynamicSet* pSet = DynamicData_obj_get(pValue, hSetName).asSet();
 
 	const char* setName = string_repository_get(hSetName);
 
-	for (u64 i = 0; i < members.size(); ++i)
+	for (u64 i = 0; i< members.size(); ++i)
 	{
-		DynamicData* item = &members[i];
+		
+	}
+
+	for (u64 i = 0; i < removed.size(); ++i)
+	{
+		DynamicData* item = &removed[i];
 		ImGui::PushID((int)item->id());
-		if (ImGui::TreeNode(Printf("%s [%d]",setName, (int)i)))
+		PushStatusStyle(MemberStatus::Removed);
+		ImVec2 cursorPos = ImGui::GetCursorScreenPos();
+
+		Printf text = Printf("%s [%d]", setName, (int)i);
+
+		if (ImGui::TreeNodeEx(text.cstr(), ImGuiTreeNodeFlags_Leaf))
 		{
-			DynamicData_view_draw_object(item, item->id(), pPath);
 			ImGui::TreePop();
 		}
+
+		ImVec2 textSize = ImGui::CalcTextSize(text.cstr());
+	
+		ImVec2 start = cursorPos;
+		ImVec2 end = ImVec2(cursorPos.x + textSize.x, cursorPos.y);
+
+		// Adjust Y position to draw the line through the middle of the text
+		float textHeight = textSize.y;
+		start.y += textHeight * 0.5f;
+		end.y += textHeight * 0.5f;
+
+		// Draw the strikethrough line
+		ImGui::GetWindowDrawList()->AddLine(start, end, IM_COL32(255, 255, 255, 255), 1.0f);
+
+		PopStatusStyle();
 		ImGui::PopID();
 	}
 }
 
-void DynamicData_view_impl(DynamicData* parent, u64 hMember, DynamicEditorPath* pPath)
+void DynamicData_view_impl(DynamicData* parent, u64 hMember, DynamicEditorPath* pPath, bool isInherited)
 {
-	DynamicData value = hMember == 0 ? *parent : DynamicData_obj_get(parent, hMember);
+	DynamicData value = DynamicData_obj_get(parent, hMember);
+	MemberStatus status = DynamicData_get_member_status(parent, hMember);
+
+	status = isInherited ? MemberStatus::Inherited : status;
+
 	switch (value.type)
 	{
 	case DynamicData::Type_Object:
 	{
 		pPath->values.push_back(*parent);
-		DynamicData_view_draw_object(&value, hMember, pPath);
+		bool rclick = false;
+		DynamicData_view_draw_object(&value, pPath, isInherited, &rclick);
 		pPath->values.pop_back();
+
+		if (rclick)
+		{
+			DynamicData_view_object_context_menu(parent, hMember, pPath, isInherited);
+		}
 		break;
 	}
 	case DynamicData::Type_Set:
 	{
 		pPath->values.push_back(*parent);
-		DynamicData_view_draw_object_set(parent, hMember, pPath);
+		DynamicData_view_draw_object_set(parent, hMember, pPath, isInherited);
 		pPath->values.pop_back();
 		break;
 	}
@@ -454,21 +503,14 @@ void DynamicData_view_impl(DynamicData* parent, u64 hMember, DynamicEditorPath* 
 	case DynamicData::Type_String:
 	case DynamicData::Type_Null:
 	{
-		DynamicObject* obj = parent->asObject();
 		Printf buf;
-		u64 i;
-		if (findName(obj->members.names, hMember, &i))
+		PushStatusStyle(status);
+		DynamicData_format_value(buf, value);
+		bool r = ImGui::TreeNodeEx(buf.cstr(), ImGuiTreeNodeFlags_Leaf);
+		PopStatusStyle();
+		if (r)
 		{
-			MemberStatus status = obj->members.statuses[i];
-
-			PushStatusStyle(status);
-			DynamicData_format_value(buf, value);
-			bool r = ImGui::TreeNodeEx(buf.cstr(), ImGuiTreeNodeFlags_Leaf);
-			PopStatusStyle();
-			if (r)
-			{
-				ImGui::TreePop();
-			}
+			ImGui::TreePop();
 		}
 		break;
 	}
@@ -479,7 +521,6 @@ static eastl::unordered_map<u64, const char*> s_string_repository;
 static std::unordered_map<u64, DynamicData> g_templates;
 static std::unordered_map<u64, DynamicDataParser_i> g_parsers;
 static std::unordered_map<u64, DynamicObject*> g_objects;
-static std::unordered_map<u64, DynamicSet*> g_sets;
 
 DynamicDataParser_i* lookup_parser(u64 typeId)
 {
@@ -491,12 +532,6 @@ DynamicObject* lookup_obj(u64 hObject)
 {
 	auto find = g_objects.find(hObject);
 	return find != g_objects.end() ? find->second : nullptr;
-}
-
-DynamicSet* lookup_set(u64 hSet)
-{
-	auto find = g_sets.find(hSet);
-	return find != g_sets.end() ? find->second : nullptr;
 }
 
 DynamicData DynamicData_obj_new()
@@ -625,7 +660,6 @@ DynamicData DynamicData_set_new()
 	DynamicSet* pSet = new DynamicSet();
 	value.type = DynamicData::Type_Set;
 	value.pSet = new DynamicSet();
-	pSet->version = 1;
 
 	return value;
 
@@ -694,6 +728,7 @@ DynamicData DynamicData_make_num(f64 number)
 	return value;
 }
 
+
 DynamicData DyancmiData_instantiate_subobject_from_set(DynamicData* pValue, u64 hSetMember, DynamicData item)
 {
 	if (DynamicObject* pObject = pValue->asObject())
@@ -724,7 +759,6 @@ DynamicData DyancmiData_instantiate_subobject_from_set(DynamicData* pValue, u64 
 						DynamicData instantiated = DynamicData_new_from_prototype(&prototype);
 						pSet->instantiated.ids.push_back(item.id());
 						pSet->instantiated.values.push_back(instantiated);
-						pSet->version++;
 					}
 					else
 					{
@@ -759,7 +793,6 @@ void DynamicData_add_to_subobject_set(DynamicData* pValue, u64 hSetMember, Dynam
 				if (DynamicSet* pSet = pObject->members.values[i].asSet())
 				{
 					pSet->added.values.push_back(item);
-					pSet->version++;
 				}
 			}
 			else
@@ -899,7 +932,7 @@ void DynamicData_set_compose(DynamicObject* pObject, u64 setMemberIndex, eastl::
 
 	if (pObject->members.values[setMemberIndex].type != DynamicData::Type_Set)
 	{
-		DYNAMIC_DATA_ERROR("Member is a set");
+		DYNAMIC_DATA_ERROR("Member is not a set");
 		return;
 	}
 
@@ -961,10 +994,16 @@ eastl::vector<DynamicData> DynamicData_get_subobject_set(DynamicData* pValue, u6
 	eastl::vector<u64> ids;
 	eastl::vector<DynamicData> values;
 
-	DynamicObject* pObject = pValue->asObject();
-	u64 index;
-	findName(pObject->members.names, hSetMember, &index);
-	DynamicData_set_compose(pObject, index, ids, values);
+	if (DynamicObject* pObject = pValue->asObject())
+	{
+		u64 index;
+		findName(pObject->members.names, hSetMember, &index);
+		DynamicData_set_compose(pObject, index, ids, values);
+	}
+	else
+	{
+		DYNAMIC_DATA_ERROR("value is not an object");
+	}
 
 	return values;
 }
@@ -1065,10 +1104,6 @@ void DynamicData_instantiate_path_impl(DynamicEditorPath* pPath, DynamicObject* 
 		{
 			DynamicData* pPrototype = &pCurrent->members.values[i];
 			DynamicData created = DynamicData_new_from_prototype(pPrototype);
-			if (created.type == DynamicData::Type_Set)
-			{
-				DynamicData_set_before_read(pCurrent, pCurrent->members.names[i]);
-			}
 
 			pCurrent->members.values[i] = created;
 			pCurrent->members.statuses[i] = MemberStatus::Instantiated;
@@ -1136,94 +1171,10 @@ const char* to_string(DynamicData_MemberStatus status)
 	return "enum : error";
 }
 
-void DynamicData_clone_set(DynamicData* srcObject, DynamicData* dstObject, u64 hSetMember)
+void DynamicData_clone_internal(DynamicData* srcObject, DynamicData* dstObject)
 {
-	
-}
-
-void DynamicData_clone_object(DynamicData* srcObject, DynamicData* dstObject, u64 hSetMember)
-{
-
-}
-
-void DynamicData_clone_internal(DynamicData* src, DynamicData* dst, u64 hMember)
-{
-	switch (src->type)
-	{
-	case DynamicData::Type_Object:
-	{
-		*dst = DynamicData_obj_new();
-		DynamicObject* pObject = dst->asObject();
-		DynamicObject* pSrcObject = src->asObject();
-		u64 size = pSrcObject->members.values.size();
-
-		pObject->members.names.resize(size);
-		pObject->members.values.resize(size);
-		pObject->members.statuses.resize(size);
-
-		for (u64 i = 0; i < size; ++i)
-		{
-			pObject->members.names[i] = pSrcObject->members.names[i];
-			pObject->members.statuses[i] = MemberStatus::Owned;
-			DynamicData_clone_internal(&pSrcObject->members.values[i], &pObject->members.values[i], pObject->members.names[i]);
-		}
-
-		break;
-	}
-	case DynamicData::Type_Set:
-	{
-		/**dst = DynamicData_set_new();
-		DynamicSet* pSet = dst->asSet();
-		DynamicSet* pSrcSet = src->asSet();
-
-		eastl::vector<DynamicData> setMembers;
-		DynamicData_get_subobject_set(src, )
-
-
-
-		u64 size = pSrcSet->flattened.values.size();
-		pSet->added.values.resize(size);
-
-		for (u64 i = 0; i < size; ++i)
-		{
-			DynamicData_clone_internal(&pSrcSet->flattened.values[i], &pSet->added.values[i]);
-		}*/
-
-		break;
-	}
-	case DynamicData::Type_Integer:
-	{
-		*dst = DynamicData_int_new();
-		dst->integer = src->integer;
-		break;
-	}
-	case DynamicData::Type_Number:
-	{
-			
-		*dst = DynamicData_num_new();
-		dst->number = src->number;
-		break;
-	}
-	case DynamicData::Type_String:
-	{
-		*dst = DynamicData_str_new();
-		u64 capacity = src->string ? (strlen(src->string) + 1) : 0;
-		if (capacity)
-		{
-			dst->string = (char*)malloc(capacity);
-			memcpy(dst->string, src->string, capacity);
-		}
-		break;
-	}
-	case DynamicData::Type_Null:
-		break;
-	}
-}
-
-void DynamicData_clone_obj(DynamicData* src, DynamicData* dst)
-{
-	DynamicObject* pSrcObj = src->asObject();
-	DynamicObject* pDstObj = dst->asObject();
+	DynamicObject* pSrcObj = srcObject->asObject();
+	DynamicObject* pDstObj = dstObject->asObject();
 
 	u64 size = pSrcObj->members.values.size();
 
@@ -1231,11 +1182,59 @@ void DynamicData_clone_obj(DynamicData* src, DynamicData* dst)
 	pDstObj->members.values.resize(size);
 	pDstObj->members.statuses.resize(size);
 
-	for (u64 i = 0; i < size; ++i)
+	for (u64 i = 0; i< size; ++i)
 	{
+		DynamicData* pMember = &pSrcObj->members.values[i];
+		DynamicData* pClone =  &pDstObj->members.values[i];
 		pDstObj->members.names[i] = pSrcObj->members.names[i];
 		pDstObj->members.statuses[i] = MemberStatus::Owned;
-		DynamicData_clone_internal(&pSrcObj->members.values[i], &pDstObj->members.values[i], pDstObj->members.names[i]);
+
+		switch (pMember->type)
+		{
+		case DynamicData::Type_Null:
+			break;
+		case DynamicData::Type_Object:
+		{
+			*pClone = DynamicData_obj_new();
+			DynamicData_clone_internal(pMember, pClone);
+			break;
+		}
+		case DynamicData::Type_Set:
+		{
+			eastl::vector<DynamicData> setMembers = DynamicData_get_subobject_set(srcObject, pSrcObj->members.names[i]);
+			*pClone = DynamicData_set_new();
+			pClone->asSet()->added.values.resize(setMembers.size());
+			for (u64 ii = 0; ii < setMembers.size(); ++ii)
+			{
+				DynamicData_clone_internal(&setMembers[ii], &pClone->asSet()->added.values[ii]);
+			}
+			break;
+		}
+		case DynamicData::Type_Integer:
+		{
+			*pClone = DynamicData_int_new();
+			pClone->integer = pMember->integer;
+			break;
+		}
+		case DynamicData::Type_Number:
+		{
+
+			*pClone = DynamicData_num_new();
+			pClone->number = pMember->number;
+			break;
+		}
+		case DynamicData::Type_String:
+		{
+			*pClone = DynamicData_str_new();
+			u64 capacity = pMember->string ? (strlen(pMember->string) + 1) : 0;
+			if (capacity)
+			{
+				pClone->string = (char*)malloc(capacity);
+				memcpy(pClone->string, pMember->string, capacity);
+			}
+			break;
+		}
+		}
 	}
 }
 
@@ -1244,8 +1243,7 @@ DynamicData DynamicData_clone(DynamicData* src)
 	if (src->type == DynamicData::Type_Object)
 	{
 		DynamicData dst = DynamicData_obj_new();
-		DynamicData_clone_obj(src, &dst);
-		
+		DynamicData_clone_internal(src, &dst);
 		return dst;
 	}
 	else
@@ -1253,6 +1251,15 @@ DynamicData DynamicData_clone(DynamicData* src)
 		DYNAMIC_DATA_ERROR("Can only clone an object");
 		return DynamicData_make_null();
 	}
+}
+
+DynamicData DynamicData_get_prototype(DynamicData* pValue)
+{
+	if (DynamicObject* pObject = pValue->asObject())
+	{
+		return pObject->prototype;
+	}
+	return DynamicData_make_null();
 }
 
 
@@ -1283,6 +1290,21 @@ DynamicData DynamicData_obj_get(DynamicData* pValue, u64 hName)
 	}
 
 	return DynamicData_make_null();
+}
+
+MemberStatus DynamicData_get_member_status(DynamicData* pValue, u64 hMember)
+{
+	if (pValue->type == DynamicData::Type_Object)
+	{
+		DynamicObject* pObject = pValue->asObject();
+		u64 i = 0;
+		if (findName(pObject->members.names, hMember, &i))
+		{
+			return pObject->members.statuses[i];
+		}
+	}
+
+	return MemberStatus::None;
 }
 
 
@@ -1353,6 +1375,27 @@ void DynamicData_obj_set(DynamicData* object, u64 hName, DynamicData value)
 		}
 	}
 }
+
+void DynamicData_obj_clear_override(DynamicData* pValue, u64 hMember)
+{
+	if (DynamicObject* pObject = pValue->asObject())
+	{
+		u64 i;
+		if (findName(pObject->members.names, hMember, &i))
+		{
+			MemberStatus status = pObject->members.statuses[i];
+			if (status == MemberStatus::Overridden)
+			{
+				pObject->members.statuses[i] = MemberStatus::Inherited;
+			}
+		}
+		else
+		{
+			DYNAMIC_DATA_ERROR(Printf("Object does not contain memeber %s", string_repository_get(hMember)));
+		}
+	}
+}
+
 bool DynamicSet_is_up_to_date(DynamicObject* object, u64 hSetMember)
 {
 	/*{
@@ -1370,25 +1413,9 @@ bool DynamicSet_is_up_to_date(DynamicObject* object, u64 hSetMember)
 	return false;
 }
 
-void DynamicData_set_before_read(DynamicObject* pObject, u64 hMember)
-{
-	eastl::vector<u64> ids;
-	eastl::vector<DynamicData> values;
-	DynamicData_set_compose(pObject, hMember, ids, values);
-}
-
-void DynamicData_set_before_read(DynamicData* pValue, u64 hMember)
-{
-	eastl::vector<u64> ids;
-	eastl::vector<DynamicData> values;
-
-	DynamicObject* pObject = pValue->asObject();
-	DynamicData_set_compose(pObject, hMember, ids, values);
-}
-
 u64 string_repository_hash(const char* str)
 {
-	u64 key = MetroHash64::HashStr(str);
+	u64 key = murmur_hash_string(str);
 	auto find = s_string_repository.find(key);
 
 	if (find == s_string_repository.end())
@@ -1411,11 +1438,6 @@ const char* string_repository_get(u64 hName)
 	return "Invalid String";
 }
 
-const char* lookup_name(u64 hName)
-{
-	return string_repository_get(hName);
-}
-
 void DynamicData_registerParser(u64 hType, DynamicDataParser_i parser)
 {
 	g_parsers[hType] = parser;
@@ -1425,14 +1447,12 @@ DDEntity DynamicData_readEntity(DynamicData* pEntity)
 {
 	DDEntity entity{};
 
-	u64 hType = ENTITY_TYPE_ID;
-
-	DynamicDataParser_i* parser = lookup_parser(hType);
+	/*DynamicDataParser_i* parser = lookup_parser(hType);
 
 	if (parser)
 	{
 		parser->parse(pEntity, &entity);
-	}
+	}*/
 
 	return entity;
 }
@@ -1440,9 +1460,6 @@ DDEntity DynamicData_readEntity(DynamicData* pEntity)
 DDTransformComponent DynamicData_readTransform(DynamicData* pEntity)
 {
 	DDTransformComponent component{};
-
-	u64 hTypeId = MetroHash64::HashStr(s_typeIdKey);
-	u64 hComponents = MetroHash64::HashStr("components");
 
 	/*if (DDArray* pComponents = DynamicData_obj_find(pEntity, hComponents).asArray())
 	{
@@ -1466,7 +1483,7 @@ DDTransformComponent DynamicData_readTransform(DynamicData* pEntity)
 
 void DynamicData_writeBack(DynamicData* pData, void* pValue)
 {
-	u64 hTypeId = MetroHash64::HashStr(s_typeIdKey);
+	/*u64 hTypeId = MetroHash64::HashStr(s_typeIdKey);
 
 	DynamicData type = DynamicData_obj_get(pData, hTypeId);
 
@@ -1475,7 +1492,7 @@ void DynamicData_writeBack(DynamicData* pData, void* pValue)
 	if (parser)
 	{
 		parser->write_back(pData, pValue);
-	}
+	}*/
 }
 
 //void registerEntityTemplate()
@@ -1619,34 +1636,17 @@ void DynamicData_writeBack(DynamicData* pData, void* pValue)
 //	g_templates[COMPONENT_ID_TRANSFORM] = root;
 //}
 
-void registerComponent_ColorTemplate()
-{
-	DynamicData root = DynamicData_obj_new();
-
-	u64 hTypeName = string_repository_hash(s_typeNameKey);
-	u64 hFields = string_repository_hash(s_fieldsKey);
-
-	DynamicData componentName = DynamicData_make_str("component_color");
-	DynamicData_obj_add(&root, hTypeName, componentName);
-
-	DynamicData field_children = DynamicData_obj_new();
-
-	DynamicData color = DynamicData_obj_new();
-	
-	DynamicData_obj_add(&color, string_repository_hash("r"), DynamicData_num_new());
-	DynamicData_obj_add(&color, string_repository_hash("g"), DynamicData_num_new());
-	DynamicData_obj_add(&color, string_repository_hash("b"), DynamicData_num_new());
-
-	DynamicData_obj_add(&field_children, string_repository_hash("color"), color);
-
-	DynamicData_obj_add(&root, hFields, field_children);
-
-	g_templates[COMPONENT_ID_COLOR] = root;
-}
 
 DynamicData* DynamicData_get_template(u64 id)
 {
-	return &g_templates[id];
+	auto find = g_templates.find(id);
+
+	if (find != g_templates.end())
+	{
+		return &find->second;
+	}
+
+	return nullptr;
 }
 
 eastl::vector<u64> DynamicData_get_all_types()
@@ -1662,10 +1662,9 @@ eastl::vector<u64> DynamicData_get_all_types()
 u64 DynamicData_register_type(const char* name, const DynamicDataPropertyDef* properties, u32 num_properties)
 {
 	DynamicData root = DynamicData_obj_new();
-	u64 hTypeId = string_repository_hash(name);
 
 	u64 hTypeName = string_repository_hash(s_typeNameKey);
-	u64 hFields = string_repository_hash(s_fieldsKey);
+	u64 hTypeId = string_repository_hash(name);
 
 	DynamicData typeName = DynamicData_make_str(name);
 	DynamicData_obj_add(&root, hTypeName, typeName);
@@ -1687,7 +1686,7 @@ u64 DynamicData_register_type(const char* name, const DynamicDataPropertyDef* pr
 		{
 			if (def->typeHash != 0)
 			{
-				value = DynamicData_createFromTemplate(def->typeHash);
+				value = DynamicData_create_from_template(def->typeHash);
 			}
 			else
 			{
@@ -1724,50 +1723,45 @@ u64 DynamicData_register_type(const char* name, const DynamicDataPropertyDef* pr
 
 		DynamicData_obj_add(&field_children, string_repository_hash(def->name), value);
 	}
-	DynamicData_obj_add(&root, hFields, field_children);
+
+	DynamicData_obj_add(&root, s_hFields, field_children);
 
 	g_templates[hTypeId] = root;
 
 	return hTypeId;
 }
 
-
-DynamicData DynamicData_createFromTemplate(u64 hTemplate)
+DynamicData DynamicData_create_from_template(u64 hName)
 {
-	DynamicData value = DynamicData_obj_new();
+	DynamicData* pTemplate = DynamicData_get_template(hName);
 
-	DynamicData* pTemplate = DynamicData_get_template(hTemplate);
-	
-	u64 hType = string_repository_hash(s_typeNameKey);
-	u64 hTypeId = string_repository_hash(s_typeIdKey);
-
-	const char* typeName = DynamicData_obj_get(pTemplate, hType).asString();
-
-	DynamicData_obj_add(&value, hType, DynamicData_make_str(typeName));
-	DynamicData_obj_add(&value, hTypeId, DynamicData_make_int((i64)hTemplate));
-
-	u64 hFields = string_repository_hash(s_fieldsKey);
-
-	if (DynamicObject* fields = DynamicData_obj_get(pTemplate, hFields).asObject())
+	if (pTemplate == nullptr)
 	{
-		u64 numFields = fields->members.values.size();
-		for (u64 i = 0; i < numFields; ++i)
-		{
-			DynamicData valueToAdd;
-			DynamicData_clone_internal(&fields->members.values[i], &valueToAdd);
-			DynamicData_obj_add(&value, fields->members.names[i], valueToAdd);
-		}
+		DYNAMIC_DATA_ERROR("Could not find type");
+		return DynamicData_make_null();
 	}
 
-	return value;
+	DynamicData fields = DynamicData_obj_get(pTemplate, s_hFields);
+	DynamicData fieldsClone = DynamicData_clone(&fields);
+
+	return fieldsClone;
 }
 
 void DynamicData_view(DynamicData* pData)
 {
 	DynamicEditorPath path;
 	path.root = pData->asObject();
-	DynamicData_view_draw_object(pData, 0, &path);
-	//DynamicData_view_impl(pData, 0ull, &path);
+
+	ImGui::PushID((int)pData->hObject);
+
+	if (ImGui::TreeNodeEx("Root"))
+	{
+		DynamicData_view_draw_root_object(pData);
+		ImGui::TreePop();
+	}
+
+	ImGui::PopID();
+
 }
 
 Entity* Entity::create(Allocator* a)
