@@ -290,12 +290,7 @@ void DynamicData_view_draw_value(DynamicData* nonContainer, DynamicData_MemberSt
 
 void DynamicData_view_object_context_menu(DynamicData* pValue, u64 hMember, DynamicEditorPath* pPath, bool parentInherited)
 {
-	if (ImGui::IsItemClicked(1))
-	{
-		ImGui::OpenPopup("dd_view_context_menu");
-	}
-
-	if (ImGui::BeginPopup("dd_view_context_menu"))
+	if (ImGui::BeginPopupContextItem())
 	{
 		DynamicData member = DynamicData_obj_get(pValue, hMember);
 		MemberStatus status = DynamicData_get_member_status(pValue, hMember);
@@ -306,9 +301,9 @@ void DynamicData_view_object_context_menu(DynamicData* pValue, u64 hMember, Dyna
 			{
 				DynamicData_obj_clear_override(pValue, hMember);
 			}
-		}
+		} 
 
-		if (ImGui::MenuItem("Create instance of"))
+		if (status != MemberStatus::Inherited && member.type == DynamicData::Type_Object && ImGui::MenuItem("Create instance of"))
 		{
 			DynamicData instance = DynamicData_new_from_prototype(&member);
 
@@ -318,37 +313,27 @@ void DynamicData_view_object_context_menu(DynamicData* pValue, u64 hMember, Dyna
 			{
 				DynamicData_obj_set(&instance, hNameField, DynamicData_make_str(Printf("Instance of [%s]", name.asString())));
 			}
+
 			Debug_register_root_object(instance);
 		}
 
 
-		if (!parentInherited && status == MemberStatus::Inherited)
+		if (!parentInherited && (member.type == DynamicData::Type_Object || member.type == DynamicData::Type_Set) && status == MemberStatus::Inherited)
 		{
 			if (ImGui::MenuItem("Instantiate subobject"))
 			{
-				DynamicData_instantiate_subobject(&pPath->values.back(), hMember);
+				DynamicData_instantiate_subobject(pValue, hMember);
 			}
 		}
 
+		if (!parentInherited && (member.type == DynamicData::Type_Object || member.type == DynamicData::Type_Set) && status == MemberStatus::Instantiated)
+		{
+			if (ImGui::MenuItem("Reset"))
+			{
+				DynamicData_clear_instantiated_subobject(pValue, hMember);
+			}
+		}
 
-		//ImGui::PushStyleVar(ImGuiStyleVar_Alpha, 1.0f);
-		//ImGui::MenuItem(Printf("Member status : %s", to_string(memberStatus)));
-
-		//ImGui::BeginDisabled(memberStatus != MemberStatus_Inherited);
-		//if (ImGui::MenuItem("Instantiate object"))
-		//{
-		//	//DynamicData_instantiate_path(pPath, member);
-		//}
-		//ImGui::EndDisabled();
-
-		//ImGui::BeginDisabled(memberStatus != MemberStatus_Instantiated);
-		//if (ImGui::MenuItem("Revert to prototype"))
-		//{
-		//	//DynamicData_instantiate_clear(&value, hMemberName);
-		//}
-		//ImGui::EndDisabled();
-
-		//ImGui::PopStyleVar();
 		ImGui::EndPopup();
 	}
 }
@@ -360,29 +345,15 @@ void DynamicData_view_object_set_context_menu(DynamicData* pValue, u64 hMember, 
 
 }
 
-
-void DynamicData_view_draw_root_object(DynamicData* pRoot)
-{
-	
-}
-
-
 void DynamicData_view_draw_object(DynamicData* pValue, DynamicEditorPath* pPath, bool parentInherited, bool* outOpenCtxMenu)
 {
 	DynamicObject* pObject = pValue->asObject();
-
 	for (u64 i = 0; i < pObject->members.names.size(); ++i)
 	{
 		u64 hMemberName = pObject->members.names[i];
-
 		bool isContainer = pObject->members.values[i].isContainer();
 		MemberStatus memberStatus = pObject->members.statuses[i];
 		memberStatus = parentInherited ? MemberStatus::Inherited : memberStatus;
-
-		if (isContainer)
-		{
-			pPath->values.push_back(pObject->members.values[i]);
-		}
 
 		const char* memberName = string_repository_get(hMemberName);
 
@@ -391,17 +362,27 @@ void DynamicData_view_draw_object(DynamicData* pValue, DynamicEditorPath* pPath,
 			Printf buf;
 			DynamicData element = DynamicData_obj_get(pValue, hMemberName);
 			DynamicData_format_value(buf, element);
-			PushStatusStyle(memberStatus);
 
-			if (ImGui::TreeNodeEx(Printf("%s : %s", memberName, buf.cstr()), ImGuiTreeNodeFlags_Leaf))
+			PushStatusStyle(memberStatus);
+			bool open = ImGui::TreeNodeEx(Printf("%s : %s", memberName, buf.cstr()), ImGuiTreeNodeFlags_Leaf);
+			PopStatusStyle();
+			
+			if (open)
 			{
 				ImGui::TreePop();
 			}
-			PopStatusStyle();
+
+			DynamicData_view_object_context_menu(pValue, hMemberName, pPath, parentInherited);
 
 			if (element.type == DynamicData::Type_Number && ImGui::IsItemClicked() && !parentInherited)
 			{
-				DynamicData newPos = DynamicData_make_num(element.asNumber() + 1);
+				DynamicData newPos = DynamicData_make_num(element.asNumber() + 0.5);
+				DynamicData_obj_set(pValue, hMemberName, newPos);
+			}
+
+			if (element.type == DynamicData::Type_Integer && ImGui::IsItemClicked() && !parentInherited)
+			{
+				DynamicData newPos = DynamicData_make_int(element.asInt() + 1);
 				DynamicData_obj_set(pValue, hMemberName, newPos);
 			}
 		}
@@ -409,16 +390,15 @@ void DynamicData_view_draw_object(DynamicData* pValue, DynamicEditorPath* pPath,
 		{
 			PushStatusStyle(memberStatus);
 			bool childOpen = ImGui::TreeNode(memberName);
-			*outOpenCtxMenu = ImGui::IsItemClicked(1);
 			PopStatusStyle();
+			
+			DynamicData_view_object_context_menu(pValue, hMemberName, pPath, parentInherited);
 
 			if (childOpen)
 			{
 				DynamicData_view_impl(pValue, hMemberName, pPath, memberStatus == MemberStatus::Inherited);
 				ImGui::TreePop();
 			}
-
-			pPath->values.pop_back();
 		}
 	}
 }
@@ -466,6 +446,43 @@ void DynamicData_view_draw_object_set(DynamicData* pValue, u64 hSetName, Dynamic
 
 		PopStatusStyle();
 		ImGui::PopID();
+	}
+}
+
+void DynamicData_view_draw_root_object(DynamicData* pRoot)
+{
+	DynamicEditorPath path;
+
+	DynamicData name = DynamicData_obj_get(pRoot, TM_STATIC_HASH("name", 0xd4c943cba60c270bULL));
+
+	const char* displayName = name.type == DynamicData::Type_String ? name.asString() : "Root";
+
+	PushStatusStyle(pRoot->asObject()->prototype.id() != 0 ? MemberStatus::Instantiated : MemberStatus::Owned);
+	bool open = ImGui::TreeNode(displayName);
+	PopStatusStyle();
+	if (ImGui::BeginPopupContextItem("root_ctx_menu"))
+	{
+		if (ImGui::MenuItem("Create instance of"))
+		{
+			DynamicData instance = DynamicData_new_from_prototype(pRoot);
+
+			constexpr u64 hNameField = TM_STATIC_HASH("name", 0xd4c943cba60c270bULL);
+			if (name.type == DynamicData::Type_String)
+			{
+				DynamicData_obj_set(&instance, hNameField, DynamicData_make_str(Printf("Instance of [%s]", name.asString())));
+			}
+			Debug_register_root_object(instance);
+		}
+
+		ImGui::EndPopup();
+	}
+
+	if (open)
+	{
+		bool rclick = false;
+		path.values.push_back(*pRoot);
+		DynamicData_view_draw_object(pRoot, &path, false, &rclick);
+		ImGui::TreePop();
 	}
 }
 
@@ -615,20 +632,28 @@ DynamicData DynamicData_instantiate_subobject(DynamicData* pValue, u64 hName)
 
 	if (DynamicObject* pObject = pValue->asObject())
 	{
-		u64 i;
-		if (findName(pObject->members.names, hName, &i))
+		if (DynamicObject* pPrototype = pObject->prototype.asObject())
 		{
-			if (pObject->members.statuses[i] == MemberStatus::Inherited)
+			u64 i;
+			if (findName(pObject->members.names, hName, &i))
 			{
-				DynamicData* pPrototype = &pObject->members.values[i];
-
-				created = DynamicData_new_from_prototype(pPrototype);
-				pObject->members.values[i] = created;
-				pObject->members.statuses[i] = MemberStatus::Instantiated;
-			}
-			else
-			{
-				DYNAMIC_DATA_ERROR("Instantiate something that is not inherited is not valid");
+				if (pObject->members.statuses[i] == MemberStatus::Inherited)
+				{
+					if (pPrototype->members.statuses[i] == MemberStatus::Instantiated || pPrototype->members.statuses[i] == MemberStatus::Owned)
+					{
+						created = DynamicData_new_from_prototype(&pPrototype->members.values[i]);
+						pObject->members.values[i] = created;
+						pObject->members.statuses[i] = MemberStatus::Instantiated;
+					}
+					else
+					{
+						DYNAMIC_DATA_ERROR("Need to Instantiate chain");
+					}
+				}
+				else
+				{
+					DYNAMIC_DATA_ERROR("Instantiate something that is not inherited is not valid");
+				}
 			}
 		}
 	}
@@ -1371,7 +1396,7 @@ void DynamicData_obj_set(DynamicData* object, u64 hName, DynamicData value)
 		}
 		else
 		{
-			DYNAMIC_DATA_ERROR(Printf("Object does not contain memeber %s", string_repository_get(hName)));
+			DYNAMIC_DATA_ERROR(Printf("Object does not contain memeber %s", string_repository_get(hName)).cstr());
 		}
 	}
 }
@@ -1391,7 +1416,7 @@ void DynamicData_obj_clear_override(DynamicData* pValue, u64 hMember)
 		}
 		else
 		{
-			DYNAMIC_DATA_ERROR(Printf("Object does not contain memeber %s", string_repository_get(hMember)));
+			DYNAMIC_DATA_ERROR(Printf("Object does not contain memeber %s", string_repository_get(hMember)).cstr());
 		}
 	}
 }
@@ -1636,7 +1661,6 @@ void DynamicData_writeBack(DynamicData* pData, void* pValue)
 //	g_templates[COMPONENT_ID_TRANSFORM] = root;
 //}
 
-
 DynamicData* DynamicData_get_template(u64 id)
 {
 	auto find = g_templates.find(id);
@@ -1749,18 +1773,7 @@ DynamicData DynamicData_create_from_template(u64 hName)
 
 void DynamicData_view(DynamicData* pData)
 {
-	DynamicEditorPath path;
-	path.root = pData->asObject();
-
-	ImGui::PushID((int)pData->hObject);
-
-	if (ImGui::TreeNodeEx("Root"))
-	{
-		DynamicData_view_draw_root_object(pData);
-		ImGui::TreePop();
-	}
-
-	ImGui::PopID();
+	DynamicData_view_draw_root_object(pData);
 
 }
 

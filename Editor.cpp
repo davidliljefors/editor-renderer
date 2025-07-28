@@ -559,30 +559,30 @@ void EditorApp::update()
 		{
 			DynamicData value = m_root;
 			DynamicData_view(&value);
-		}
 
-		if (ImGui::Button("Add Child"))
-		{
-			DynamicData childEntity = DynamicData_create_from_template(ENTITY_NAME_HASH);
-
-			DynamicData_obj_add(&childEntity, TM_STATIC_HASH("name", 0xd4c943cba60c270bULL), DynamicData_make_str("Child Entity"));
-
-			DynamicData_add_to_subobject_set(&m_root, string_repository_hash("children"), childEntity);
-		}
-		if (ImGui::Button("Add Transform Component"))
-		{
-			DynamicData transformComp = DynamicData_create_from_template(TRANSFORM_NAME_HASH);
-			if (transformComp.type != DynamicData::Type_Null)
+			if (ImGui::Button("Add Child"))
 			{
-				DynamicData_add_to_subobject_set(&m_root, string_repository_hash("components"), transformComp);
+				DynamicData childEntity = DynamicData_create_from_template(ENTITY_NAME_HASH);
+
+				DynamicData_obj_add(&childEntity, TM_STATIC_HASH("name", 0xd4c943cba60c270bULL), DynamicData_make_str("Child Entity"));
+
+				DynamicData_add_to_subobject_set(&m_root, string_repository_hash("children"), childEntity);
 			}
-		}
-		if (ImGui::Button("Add Color Component"))
-		{
-			DynamicData colorComp = DynamicData_create_from_template(COLOR_NAME_HASH);
-			if (colorComp.type != DynamicData::Type_Null)
+			if (ImGui::Button("Add Transform Component"))
 			{
-				DynamicData_add_to_subobject_set(&m_root, string_repository_hash("components"), colorComp);
+				DynamicData transformComp = DynamicData_create_from_template(TRANSFORM_NAME_HASH);
+				if (transformComp.type != DynamicData::Type_Null)
+				{
+					DynamicData_add_to_subobject_set(&m_root, string_repository_hash("components"), transformComp);
+				}
+			}
+			if (ImGui::Button("Add Color Component"))
+			{
+				DynamicData colorComp = DynamicData_create_from_template(COLOR_NAME_HASH);
+				if (colorComp.type != DynamicData::Type_Null)
+				{
+					DynamicData_add_to_subobject_set(&m_root, string_repository_hash("components"), colorComp);
+				}
 			}
 		}
 		ImGui::PopID();
