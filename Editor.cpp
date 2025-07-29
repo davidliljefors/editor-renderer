@@ -8,11 +8,14 @@
 #include "Scene.h"
 #include "Core/HashMap.h"
 
-#include <wincrypt.h>
 
 #include "DynamicTypes.h"
 #include "Entity.h"
 #include "Core/TempAllocator.h"
+
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+#include <wincrypt.h>
 
 #pragma comment(lib, "advapi32.lib")
 
@@ -236,12 +239,6 @@ EditorTab* EditorTab::openEmpty(Allocator* a, EditorRenderer* renderer, i32 id)
 	AssetBrowserWindow::registerRoot(root);
 
 	tab->m_root = root;
-	Allocator* ta = g_truth->allocator();
-	Entity* rootEntity = Entity::create(ta);
-	rootEntity->root = root;
-
-	g_truth->set(tab->m_root, rootEntity);
-
 	OutlinerWindow* window = create<OutlinerWindow>(GLOBAL_HEAP, g_truth, root);
 	tab->m_windows.push_back(window);
 
@@ -265,91 +262,86 @@ void EditorTab::save()
 
 }
 
-bool isReferenced(const Entity* referee, const TruthElement* candidate)
-{
-	return referee->instantiatedRoots.contains(candidate->root.asU64);
-}
-
 void EditorTab::update()
 {
 	ReadOnlySnapshot newHead = g_truth->head();
 
 	if (m_state.s != newHead.s)
 	{
-		const Entity* rootEntity = (const Entity*)g_truth->read(m_state, m_root);
+		//const Entity* rootEntity = (const Entity*)g_truth->read(m_state, m_root);
 
-		TempAllocator ta;
-		Array<KeyEntry> adds(&ta);
-		Array<KeyEntry> removes(&ta);
-		Array<KeyEntry> edits(&ta);
+		//TempAllocator ta;
+		//Array<KeyEntry> adds(&ta);
+		//Array<KeyEntry> removes(&ta);
+		//Array<KeyEntry> edits(&ta);
 
-		diff(m_state.s, newHead.s, adds, edits, removes);
+		//diff(m_state.s, newHead.s, adds, edits, removes);
 
-		for (auto& add : adds)
-		{
-			if (add.value->root == m_root)
-			{
-				float3 pos = get_position(newHead, add.key).float3();
-				addInstance(add.key.asU64, pos);
+		//for (auto& add : adds)
+		//{
+		//	if (add.value->root == m_root)
+		//	{
+		//		float3 pos = get_position(newHead, add.key).float3();
+		//		addInstance(add.key.asU64, pos);
 
-				const Entity* added = (const Entity*)add.value;
+		//		const Entity* added = (const Entity*)add.value;
 
-				if (added->prototype.asU64 != 0)
-				{
-					const Entity* proto = (const Entity*)g_truth->read(newHead, added->prototype);
+		//		if (added->prototype.asU64 != 0)
+		//		{
+		//			const Entity* proto = (const Entity*)g_truth->read(newHead, added->prototype);
 
-					for (truth::Key childKey : proto->children)
-					{
-						float3 cpos = get_position(newHead, childKey).float3();
-						addInstance(childKey.asU64, cpos);
-					}
-				}
-			}
-			else if (isReferenced(rootEntity, add.value))
-			{
-				float3 pos = get_position(newHead, add.key).float3();
-				addInstance(add.key.asU64, pos);
-			}
-		}
+		//			for (truth::Key childKey : proto->children)
+		//			{
+		//				float3 cpos = get_position(newHead, childKey).float3();
+		//				addInstance(childKey.asU64, cpos);
+		//			}
+		//		}
+		//	}
+		//	else if (isReferenced(rootEntity, add.value))
+		//	{
+		//		float3 pos = get_position(newHead, add.key).float3();
+		//		addInstance(add.key.asU64, pos);
+		//	}
+		//}
 
-		for (const KeyEntry& edit : edits)
-		{
-			if (edit.value->root == m_root)
-			{
-				constexpr float3 defaultColor =	{0.5f, 0.5f, 0.5f};
-				float3 newPos = get_position(newHead, edit.key).float3();
-				updateInstance(edit.key.asU64, newPos, defaultColor);
-			}
-			else if (isReferenced(rootEntity, edit.value))
-			{
-				constexpr float3 defaultColor =	{0.5f, 0.5f, 0.5f};
+		//for (const KeyEntry& edit : edits)
+		//{
+		//	if (edit.value->root == m_root)
+		//	{
+		//		constexpr float3 defaultColor =	{0.5f, 0.5f, 0.5f};
+		//		float3 newPos = get_position(newHead, edit.key).float3();
+		//		updateInstance(edit.key.asU64, newPos, defaultColor);
+		//	}
+		//	else if (isReferenced(rootEntity, edit.value))
+		//	{
+		//		constexpr float3 defaultColor =	{0.5f, 0.5f, 0.5f};
 
-				auto instantiations = rootEntity->instantiatedRoots.find(edit.key.asU64);
-				if (instantiations)
-				{
-					for (truth::Key instantiated : *instantiations)
-					{
-						float3 newPos = get_position(newHead, instantiated).float3();
-						updateInstance(instantiated.asU64, newPos, defaultColor);
-					}
-				}
+		//		auto instantiations = rootEntity->instantiatedRoots.find(edit.key.asU64);
+		//		if (instantiations)
+		//		{
+		//			for (truth::Key instantiated : *instantiations)
+		//			{
+		//				float3 newPos = get_position(newHead, instantiated).float3();
+		//				updateInstance(instantiated.asU64, newPos, defaultColor);
+		//			}
+		//		}
 
-				updateInstance(edit.key.asU64, get_position(newHead, edit.key).float3(), defaultColor);
-			}
-		}
+		//		updateInstance(edit.key.asU64, get_position(newHead, edit.key).float3(), defaultColor);
+		//	}
+		//}
 
-		for (const KeyEntry& remove : removes)
-		{
-			if (remove.value->root == m_root || isReferenced(rootEntity, remove.value))
-			{
-				popInstance(remove.key.asU64);
-				Entity* i = (Entity*)remove.value;
-				for (auto& instantiated : i->instantiatedRoots)
-				{
-					
-				}
-			}
-		}
+		//for (const KeyEntry& remove : removes)
+		//{
+		//	if (remove.value->root == m_root || isReferenced(rootEntity, remove.value))
+		//	{
+		//		popInstance(remove.key.asU64);
+		//		Entity* i = (Entity*)remove.value;
+		//		for (auto& instantiated : i->instantiatedRoots)
+		//		{
+		//			
+		//		}
+		//	}
+		//}
 
 		buildDrawList();
 
@@ -391,48 +383,6 @@ void EditorTab::addViewport()
 DrawList EditorTab::getDrawList()
 {
 	return m_drawList;
-}
-
-void addPrototypeInstances(Transaction& tx, Entity* instantiated, const Entity* prototype)
-{
-	for (truth::Key childKey : prototype->children)
-	{
-	}
-}
-
-void EditorTab::addPrototype(truth::Key parent, truth::Key prototype)
-{
-	const Entity* prototypeEntity = (const Entity*)g_truth->read(m_state, prototype);
-
-	if (prototypeEntity->root == m_root)
-	{
-		return;
-	}
-
-	Transaction tx = g_truth->openTransaction();
-	Entity* parentEntity = (Entity*)g_truth->edit(tx, parent);
-
-	Entity* instantiatedPrototype = Entity::createFromPrototype(g_truth->allocator(), prototype);
-	instantiatedPrototype->root = m_root;
-
-	truth::Key instantiatedPrototypeId = nextKey();
-
-	Array<truth::Key>* ids = parentEntity->instantiatedRoots.find(prototype.asU64);
-	
-	if (!ids)
-	{
-		ids = &parentEntity->instantiatedRoots[prototype.asU64];
-		ids->set_allocator(g_truth->allocator());
-	}
-
-	ids->push_back(instantiatedPrototypeId);
-	parentEntity->children.push_back(instantiatedPrototypeId);
-
-	//addPrototypeInstances(instantiatedPrototype, prototypeEntity);
-
-	g_truth->add(tx, instantiatedPrototypeId, instantiatedPrototype);
-
-	g_truth->commit(tx);
 }
 
 void EditorTab::addInstance(u64 id, float3 pos)
@@ -564,16 +514,18 @@ void EditorApp::update()
 			{
 				DynamicData childEntity = DynamicData_create_from_template(ENTITY_NAME_HASH);
 
-				DynamicData_obj_add(&childEntity, TM_STATIC_HASH("name", 0xd4c943cba60c270bULL), DynamicData_make_str("Child Entity"));
+				static int child_counter = 0;
+				child_counter++;
+				DynamicData_obj_add(&childEntity, TM_STATIC_HASH("name", 0xd4c943cba60c270bULL), DynamicData_make_str(Printf("Child %d", child_counter)));
 
-				DynamicData_add_to_subobject_set(&m_root, string_repository_hash("children"), childEntity);
+				DynamicData_add_to_subobject_set(&m_root, string_repository_hash("children"), &childEntity);
 			}
 			if (ImGui::Button("Add Transform Component"))
 			{
 				DynamicData transformComp = DynamicData_create_from_template(TRANSFORM_NAME_HASH);
 				if (transformComp.type != DynamicData::Type_Null)
 				{
-					DynamicData_add_to_subobject_set(&m_root, string_repository_hash("components"), transformComp);
+					DynamicData_add_to_subobject_set(&m_root, string_repository_hash("components"), &transformComp);
 				}
 			}
 			if (ImGui::Button("Add Color Component"))
@@ -581,7 +533,7 @@ void EditorApp::update()
 				DynamicData colorComp = DynamicData_create_from_template(COLOR_NAME_HASH);
 				if (colorComp.type != DynamicData::Type_Null)
 				{
-					DynamicData_add_to_subobject_set(&m_root, string_repository_hash("components"), colorComp);
+					DynamicData_add_to_subobject_set(&m_root, string_repository_hash("components"), &colorComp);
 				}
 			}
 		}
@@ -673,19 +625,6 @@ void EditorApp::update()
 
 
 	ImGui::End();
-
-	truth::Key clicked{};
-	m_assetWindow->update(&clicked);
-
-    if (focusedTab)
-    {
-		if (clicked.asU64 != 0)
-		{
-			focusedTab->addPrototype(focusedTab->m_root, clicked);
-		}
-
-        focusedTab->update();
-    }
 }
 
 void EditorApp::onResize(u32 w, u32 h)
@@ -705,7 +644,7 @@ void EditorApp::addRoot(DynamicData root)
 
 void EditorApp::DrawDynamicEntity(DynamicData& entityData)
 {
-	DDEntity entity = DynamicData_readEntity(&entityData);
+	/*DDEntity entity = DynamicData_readEntity(&entityData);
 	bool selected = m_focused.id() == entityData.id();
 	ImGui::PushID((int)entityData.id());
 	bool r = ImGui::TreeNodeEx(entity.name, selected ? ImGuiTreeNodeFlags_Selected : 0);
@@ -732,7 +671,7 @@ void EditorApp::DrawDynamicEntity(DynamicData& entityData)
 			DrawDynamicEntity(child);
 		}
 		ImGui::TreePop();
-	}
+	}*/
 }
 
 void EditorApp::DrawSelectedEntity()

@@ -7,17 +7,12 @@
 #include "TruthView.h"
 #include "Core/Array.h"
 #include "Core/HashMap.h"
-
-
 #include <vector>
-#include <unordered_map>
-#include <string>
 
 
 #define _CRT_SECURE_NO_WARNINGS 1
 
 #define DD_ARRAY_COUNT(a) (sizeof(a) / sizeof(a[0]))
-
 
 struct DynamicEditorPath;
 
@@ -100,6 +95,8 @@ enum class MemberStatus
 	Instantiated,
 	Overridden,
 	Removed,
+	Added,
+	Set, // todo remove
 	None
 };
 
@@ -170,6 +167,11 @@ struct DynamicData
 		return type == Type_Integer || type == Type_Number || type == Type_String;
 	}
 
+	bool isString()
+	{
+		return type == Type_String;
+	}
+
 	union
 	{
 		u64 hObject;
@@ -183,8 +185,17 @@ struct DynamicData
 	u8 _pad[7];
 };
 
+struct DynamicDataPropertyDef
+{
+	const char* name;
+	DynamicData::Type type;
+	u64 typeHash;
+};
 
 bool DDObject_is_up_to_date(DynamicObject* pObject, DynamicObject* pPrototype);
+
+void DynamicData_initialize(Allocator* a);
+void DynamicData_shutdown();
 
 DynamicData DynamicData_obj_new();
 DynamicData DynamicData_new_from_prototype(DynamicData* pPrototype);
@@ -201,13 +212,14 @@ DynamicData DynamicData_make_null();
 DynamicData DynamicData_make_num(f64 number);
 
 // set operations
-DynamicData DyancmiData_instantiate_subobject_from_set(DynamicData* pValue, u64 hSetMember, DynamicData item);
+DynamicData DynamicData_instantiate_subobject_from_set(DynamicData* pParent, u64 hSetMember, DynamicData* pValue);
+void DynamicData_remove_instantiated_subobject_from_set(DynamicData* pParent, u64 hSetMember, DynamicData* pValue);
 
-void DynamicData_add_to_subobject_set(DynamicData* pValue, u64 hSetMember, DynamicData item);
-void DynamicData_remove_from_subobject_set(DynamicData* pValue, u64 hSetMember, DynamicData item);
+void DynamicData_add_to_subobject_set(DynamicData* pParent, u64 hSetMember, DynamicData* pValue);
+void DynamicData_remove_from_subobject_set(DynamicData* pParent, u64 hSetMember, DynamicData* pValue);
 
-void DynamicData_remove_from_prototype_subobject_set(DynamicData* pValue, u64 hMember, DynamicData item);
-void DynamicData_cancel_remove_from_prototype_subobject_set(DynamicData* pValue, u64 hSetMember, DynamicData item);
+void DynamicData_remove_from_prototype_subobject_set(DynamicData* pParent, u64 hSetMember, DynamicData* pValue);
+void DynamicData_cancel_remove_from_prototype_subobject_set(DynamicData* pParent, u64 hSetMember, DynamicData* pValue);
 
 // todo api return temp allocated arrays
 eastl::vector<DynamicData> DynamicData_get_subobject_set(DynamicData* pValue, u64 hSetMember);
@@ -217,19 +229,7 @@ bool DynamicData_obj_is_editable(DynamicData* pValue, u64 hName);
 
 void DynamicData_instantiate_path(DynamicEditorPath* pPath, DynamicData value);
 
-enum DynamicData_MemberStatus
-{
-	MemberStatus_Owned,
-	MemberStatus_Added,
-	MemberStatus_Removed,
-	MemberStatus_Inherited,
-	MemberStatus_Instantiated,
-	MemberStatus_None
-};
-
 const char* to_string(MemberStatus status);
-const char* to_string(DynamicData_MemberStatus status);
-
 
 DynamicData DynamicData_clone(DynamicData* src);
 
@@ -239,6 +239,8 @@ DynamicData DynamicData_obj_get(DynamicData* pValue, u64 hName);
 
 MemberStatus DynamicData_get_member_status(DynamicData* pValue, u64 hMember);
 
+MemberStatus DynamicData_get_member_relation(DynamicData* pParent, u64 hMember, DynamicData* pValue);
+
 void DynamicData_assign_root(DynamicData* newRoot, DynamicData* value);
 
 void DynamicData_obj_add(DynamicData* target, u64 hName, DynamicData add);
@@ -247,226 +249,13 @@ void DynamicData_obj_set(DynamicData* object, u64 hName, DynamicData value);
 
 void DynamicData_obj_clear_override(DynamicData* pValue, u64 hMember);
 
-struct ArrayEditor
-{
-	struct Instance
-	{
-		eastl::vector<DynamicData> flatValues;
-		//DDObject::Edits* pEdits;
-	};
-
-
-	Instance instance;
-
-	u64 hName;
-	bool isInstanced;
-
-	void push(DynamicData value);
-	void pop();
-	DynamicData get(u64 index);
-
-	u64 size();
-};
-
-struct ObjectEditor
-{
-	struct Instance
-	{
-		eastl::vector<u64> flatNames;
-		eastl::vector<DynamicData> flatValues;
-		//DDObject::Edits* pEdits;
-	};
-
-	struct Owned
-	{
-		DynamicObject* pObject;
-	};
-
-	void set(DynamicData value, u64 hName);
-	DynamicData get(u64 hName);
-};
-
-ArrayEditor DynamicData_edit_array(DynamicData* object, u64 hName);
-ObjectEditor DynamicData_edit_object(DynamicData* object, u64 hName);
-
 u64 string_repository_hash(const char* str);
 
 const char* string_repository_get(u64 hName);
 
-struct DebugValuePair
-{
-	eastl::string name;
-	MemberStatus status;
-	DynamicData value;
-};
-
-struct DynamicObjectDebugView
-{
-	eastl::vector<DebugValuePair> values;
-};
-
-DynamicObjectDebugView DynamicData_DebugExpression(u64 hObject);
-
 bool float_almost_equal(float a, float b);
 
-constexpr const char* s_typeNameKey = "type_name";
-constexpr const char* s_typeIdKey = "__type_id";
 
-constexpr static u64 s_hFields = TM_STATIC_HASH("fields", 0xfeae1f7e5ced00a4ULL);
-
-struct DDEntity
-{
-	enum
-	{
-		FieldMask_Name =  (1<<0),
-		FieldMask_Children =  (1<<1),
-		FieldMask_Components =  (1<<2),
-	};
-
-	u64 editedMask;
-	u64 id;
-
-	void addChild(DynamicData child);
-	void removeChild(u64 id);
-
-	const char* name;
-	eastl::vector<DynamicData> children;
-	eastl::vector<DynamicData> components;
-
-	struct AddedChild
-	{
-		u64 id;
-		DynamicData data;
-	};
-
-	eastl::vector<AddedChild> addedChildren;
-	eastl::vector<u64> removedChildren;
-
-	f64 test_number;
-};
-
-struct DDEntityReader
-{
-	const DDEntity* ref;
-
-	const eastl::vector<DynamicData>& readComponents() { return ref->components; }
-	const eastl::vector<DynamicData>& readChildren() { return ref->children; }
-	const char* readName() { return ref->name; }
-};
-
-struct DDEntityEditor
-{
-	DDEntity* ref;
-
-	eastl::vector<DynamicData>& editChildren()
-	{
-		ref->editedMask |= DDEntity::FieldMask_Children;
-		return ref->children;
-	}
-
-	void setName(const char* newName)
-	{
-		ref->editedMask |= DDEntity::FieldMask_Name;
-		ref->name = newName;
-	}
-
-	eastl::vector<DynamicData>& editComponents()
-	{
-		ref->editedMask |= DDEntity::FieldMask_Components;
-		return ref->components;
-	}
-
-	const eastl::vector<DynamicData>& readChildren() { return ref->children; }
-	const char* readName() { return ref->name; }
-};
-
-struct DDTransformComponent
-{
-	enum : u8
-	{
-		FieldMask_X = (1 << 0),
-		FieldMask_Y = (1 << 1),
-		FieldMask_Z = (1 << 2),
-	};
-
-	u64 editedMask;
-	u64 id;
-
-	float x;
-	float y;
-	float z;
-};
-
-struct DDTransformComponentReader
-{
-	const DDTransformComponent* ref;
-
-	float3 readPosition()
-	{
-		float3 val;
-		val.x = ref->x;
-		val.y = ref->y;
-		val.z = ref->z;
-
-		return val;
-	}
-};
-
-struct DDTransformComponentEditor
-{
-	DDTransformComponent* ref;
-
-	float3 readPosition()
-	{
-		float3 val;
-		val.x = ref->x;
-		val.y = ref->y;
-		val.z = ref->z;
-
-		return val;
-	}
-
-	void setPosition(float3 val)
-	{
-		if (!float_almost_equal(val.x, ref->x))
-		{
-			ref->editedMask |= DDTransformComponent::FieldMask_X;
-			ref->x = val.x;
-		}
-
-		if (!float_almost_equal(val.y, ref->y))
-		{
-			ref->editedMask |= DDTransformComponent::FieldMask_Y;
-			ref->y = val.y;
-		}
-
-		if (!float_almost_equal(val.z, ref->z))
-		{
-			ref->editedMask |= DDTransformComponent::FieldMask_Z;
-			ref->z = val.z;
-		}
-	}
-};
-
-struct DynamicDataParser_i
-{
-	void (*parse)(DynamicData* value, void* target);
-	void (*write_back)(DynamicData* value, void* data);
-};
-
-void DynamicData_registerParser(u64 hType, DynamicDataParser_i parser);
-
-DDEntity DynamicData_readEntity(DynamicData* pEntity);
-DDTransformComponent DynamicData_readTransform(DynamicData* pEntity);
-
-void DynamicData_writeBack(DynamicData* pData, void* pValue);
-
-struct DynamicDataPropertyDef
-{
-	const char* name;
-	DynamicData::Type type;
-	u64 typeHash;
-};
 
 u64 DynamicData_register_type(const char* name, const DynamicDataPropertyDef* properties, u32 num_properties);
 
@@ -477,33 +266,3 @@ eastl::vector<u64> DynamicData_get_all_types();
 DynamicData DynamicData_create_from_template(u64 hName);
 
 void DynamicData_view(DynamicData* pData);
-
-
-struct Entity : TruthElement
-{
-	constexpr static const char* kName = "Entity";
-	constexpr static u64 kTypeId = TM_STATIC_HASH("Entity", 0x11fef190dc0c34a1ULL);
-
-	static Entity* create(Allocator* a);
-	static Entity* createFromPrototype(Allocator* a, truth::Key prototype);
-
-	~Entity() override = default;
-
-	u64 typeId() const override
-	{
-		return kTypeId;
-	}
-
-	TruthElement* clone(Allocator* a) const override;
-
-	Array<truth::Key> children;
-	HashMap<Array<truth::Key>> instantiatedRoots;
-
-	truth::Key prototype;
-
-	char name[64];
-
-	
-	Position position = {};
-};
-

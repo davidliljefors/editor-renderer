@@ -125,6 +125,10 @@ public:
 
 	HashMap clone() const;
 
+	void clear();
+
+	void reset();
+
 private:
 	HashFind find_impl(u64 key);
 
@@ -293,6 +297,19 @@ HashMap<T> HashMap<T>::clone() const
 	return clone;
 }
 
+template <typename T>
+void HashMap<T>::clear()
+{
+	m_hash.clear();
+	m_data.clear();
+}
+
+template <typename T>
+void HashMap<T>::reset()
+{
+	m_hash.reset();
+	m_data.reset();
+}
 
 template <typename T>
 typename HashMap<T>::HashFind HashMap<T>::find_impl(u64 key)

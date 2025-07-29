@@ -12,6 +12,11 @@ Allocator* GLOBAL_HEAP;
 
 i32 main()
 {
+	HeapAllocator gHeap;
+	GLOBAL_HEAP = &gHeap;
+
+	DynamicData_initialize(GLOBAL_HEAP);
+
 	const DynamicDataPropertyDef test_nested_props[] = {
 		{ "nested_float", DynamicData::Type_Number, 0 },
 		{ "nested_integer", DynamicData::Type_Integer, 0 },
@@ -29,7 +34,7 @@ i32 main()
 
 	const DynamicDataPropertyDef entity_props[] = {
 		{ "name", DynamicData::Type_String, 0 },
-		{ "children", DynamicData::Type_Set, 0 },
+		{ "children", DynamicData::Type_Set, ENTITY_NAME_HASH },
 		{ "components", DynamicData::Type_Set, 0 },
 		{ "dummy_subobject", DynamicData::Type_Object, subobject_type_hash }
 	};
@@ -38,13 +43,12 @@ i32 main()
 
 	string_repository_hash("fields");
 
-	HeapAllocator gHeap;
-	GLOBAL_HEAP = &gHeap;
-
 	block_memory_init();
 
 	EditorApp* app = create<EditorApp>(GLOBAL_HEAP, GLOBAL_HEAP);
 	app->run();
+
+	DynamicData_shutdown();
 
 	block_memory_shutdown();
 

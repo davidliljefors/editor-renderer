@@ -69,6 +69,8 @@ public:
 	void swap(Array<T>& other);
 
 	void clear();
+	void reset();
+
 	bool empty() const;
 
 	T& operator[](i32 i);
@@ -116,18 +118,7 @@ Array<T>::Array(Allocator* allocator)
 template <typename T>
 Array<T>::~Array()
 {
-	for (i32 i = 0; i < m_size; ++i)
-	{
-		m_data[i].~T();
-	}
-
-	if (m_data)
-	{
-		m_allocator->freeSizeKnown(m_data, m_capacity * sizeof(T));
-	}
-
-	m_capacity = 0;
-	m_size = 0;
+	reset();
 }
 
 template <typename T>
@@ -248,6 +239,24 @@ void Array<T>::clear()
 		m_data[i].~T();
 	}
 
+	m_size = 0;
+}
+
+template <typename T>
+void Array<T>::reset()
+{
+	for (i32 i = 0; i < m_size; ++i)
+	{
+		m_data[i].~T();
+	}
+
+	if (m_data)
+	{
+		m_allocator->freeSizeKnown(m_data, m_capacity * sizeof(T));
+		m_data = nullptr;
+	}
+
+	m_capacity = 0;
 	m_size = 0;
 }
 

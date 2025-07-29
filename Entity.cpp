@@ -1,7 +1,7 @@
 #include "Entity.h"
 
-#include <algorithm>
-#include <stdio.h>
+
+#include "Core/HashMap.h"
 
 #include "Editor.h"
 #include "imgui.h"
@@ -14,42 +14,15 @@ static u64 s_object_id = 0;
 
 u64 next_obj_id()
 {
-	return s_object_id ++ ;
-}
-
-Position get_position(ReadOnlySnapshot s, truth::Key objectId)
-{
-	const Entity* entity = (const Entity*)g_truth->read(s, objectId);
-
-	Position res = entity->position;
-
-	if (entity->prototype.asU64 != 0 && (entity->position.inheritsX || entity->position.inheritsY || entity->position.inheritsZ))
-	{
-		Position prototypePosition = get_position(s, entity->prototype);
-
-		if (entity->position.inheritsX)
-		{
-			res.x = prototypePosition.x;
-
-		}
-
-		if (entity->position.inheritsY)
-		{
-			res.y = prototypePosition.y;
-		}
-
-		if (entity->position.inheritsZ)
-		{
-			res.z = prototypePosition.z;
-		}
-	}
-
-	return res;
+	return s_object_id++;
 }
 
 #define BREAK_ON_ERROR 1
 #define DYNAMIC_DATA_ERROR(msg) printf("error: %s. line:%d\n", msg, __LINE__); if(BREAK_ON_ERROR)__debugbreak()
 
+constexpr const char* s_typeNameKey = "type_name";
+constexpr const char* s_typeIdKey = "__type_id";
+constexpr static u64 s_hFields = TM_STATIC_HASH("fields", 0xfeae1f7e5ced00a4ULL);
 
 void PushStatusStyle(MemberStatus status)
 {
@@ -58,6 +31,8 @@ void PushStatusStyle(MemberStatus status)
 	constexpr u32 COLOR_INSTANTIATED = IM_COL32(255, 255, 180, 255);
 	constexpr u32 COLOR_OVERRIDDEN = IM_COL32(180, 180, 255, 255);
 	constexpr u32 COLOR_REMOVED = IM_COL32(255, 180, 180, 255);
+	constexpr u32 COLOR_ADDED = IM_COL32(255, 255, 255, 255);
+	constexpr u32 COLOR_SET = IM_COL32(255, 255, 255, 255);
 	constexpr u32 COLOR_ERROR = IM_COL32(255, 0, 0, 255);
 
 	u32 styles[]
@@ -67,6 +42,8 @@ void PushStatusStyle(MemberStatus status)
 		COLOR_INSTANTIATED,
 		COLOR_OVERRIDDEN,
 		COLOR_REMOVED,
+		COLOR_ADDED,
+		COLOR_SET,
 		COLOR_ERROR,
 	};
 
@@ -123,11 +100,23 @@ struct DynamicSet
 		eastl::vector<DynamicData> values;
 	};
 
+	u64 typeHash;
 	Added added;
 	Removed removed;
 	Instantiated instantiated;
 };
 
+struct DebugValuePair
+{
+	char name[64];
+	MemberStatus status;
+	DynamicData value;
+};
+
+struct DynamicObjectDebugView
+{
+	eastl::vector<DebugValuePair> values;
+};
 
 DynamicObjectDebugView DynamicData_DebugExpression(u64 hObject)
 {
@@ -137,46 +126,13 @@ DynamicObjectDebugView DynamicData_DebugExpression(u64 hObject)
 		for (u64 i = 0; i < pObject->members.names.size(); ++i)
 		{
 			DebugValuePair& pair = debugData.values.emplace_back();
-			pair.name = string_repository_get(pObject->members.names[i]);
+			strcpy_s(pair.name, 64, string_repository_get(pObject->members.names[i]));
 			pair.value = pObject->members.values[i];
 			pair.status = pObject->members.statuses[i];
 		}
 	}
 
 	return debugData;
-}
-
-bool float_almost_equal(float a, float b) {
-    const float epsilon = 0.0001f;
-    return fabs(a - b) < epsilon;
-}
-
-void set_position(Transaction& tx, truth::Key objectId, Position p)
-{
-	Entity* entity = (Entity*)g_truth->edit(tx, objectId);
-	Position current = get_position(tx.uncommitted.asImmutable(), objectId);
-
-	if (entity->prototype.asU64 != 0)
-	{
-		if (entity->position.inheritsX && !float_almost_equal(current.x, p.x))
-		{
-			entity->position.inheritsX = false;
-		}
-
-		if (entity->position.inheritsY && !float_almost_equal(current.y,p.y))
-		{
-			entity->position.inheritsY = false;
-		}
-
-		if (entity->position.inheritsZ && !float_almost_equal(current.z, p.z))
-		{
-			entity->position.inheritsZ = false;
-		}
-	}
-
-	entity->position.x = p.x;
-	entity->position.y = p.y;
-	entity->position.z = p.z;
 }
 
 void DynamicData_format_value(Printf& buf, DynamicData value)
@@ -262,34 +218,12 @@ void DynamicData_view_draw_object_id(DynamicObject* pObject)
 	}
 }
 
-void DynamicData_view_draw_value(DynamicData* nonContainer, DynamicData_MemberStatus status)
-{
-	switch (nonContainer->type)
-	{
-		case DynamicData::Type_Integer:
-		case DynamicData::Type_Number:
-		case DynamicData::Type_String:
-		case DynamicData::Type_Null:
-		{
-			Printf buf;
-			DynamicData_format_value(buf, *nonContainer);
-			bool r = ImGui::TreeNodeEx(buf.cstr(), ImGuiTreeNodeFlags_Leaf);
-			if (r)
-			{
-				ImGui::TreePop();
-			}
-			break;
-		}
-		default:
-		{
-			assert(false && "invalid type");
-			break;
-		}
-	}
-}
 
 void DynamicData_view_object_context_menu(DynamicData* pValue, u64 hMember, DynamicEditorPath* pPath, bool parentInherited)
 {
+	if (parentInherited)
+		return;
+
 	if (ImGui::BeginPopupContextItem())
 	{
 		DynamicData member = DynamicData_obj_get(pValue, hMember);
@@ -297,13 +231,13 @@ void DynamicData_view_object_context_menu(DynamicData* pValue, u64 hMember, Dyna
 
 		if (!parentInherited && status == MemberStatus::Overridden)
 		{
-			if (ImGui::MenuItem("Clear value"))
+			if (ImGui::MenuItem("Clear override"))
 			{
 				DynamicData_obj_clear_override(pValue, hMember);
 			}
-		} 
+		}
 
-		if (status != MemberStatus::Inherited && member.type == DynamicData::Type_Object && ImGui::MenuItem("Create instance of"))
+		if (!parentInherited && status != MemberStatus::Inherited && member.type == DynamicData::Type_Object && ImGui::MenuItem("Create instance of"))
 		{
 			DynamicData instance = DynamicData_new_from_prototype(&member);
 
@@ -317,8 +251,42 @@ void DynamicData_view_object_context_menu(DynamicData* pValue, u64 hMember, Dyna
 			Debug_register_root_object(instance);
 		}
 
+		if (!parentInherited && status == MemberStatus::Instantiated && (member.type == DynamicData::Type_Set))
+		{
+			if (ImGui::MenuItem("Reset to prototype"))
+			{
+				DynamicData val = DynamicData_obj_get(pValue, hMember);
+				DynamicData_obj_set(pValue, hMember, val);
+			}
+		}
 
-		if (!parentInherited && (member.type == DynamicData::Type_Object || member.type == DynamicData::Type_Set) && status == MemberStatus::Inherited)
+		if (!parentInherited && (member.type == DynamicData::Type_Set) && (status == MemberStatus::Owned || status == MemberStatus::Set))
+		{
+			u64 typeHash = member.asSet()->typeHash;
+			if (typeHash != 0)
+			{
+				const char* type_name = string_repository_get(typeHash);
+				if (ImGui::MenuItem(Printf("Add new %s", type_name)))
+				{
+					static int addcount = 0;
+					DynamicData added = DynamicData_create_from_template(typeHash);
+					++addcount;
+					DynamicData_obj_set(&added, TM_STATIC_HASH("name", 0xd4c943cba60c270bULL), DynamicData_make_str(Printf("%s %d", type_name, addcount)));
+					DynamicData_add_to_subobject_set(pValue, hMember, &added);
+				}
+			}
+		}
+
+		if (!parentInherited && (member.type != DynamicData::Type_Object && member.type != DynamicData::Type_Set) && status == MemberStatus::Inherited)
+		{
+			if (ImGui::MenuItem("Override value"))
+			{
+				DynamicData val = DynamicData_obj_get(pValue, hMember);
+				DynamicData_obj_set(pValue, hMember, val);
+			}
+		}
+
+		if (!parentInherited && (member.type == DynamicData::Type_Object) && status == MemberStatus::Inherited)
 		{
 			if (ImGui::MenuItem("Instantiate subobject"))
 			{
@@ -328,7 +296,7 @@ void DynamicData_view_object_context_menu(DynamicData* pValue, u64 hMember, Dyna
 
 		if (!parentInherited && (member.type == DynamicData::Type_Object || member.type == DynamicData::Type_Set) && status == MemberStatus::Instantiated)
 		{
-			if (ImGui::MenuItem("Reset"))
+			if (ImGui::MenuItem("Reset to prototype"))
 			{
 				DynamicData_clear_instantiated_subobject(pValue, hMember);
 			}
@@ -340,12 +308,55 @@ void DynamicData_view_object_context_menu(DynamicData* pValue, u64 hMember, Dyna
 
 void DynamicData_view_impl(DynamicData* parent, u64 hMember, DynamicEditorPath* pPath, bool isInherited);
 
-void DynamicData_view_object_set_context_menu(DynamicData* pValue, u64 hMember, DynamicEditorPath* pPath, bool parentInherited)
+void DynamicData_view_object_set_context_menu(DynamicData* pParent, u64 hMember, DynamicData* pValue, MemberStatus status, bool parentInherited)
 {
+	if (parentInherited)
+		return;
 
+	if (ImGui::BeginPopupContextItem())
+	{
+		if (status == MemberStatus::Added)
+		{
+			if (ImGui::MenuItem("Remove from set"))
+			{
+				DynamicData_remove_from_subobject_set(pParent, hMember, pValue);
+			}
+		}
+
+		if (status == MemberStatus::Inherited)
+		{
+			if (ImGui::MenuItem("Instantiate set member"))
+			{
+				DynamicData_instantiate_subobject_from_set(pParent, hMember, pValue);
+			}
+
+			if (ImGui::MenuItem("Remove from prototype set"))
+			{
+				DynamicData_remove_from_prototype_subobject_set(pParent, hMember, pValue);
+			}
+		}
+
+		if (status == MemberStatus::Instantiated)
+		{
+			if (ImGui::MenuItem("Revert to prototype"))
+			{
+				DynamicData_remove_instantiated_subobject_from_set(pParent, hMember, pValue);
+			}
+		}
+
+		if (status == MemberStatus::Removed)
+		{
+			if (ImGui::MenuItem("Cancel remove"))
+			{
+				DynamicData_cancel_remove_from_prototype_subobject_set(pParent, hMember, pValue);
+			}
+		}
+
+		ImGui::EndPopup();
+	}
 }
 
-void DynamicData_view_draw_object(DynamicData* pValue, DynamicEditorPath* pPath, bool parentInherited, bool* outOpenCtxMenu)
+void DynamicData_view_draw_object(DynamicData* pValue, DynamicEditorPath* pPath, bool parentInherited)
 {
 	DynamicObject* pObject = pValue->asObject();
 	for (u64 i = 0; i < pObject->members.names.size(); ++i)
@@ -366,7 +377,7 @@ void DynamicData_view_draw_object(DynamicData* pValue, DynamicEditorPath* pPath,
 			PushStatusStyle(memberStatus);
 			bool open = ImGui::TreeNodeEx(Printf("%s : %s", memberName, buf.cstr()), ImGuiTreeNodeFlags_Leaf);
 			PopStatusStyle();
-			
+
 			if (open)
 			{
 				ImGui::TreePop();
@@ -391,7 +402,7 @@ void DynamicData_view_draw_object(DynamicData* pValue, DynamicEditorPath* pPath,
 			PushStatusStyle(memberStatus);
 			bool childOpen = ImGui::TreeNode(memberName);
 			PopStatusStyle();
-			
+
 			DynamicData_view_object_context_menu(pValue, hMemberName, pPath, parentInherited);
 
 			if (childOpen)
@@ -403,48 +414,61 @@ void DynamicData_view_draw_object(DynamicData* pValue, DynamicEditorPath* pPath,
 	}
 }
 
-void DynamicData_view_draw_object_set(DynamicData* pValue, u64 hSetName, DynamicEditorPath* pPath, bool parentInherited)
+void DynamicData_view_draw_object_set(DynamicData* pParent, u64 hSetName, DynamicEditorPath* pPath, bool parentInherited)
 {
-	eastl::vector<DynamicData> members = DynamicData_get_subobject_set(pValue, hSetName);
-	eastl::vector<DynamicData> removed = DynamicData_get_subobject_set_locally_removed(pValue, hSetName);
-
-	DynamicSet* pSet = DynamicData_obj_get(pValue, hSetName).asSet();
+	eastl::vector<DynamicData> members = DynamicData_get_subobject_set(pParent, hSetName);
+	eastl::vector<DynamicData> removed = DynamicData_get_subobject_set_locally_removed(pParent, hSetName);
 
 	const char* setName = string_repository_get(hSetName);
 
-	for (u64 i = 0; i< members.size(); ++i)
+	for (auto& r : removed)
 	{
-		
+		members.push_back(r);
 	}
 
-	for (u64 i = 0; i < removed.size(); ++i)
+	for (u64 i = 0; i < members.size(); ++i)
 	{
-		DynamicData* item = &removed[i];
-		ImGui::PushID((int)item->id());
-		PushStatusStyle(MemberStatus::Removed);
+		DynamicData* pValue = &members[i];
+		ImGui::PushID((int)pValue->id());
+
+		DynamicData memberName = DynamicData_obj_get(pValue, TM_STATIC_HASH("name", 0xd4c943cba60c270bULL));
+
+		Printf genericName = Printf("%s [%d]", setName, (int)i);
+		const char* name = memberName.isString() ? memberName.asString() : genericName.cstr();
+
+		MemberStatus status = DynamicData_get_member_relation(pParent, hSetName, pValue);
+		status = parentInherited ? MemberStatus::Inherited : status;
+
 		ImVec2 cursorPos = ImGui::GetCursorScreenPos();
 
-		Printf text = Printf("%s [%d]", setName, (int)i);
+		PushStatusStyle(status);
+		ImGuiTreeNodeFlags flags = status == MemberStatus::Removed ? ImGuiTreeNodeFlags_Leaf : 0;
 
-		if (ImGui::TreeNodeEx(text.cstr(), ImGuiTreeNodeFlags_Leaf))
+		bool open = ImGui::TreeNodeEx(name, flags);
+		PopStatusStyle();
+
+		DynamicData_view_object_set_context_menu(pParent, hSetName, pValue, status, parentInherited);
+
+		if (open)
 		{
+			if (status != MemberStatus::Removed)
+			{
+				DynamicData_view_draw_object(pValue, pPath, status == MemberStatus::Inherited);
+			}
 			ImGui::TreePop();
 		}
 
-		ImVec2 textSize = ImGui::CalcTextSize(text.cstr());
-	
-		ImVec2 start = cursorPos;
-		ImVec2 end = ImVec2(cursorPos.x + textSize.x, cursorPos.y);
+		if (status == MemberStatus::Removed)
+		{
+			ImVec2 textSize = ImGui::CalcTextSize(genericName.cstr());
+			ImVec2 start = ImVec2(cursorPos.x + 24, cursorPos.y);
+			ImVec2 end = ImVec2(cursorPos.x + textSize.x + 2, cursorPos.y);
+			float textHeight = textSize.y;
+			start.y += textHeight * 0.5f;
+			end.y += textHeight * 0.5f;
+			ImGui::GetWindowDrawList()->AddLine(start, end, IM_COL32(255, 180, 180, 255), 1.0f);
+		}
 
-		// Adjust Y position to draw the line through the middle of the text
-		float textHeight = textSize.y;
-		start.y += textHeight * 0.5f;
-		end.y += textHeight * 0.5f;
-
-		// Draw the strikethrough line
-		ImGui::GetWindowDrawList()->AddLine(start, end, IM_COL32(255, 255, 255, 255), 1.0f);
-
-		PopStatusStyle();
 		ImGui::PopID();
 	}
 }
@@ -479,9 +503,8 @@ void DynamicData_view_draw_root_object(DynamicData* pRoot)
 
 	if (open)
 	{
-		bool rclick = false;
 		path.values.push_back(*pRoot);
-		DynamicData_view_draw_object(pRoot, &path, false, &rclick);
+		DynamicData_view_draw_object(pRoot, &path, false);
 		ImGui::TreePop();
 	}
 }
@@ -499,13 +522,8 @@ void DynamicData_view_impl(DynamicData* parent, u64 hMember, DynamicEditorPath* 
 	{
 		pPath->values.push_back(*parent);
 		bool rclick = false;
-		DynamicData_view_draw_object(&value, pPath, isInherited, &rclick);
+		DynamicData_view_draw_object(&value, pPath, isInherited);
 		pPath->values.pop_back();
-
-		if (rclick)
-		{
-			DynamicData_view_object_context_menu(parent, hMember, pPath, isInherited);
-		}
 		break;
 	}
 	case DynamicData::Type_Set:
@@ -534,21 +552,28 @@ void DynamicData_view_impl(DynamicData* parent, u64 hMember, DynamicEditorPath* 
 	}
 }
 
-static eastl::unordered_map<u64, const char*> s_string_repository;
-static std::unordered_map<u64, DynamicData> g_templates;
-static std::unordered_map<u64, DynamicDataParser_i> g_parsers;
-static std::unordered_map<u64, DynamicObject*> g_objects;
-
-DynamicDataParser_i* lookup_parser(u64 typeId)
-{
-	auto find = g_parsers.find(typeId);
-	return find != g_parsers.end() ? &find->second : nullptr;
-}
+static HashMap<const char*> s_string_repository;
+static HashMap<DynamicData> g_templates;
+static HashMap<DynamicObject*> g_objects;
 
 DynamicObject* lookup_obj(u64 hObject)
 {
 	auto find = g_objects.find(hObject);
-	return find != g_objects.end() ? find->second : nullptr;
+	return find ? *find : nullptr;
+}
+
+void DynamicData_initialize(Allocator* a)
+{
+	s_string_repository.set_allocator(a);
+	g_templates.set_allocator(a);
+	g_objects.set_allocator(a);
+}
+
+void DynamicData_shutdown()
+{
+	s_string_repository.reset();
+	g_templates.reset();
+	g_objects.reset();
 }
 
 DynamicData DynamicData_obj_new()
@@ -571,7 +596,7 @@ DynamicData DynamicData_obj_new()
 }
 
 DynamicData DynamicData_instance_new(DynamicData* pPrototype)
- {
+{
 	DynamicData value = DynamicData_make_null();
 
 	if (pPrototype->type == DynamicData::Type_Object)
@@ -582,8 +607,22 @@ DynamicData DynamicData_instance_new(DynamicData* pPrototype)
 
 		u64 size = pProtoObject->members.names.size();
 		pObject->members.names = pProtoObject->members.names;
-		pObject->members.values = pProtoObject->members.values;
+		pObject->members.values.resize(size);
 		pObject->members.statuses.resize(size, MemberStatus::Inherited);
+
+		for (u64 i = 0; i < size; ++i)
+		{
+			if (pProtoObject->members.values[i].type == DynamicData::Type_Set)
+			{
+				pObject->members.values[i] = DynamicData_set_new();
+				pObject->members.values[i].asSet()->typeHash = pProtoObject->members.values[i].asSet()->typeHash;
+				pObject->members.statuses[i] = MemberStatus::Set;
+			}
+			else
+			{
+				pObject->members.values[i] = pProtoObject->members.values[i];
+			}
+		}
 
 		u64 id = next_obj_id();
 		value.type = DynamicData::Type_Object;
@@ -754,40 +793,36 @@ DynamicData DynamicData_make_num(f64 number)
 }
 
 
-DynamicData DyancmiData_instantiate_subobject_from_set(DynamicData* pValue, u64 hSetMember, DynamicData item)
+DynamicData DynamicData_instantiate_subobject_from_set(DynamicData* pParent, u64 hSetMember, DynamicData* pValue)
 {
-	if (DynamicObject* pObject = pValue->asObject())
+	if (DynamicObject* pObject = pParent->asObject())
 	{
 		if (pObject->prototype.id() == 0)
 		{
 			DYNAMIC_DATA_ERROR("Instantiate only valid on objects with a prototype");
 		}
 
-		DynamicData prototype = pObject->prototype;
-
-		eastl::vector<DynamicData> prototypeSet = DynamicData_get_subobject_set(&prototype, hSetMember);
-
 		u64 i;
 		if (findName(pObject->members.names, hSetMember, &i))
 		{
-			if (pObject->members.statuses[i] == MemberStatus::Instantiated)
+
+			if (pObject->members.statuses[i] == MemberStatus::Set)
 			{
 				if (DynamicSet* pSet = pObject->members.values[i].asSet())
 				{
-					if (findId(pSet->instantiated.ids, item.id(), &i))
+					if (findId(pSet->instantiated.ids, pValue->id(), &i))
 					{
 						DYNAMIC_DATA_ERROR("value is already instantiated");
 					}
-					else if (findValue(pSet->added.values, &item, &i))
-					{
-						DynamicData prototype = pSet->added.values[i];
-						DynamicData instantiated = DynamicData_new_from_prototype(&prototype);
-						pSet->instantiated.ids.push_back(item.id());
-						pSet->instantiated.values.push_back(instantiated);
-					}
 					else
 					{
-						DYNAMIC_DATA_ERROR("value not present in set");
+						eastl::vector<DynamicData> set = DynamicData_get_subobject_set(pParent, hSetMember);
+						if (findValue(set, pValue, &i))
+						{
+							pSet->instantiated.ids.push_back(pValue->id());
+							DynamicData instantiated = DynamicData_new_from_prototype(pValue);
+							pSet->instantiated.values.push_back(instantiated);
+						}
 					}
 				}
 				else
@@ -800,29 +835,68 @@ DynamicData DyancmiData_instantiate_subobject_from_set(DynamicData* pValue, u64 
 		{
 			DYNAMIC_DATA_ERROR(Printf("Object does not contain member [%s]", string_repository_get(hSetMember)).cstr());
 		}
-	} 
+	}
 
 	return DynamicData_make_null();
 }
 
-void DynamicData_add_to_subobject_set(DynamicData* pValue, u64 hSetMember, DynamicData item)
+void DynamicData_remove_instantiated_subobject_from_set(DynamicData* pParent, u64 hSetMember, DynamicData* pValue)
 {
-	if (DynamicObject* pObject = pValue->asObject())
+	if (DynamicObject* pObject = pParent->asObject())
+	{
+		if (pObject->prototype.id() == 0)
+		{
+			DYNAMIC_DATA_ERROR("Instantiate only valid on objects with a prototype");
+		}
+
+		u64 i;
+		if (findName(pObject->members.names, hSetMember, &i))
+		{
+			if (pObject->members.statuses[i] == MemberStatus::Set)
+			{
+				if (DynamicSet* pSet = pObject->members.values[i].asSet())
+				{
+					if (findValue(pSet->instantiated.values, pValue, &i))
+					{
+						pSet->instantiated.ids.erase(pSet->instantiated.ids.begin() + (i64)i);
+						pSet->instantiated.values.erase(pSet->instantiated.values.begin() + (i64)i);
+					}
+					else
+					{
+						DYNAMIC_DATA_ERROR("value is not instantiated in set");
+					}
+				}
+				else
+				{
+					DYNAMIC_DATA_ERROR("set is not instantiated");
+				}
+			}
+		}
+		else
+		{
+			DYNAMIC_DATA_ERROR(Printf("Object does not contain member [%s]", string_repository_get(hSetMember)).cstr());
+		}
+	}
+}
+
+void DynamicData_add_to_subobject_set(DynamicData* pParent, u64 hSetMember, DynamicData* pValue)
+{
+	if (DynamicObject* pObject = pParent->asObject())
 	{
 		u64 i;
 		if (findName(pObject->members.names, hSetMember, &i))
 		{
 			MemberStatus membersStatus = pObject->members.statuses[i];
-			if (membersStatus == MemberStatus::Instantiated || membersStatus == MemberStatus::Owned)
+			if (membersStatus == MemberStatus::Set || membersStatus == MemberStatus::Owned)
 			{
 				if (DynamicSet* pSet = pObject->members.values[i].asSet())
 				{
-					pSet->added.values.push_back(item);
+					pSet->added.values.push_back(*pValue);
 				}
 			}
 			else
 			{
-				DYNAMIC_DATA_ERROR("Cant modify inherited set");
+				DYNAMIC_DATA_ERROR("errors");
 			}
 		}
 		else
@@ -836,19 +910,19 @@ void DynamicData_add_to_subobject_set(DynamicData* pValue, u64 hSetMember, Dynam
 	}
 }
 
-void DynamicData_remove_from_subobject_set(DynamicData* pValue, u64 hSetMember, DynamicData item)
+void DynamicData_remove_from_subobject_set(DynamicData* pParent, u64 hSetMember, DynamicData* pValue)
 {
-	if (DynamicObject* pObject = pValue->asObject())
+	if (DynamicObject* pObject = pParent->asObject())
 	{
 		u64 i;
 		if (findName(pObject->members.names, hSetMember, &i))
 		{
 			MemberStatus status = pObject->members.statuses[i];
-			if (status == MemberStatus::Owned || status == MemberStatus::Instantiated)
+			if (status == MemberStatus::Owned || status == MemberStatus::Set)
 			{
 				if (DynamicSet* pSet = pObject->members.values[i].asSet())
 				{
-					if (findValue(pSet->added.values, &item, &i))
+					if (findValue(pSet->added.values, pValue, &i))
 					{
 						pSet->added.values.erase(pSet->added.values.begin() + (i64)i);
 					}
@@ -874,79 +948,78 @@ void DynamicData_remove_from_subobject_set(DynamicData* pValue, u64 hSetMember, 
 	}
 }
 
-void DynamicData_remove_from_prototype_subobject_set(DynamicData* pValue, u64 hSetMember, DynamicData item)
+void DynamicData_remove_from_prototype_subobject_set(DynamicData* pParent, u64 hSetMember, DynamicData* pValue)
 {
-	if (DynamicObject* pObject = pValue->asObject())
+	if (DynamicObject* pObject = pParent->asObject())
 	{
+		if (pObject->prototype.id() == 0)
+		{
+			DYNAMIC_DATA_ERROR("remove only valid on objects with a prototype");
+		}
+
 		u64 i;
 		if (findName(pObject->members.names, hSetMember, &i))
 		{
-			MemberStatus status = pObject->members.statuses[i];
-			if (status == MemberStatus::Instantiated)
+			if (pObject->members.statuses[i] == MemberStatus::Set)
 			{
 				if (DynamicSet* pSet = pObject->members.values[i].asSet())
 				{
-					u64 unused;
-					if (!findValue(pSet->removed.values, &item, &unused))
+					if (findValue(pSet->removed.values, pValue, &i))
 					{
-						pSet->removed.values.push_back(item);
+						DYNAMIC_DATA_ERROR("value is already removed");
 					}
 					else
 					{
-						DYNAMIC_DATA_ERROR("object is already removed");
+						pSet->removed.values.push_back(*pValue);
 					}
 				}
 				else
 				{
-					DYNAMIC_DATA_ERROR("member is not of type set");
+					DYNAMIC_DATA_ERROR("set is not instantiated");
 				}
-			}
-			else
-			{
-				DYNAMIC_DATA_ERROR("member is not instantiated");
 			}
 		}
 		else
 		{
-			DYNAMIC_DATA_ERROR("didnt find key");
+			DYNAMIC_DATA_ERROR(Printf("Object does not contain member [%s]", string_repository_get(hSetMember)).cstr());
 		}
 	}
 }
 
-void DynamicData_cancel_remove_from_prototype_subobject_set(DynamicData* pValue, u64 hSetMember, DynamicData item)
+void DynamicData_cancel_remove_from_prototype_subobject_set(DynamicData* pParent, u64 hSetMember, DynamicData* pValue)
 {
-	if (DynamicObject* pObject = pValue->asObject())
+	if (DynamicObject* pObject = pParent->asObject())
 	{
+		if (pObject->prototype.id() == 0)
+		{
+			DYNAMIC_DATA_ERROR("Instantiate only valid on objects with a prototype");
+		}
+
 		u64 i;
 		if (findName(pObject->members.names, hSetMember, &i))
 		{
-			MemberStatus status = pObject->members.statuses[i];
-			if (status == MemberStatus::Instantiated)
+			if (pObject->members.statuses[i] == MemberStatus::Set)
 			{
 				if (DynamicSet* pSet = pObject->members.values[i].asSet())
 				{
-					if (findValue(pSet->removed.values, &item, &i))
+					if (findValue(pSet->removed.values, pValue, &i))
 					{
 						pSet->removed.values.erase(pSet->removed.values.begin() + (i64)i);
 					}
 					else
 					{
-						DYNAMIC_DATA_ERROR("object is not removed");
+						DYNAMIC_DATA_ERROR("value is not instantiated in set");
 					}
 				}
 				else
 				{
-					DYNAMIC_DATA_ERROR("member is not of type set");
+					DYNAMIC_DATA_ERROR("set is not instantiated");
 				}
-			}
-			else
-			{
-				DYNAMIC_DATA_ERROR("member is not instantiated");
 			}
 		}
 		else
 		{
-			DYNAMIC_DATA_ERROR("didnt find key");
+			DYNAMIC_DATA_ERROR(Printf("Object does not contain member [%s]", string_repository_get(hSetMember)).cstr());
 		}
 	}
 }
@@ -961,56 +1034,39 @@ void DynamicData_set_compose(DynamicObject* pObject, u64 setMemberIndex, eastl::
 		return;
 	}
 
-	if (setStatus == MemberStatus::Inherited)
+	DynamicObject* pPrototype = pObject->prototype.id() != 0 ? lookup_obj(pObject->prototype.id()) : nullptr;
+
+	if (pPrototype)
 	{
-		DynamicObject* pPrototype = pObject->prototype.id() != 0 ? lookup_obj(pObject->prototype.id()) : nullptr;
 		DynamicData_set_compose(pPrototype, setMemberIndex, ids, values);
 	}
-	else if (setStatus == MemberStatus::Instantiated)
+
+	DynamicSet* pSet = pObject->members.values[setMemberIndex].asSet();
+
+	for (DynamicData& add : pSet->added.values)
 	{
-		DynamicObject* pPrototype = pObject->prototype.id() != 0 ? lookup_obj(pObject->prototype.id()) : nullptr;
-		DynamicData_set_compose(pPrototype, setMemberIndex, ids, values);
-		DynamicSet* pSet = pObject->members.values[setMemberIndex].asSet();
-
-		for (DynamicData& add : pSet->added.values)
-		{
-			ids.push_back(add.id());
-			values.push_back(add);
-		}
-
-		for (DynamicData& remove : pSet->removed.values)
-		{
-			u64 index;
-			findId(ids, remove.id(), &index);
-
-			ids.erase(ids.begin() + (i64)index);
-			values.erase(values.begin() + (i64)index);
-		}
-
-		for (u64 i = 0; i < pSet->instantiated.ids.size(); ++i)
-		{
-			u64 id = pSet->instantiated.ids[i];
-			DynamicData val = pSet->instantiated.values[i];
-
-			u64 index;
-			findId(ids, id, &index);
-			ids[index] = val.id();
-			values[index] = val;
-		}
+		ids.push_back(add.id());
+		values.push_back(add);
 	}
-	else if (setStatus == MemberStatus::Owned)
-	{
-		DynamicSet* pSet = pObject->members.values[setMemberIndex].asSet();
 
-		for (DynamicData& add : pSet->added.values)
-		{
-			ids.push_back(add.id());
-			values.push_back(add);
-		}
-	}
-	else
+	for (DynamicData& remove : pSet->removed.values)
 	{
-		DYNAMIC_DATA_ERROR("Type Error");
+		u64 index;
+		findId(ids, remove.id(), &index);
+
+		ids.erase(ids.begin() + (i64)index);
+		values.erase(values.begin() + (i64)index);
+	}
+
+	for (u64 i = 0; i < pSet->instantiated.ids.size(); ++i)
+	{
+		u64 id = pSet->instantiated.ids[i];
+		DynamicData val = pSet->instantiated.values[i];
+
+		u64 index;
+		findId(ids, id, &index);
+		ids[index] = val.id();
+		values[index] = val;
 	}
 }
 
@@ -1166,31 +1222,13 @@ const char* to_string(MemberStatus status)
 		return "Instantiated";
 	case MemberStatus::Overridden:
 		return "Overridden";
+	case MemberStatus::Added:
+		return "Added";
+	case MemberStatus::Set:
+		return "Set";
 	case MemberStatus::None:
 		return "None";
 	}
-	assert(false && "enum out of range");
-
-	return "enum : error";
-}
-
-const char* to_string(DynamicData_MemberStatus status)
-{
-	switch (status) {
-	case MemberStatus_Owned:
-		return "Owned";
-	case MemberStatus_Added:
-		return "Added";
-	case MemberStatus_Removed:
-		return "Removed";
-	case MemberStatus_Inherited:
-		return "Inherited";
-	case MemberStatus_Instantiated:
-		return "Instantiated";
-	case MemberStatus_None:
-		return "None";
-	}
-
 	assert(false && "enum out of range");
 
 	return "enum : error";
@@ -1207,10 +1245,10 @@ void DynamicData_clone_internal(DynamicData* srcObject, DynamicData* dstObject)
 	pDstObj->members.values.resize(size);
 	pDstObj->members.statuses.resize(size);
 
-	for (u64 i = 0; i< size; ++i)
+	for (u64 i = 0; i < size; ++i)
 	{
 		DynamicData* pMember = &pSrcObj->members.values[i];
-		DynamicData* pClone =  &pDstObj->members.values[i];
+		DynamicData* pClone = &pDstObj->members.values[i];
 		pDstObj->members.names[i] = pSrcObj->members.names[i];
 		pDstObj->members.statuses[i] = MemberStatus::Owned;
 
@@ -1228,10 +1266,12 @@ void DynamicData_clone_internal(DynamicData* srcObject, DynamicData* dstObject)
 		{
 			eastl::vector<DynamicData> setMembers = DynamicData_get_subobject_set(srcObject, pSrcObj->members.names[i]);
 			*pClone = DynamicData_set_new();
-			pClone->asSet()->added.values.resize(setMembers.size());
+			DynamicSet* pSet = pClone->asSet();
+			pSet->typeHash = pSrcObj->members.values[i].asSet()->typeHash;
+			pSet->added.values.resize(setMembers.size());
 			for (u64 ii = 0; ii < setMembers.size(); ++ii)
 			{
-				DynamicData_clone_internal(&setMembers[ii], &pClone->asSet()->added.values[ii]);
+				DynamicData_clone_internal(&setMembers[ii], &pSet->added.values[ii]);
 			}
 			break;
 		}
@@ -1332,6 +1372,58 @@ MemberStatus DynamicData_get_member_status(DynamicData* pValue, u64 hMember)
 	return MemberStatus::None;
 }
 
+MemberStatus DynamicData_get_member_relation(DynamicData* pParent, u64 hMember, DynamicData* pValue)
+{
+	if (DynamicObject* pObject = pParent->asObject())
+	{
+		u64 i;
+		if (findName(pObject->members.names, hMember, &i))
+		{
+			DynamicData member = pObject->members.values[i];
+			if (member.type == DynamicData::Type_Set)
+			{
+				DynamicSet* pSet = member.asSet();
+				if (findValue(pSet->added.values, pValue, &i))
+				{
+					return MemberStatus::Added;
+				}
+				if (findValue(pSet->removed.values, pValue, &i))
+				{
+					return MemberStatus::Removed;
+				}
+				if (findValue(pSet->instantiated.values, pValue, &i))
+				{
+					return MemberStatus::Instantiated;
+				}
+
+				// todo make this not awfully slow
+				eastl::vector<DynamicData> inherited = DynamicData_get_subobject_set(pParent, hMember);
+				if (findValue(inherited, pValue, &i))
+				{
+					return MemberStatus::Inherited;
+				}
+			}
+			else if (member.type == DynamicData::Type_Object)
+			{
+				return pObject->members.statuses[i];
+			}
+			else
+			{
+				DYNAMIC_DATA_ERROR("Member relation on non object");
+			}
+		}
+		else
+		{
+			DYNAMIC_DATA_ERROR("hMember not in Object");
+		}
+	}
+	else
+	{
+		DYNAMIC_DATA_ERROR("pParent is not object");
+	}
+
+	return MemberStatus::None;
+}
 
 void DynamicData_assign_root(DynamicData* newRoot, DynamicData* value)
 {
@@ -1443,9 +1535,9 @@ u64 string_repository_hash(const char* str)
 	u64 key = murmur_hash_string(str);
 	auto find = s_string_repository.find(key);
 
-	if (find == s_string_repository.end())
+	if (find == nullptr)
 	{
-		s_string_repository[key] = str;
+		s_string_repository.add(key, str);
 	}
 
 	return key;
@@ -1455,55 +1547,12 @@ const char* string_repository_get(u64 hName)
 {
 	auto find = s_string_repository.find(hName);
 
-	if (find != s_string_repository.end())
+	if (find != nullptr)
 	{
-		return find->second;
+		return *find;
 	}
 
 	return "Invalid String";
-}
-
-void DynamicData_registerParser(u64 hType, DynamicDataParser_i parser)
-{
-	g_parsers[hType] = parser;
-}
-
-DDEntity DynamicData_readEntity(DynamicData* pEntity)
-{
-	DDEntity entity{};
-
-	/*DynamicDataParser_i* parser = lookup_parser(hType);
-
-	if (parser)
-	{
-		parser->parse(pEntity, &entity);
-	}*/
-
-	return entity;
-}
-
-DDTransformComponent DynamicData_readTransform(DynamicData* pEntity)
-{
-	DDTransformComponent component{};
-
-	/*if (DDArray* pComponents = DynamicData_obj_find(pEntity, hComponents).asArray())
-	{
-		for (DynamicData& comp : pComponents->values)
-		{
-			u64 comp_type = DynamicData_obj_find(&comp, hTypeId).asUint();
-			if (comp_type == COMPONENT_ID_TRANSFORM)
-			{
-				DynamicDataParser_i* parser = lookup_parser(COMPONENT_ID_TRANSFORM);
-
-				if (parser)
-				{
-					parser->parse(pEntity, &component);
-				}
-			}
-		}
-	}*/
-
-	return component;
 }
 
 void DynamicData_writeBack(DynamicData* pData, void* pValue)
@@ -1520,165 +1569,18 @@ void DynamicData_writeBack(DynamicData* pData, void* pValue)
 	}*/
 }
 
-//void registerEntityTemplate()
-//{
-//	DynamicData root = DynamicData_obj_new();
-//
-//	u64 hTypeName = string_repository_hash(s_typeNameKey);
-//	u64 hFields = string_repository_hash(s_fieldsKey);
-//
-//	DynamicData entityName = DynamicData_make_str("entity");
-//	DynamicData_obj_add(&root, hTypeName, entityName);
-//
-//
-//	DynamicData field_children = DynamicData_obj_new();
-//	DynamicData_obj_add(&field_children, string_repository_hash("name"), DynamicData_make_str("Unnamed Entity"));
-//	DynamicData_obj_add(&field_children, string_repository_hash("children"), DynamicData_set_new());
-//	DynamicData_obj_add(&field_children, string_repository_hash("components"), DynamicData_set_new());
-//
-//	DynamicData entity_subobject = DynamicData_obj_new();
-//	DynamicData_obj_add(&entity_subobject, string_repository_hash("sub-float"), DynamicData_num_new());
-//	DynamicData_obj_add(&entity_subobject, string_repository_hash("sub-int"), DynamicData_num_new());
-//
-//	DynamicData nested_subobject = DynamicData_obj_new();
-//	DynamicData_obj_add(&nested_subobject, string_repository_hash("nested-float"), DynamicData_num_new());
-//	DynamicData_obj_add(&nested_subobject, string_repository_hash("nested-int"), DynamicData_num_new());
-//	DynamicData_obj_add(&entity_subobject, string_repository_hash("nested-subobject"), nested_subobject);
-//
-//	DynamicData_obj_add(&field_children, string_repository_hash("subobject"), entity_subobject);
-//
-//	DynamicData_obj_add(&root, hFields, field_children);
-//
-//	DynamicDataParser_i parser;
-//
-//	parser.parse = [](DynamicData* value, void* target)
-//	{
-//		DDEntity* pEntity = (DDEntity*)target;
-//
-//		u64 hNameField = string_repository_hash("name");
-//		u64 hChildrenField = string_repository_hash("children");
-//		u64 hComponentsField = string_repository_hash("components");
-//		
-//		pEntity->name = DynamicData_obj_find(value, hNameField).asString();
-//
-//		DynamicSet* pChildren = DynamicData_obj_find(value, hChildrenField).asSet();
-//
-//		pEntity->children = pChildren->members.values;
-//
-//		DynamicSet* pComponents = DynamicData_obj_find(value, hComponentsField).asSet();
-//		pEntity->components = pComponents->members.values;
-//	};
-//
-//	parser.write_back = [](DynamicData* value, void* source)
-//	{
-//		DDEntity* pEntity = (DDEntity*)source;
-//
-//		if ((pEntity->editedMask & DDEntity::FieldMask_Name) != 0)
-//		{
-//			u64 hNameField = MetroHash64::HashStr("name");
-//			DynamicData_obj_set(value, hNameField, DynamicData_make_str(pEntity->name));
-//		}
-//
-//		if ((pEntity->editedMask & DDEntity::FieldMask_Children) != 0)
-//		{
-//			//u64 hChildrenField = MetroHash64::HashStr("children");
-//			//DynamicData setChildren = DynamicData_set_new();
-//			////arrChildren.pArray->values = pEntity->children;
-//			//DynamicData_obj_set(value, hChildrenField, setChildren);
-//		}
-//
-//		if ((pEntity->editedMask & DDEntity::FieldMask_Components) != 0)
-//		{
-//			//u64 hComponentsField = MetroHash64::HashStr("components");
-//			//DynamicData arrComponents = DynamicData_set_new();
-//			////arrComponents.pArray->values = pEntity->components;
-//			//DynamicData_obj_set(value, hComponentsField, arrComponents);
-//		}
-//	};
-//
-//	DynamicData_registerParser(ENTITY_TYPE_ID, parser);
-//
-//	g_templates[ENTITY_TYPE_ID] = root;
-//}
-
-//void registerComponent_TransformTemplate()
-//{
-//	DynamicData root = DynamicData_obj_new();
-//
-//	u64 hTypeName = string_repository_hash(s_typeNameKey);
-//	u64 hFields = string_repository_hash(s_fieldsKey);
-//
-//	DynamicData componentName = DynamicData_make_str("component_transform");
-//	DynamicData_obj_add(&root, hTypeName, componentName);
-//
-//	DynamicData field_children = DynamicData_obj_new();
-//
-//	DynamicData_obj_add(&field_children, string_repository_hash("x"), DynamicData_num_new());
-//	DynamicData_obj_add(&field_children, string_repository_hash("y"), DynamicData_num_new());
-//	DynamicData_obj_add(&field_children, string_repository_hash("z"), DynamicData_num_new());
-//
-//	DynamicData_obj_add(&root, hFields, field_children);
-//
-//	DynamicDataParser_i parser;
-//
-//	parser.parse = [](DynamicData* value, void* data)
-//	{
-//		DDTransformComponent* pComponent = (DDTransformComponent*)data;
-//
-//		u64 hXField = MetroHash64::HashStr("x");
-//		u64 hYField = MetroHash64::HashStr("y");
-//		u64 hZField = MetroHash64::HashStr("z");
-//
-//		pComponent->x = (f32)DynamicData_obj_find(value, hXField).asNumber();
-//		pComponent->y = (f32)DynamicData_obj_find(value, hYField).asNumber();
-//		pComponent->z = (f32)DynamicData_obj_find(value, hZField).asNumber();
-//	};
-//
-//	parser.write_back = [](DynamicData* value, void* data)
-//	{
-//		DDTransformComponent* pComponent = (DDTransformComponent*)data;
-//
-//		if ((pComponent->editedMask & DDTransformComponent::FieldMask_X) != 0)
-//		{
-//			u64 hXField = MetroHash64::HashStr("x");
-//			DynamicData_obj_set(value, hXField, DynamicData_make_num(pComponent->x));
-//		}
-//
-//		if ((pComponent->editedMask & DDTransformComponent::FieldMask_Y) != 0)
-//		{
-//			u64 hYField = MetroHash64::HashStr("y");
-//			DynamicData_obj_set(value, hYField, DynamicData_make_num(pComponent->y));
-//		}
-//
-//		if ((pComponent->editedMask & DDTransformComponent::FieldMask_Z) != 0)
-//		{
-//			u64 hZField = MetroHash64::HashStr("z");
-//			DynamicData_obj_set(value, hZField, DynamicData_make_num(pComponent->z));
-//		}
-//	};
-//
-//	DynamicData_registerParser(COMPONENT_ID_TRANSFORM, parser);
-//	g_templates[COMPONENT_ID_TRANSFORM] = root;
-//}
-
 DynamicData* DynamicData_get_template(u64 id)
 {
 	auto find = g_templates.find(id);
-
-	if (find != g_templates.end())
-	{
-		return &find->second;
-	}
-
-	return nullptr;
+	return find;
 }
 
 eastl::vector<u64> DynamicData_get_all_types()
 {
 	eastl::vector<u64> res;
-	for (eastl::pair<const u64, DynamicData>& kvp : g_templates)
+	for (auto& kvp : g_templates)
 	{
-		res.push_back(kvp.first);
+		res.push_back(kvp.key);
 	}
 	return res;
 }
@@ -1721,6 +1623,7 @@ u64 DynamicData_register_type(const char* name, const DynamicDataPropertyDef* pr
 		case DynamicData::Type_Set:
 		{
 			value = DynamicData_set_new();
+			value.asSet()->typeHash = def->typeHash;
 			break;
 		}
 		case DynamicData::Type_Integer:
@@ -1775,47 +1678,4 @@ void DynamicData_view(DynamicData* pData)
 {
 	DynamicData_view_draw_root_object(pData);
 
-}
-
-Entity* Entity::create(Allocator* a)
-{
-	Entity* entity = alloc<Entity>(a);
-	entity->children.set_allocator(a);
-	entity->instantiatedRoots.set_allocator(a);
-	sprintf_s(entity->name, "New Entity (%d)", s_nextId++);
-
-	return entity;
-}
-
-Entity* Entity::createFromPrototype(Allocator* a, truth::Key prototype)
-{
-	Entity* entity = alloc<Entity>(a);
-	const Entity* prototypeEntity  = (const Entity*)g_truth->read(g_truth->snap(), prototype);
-
-	entity->position = prototypeEntity->position;
-	entity->prototype = prototype;
-	entity->position.inheritsX = true;
-	entity->position.inheritsY = true;
-	entity->position.inheritsZ = true;
-
-	entity->children.set_allocator(a);
-	entity->instantiatedRoots.set_allocator(a);
-	sprintf_s(entity->name, "Instance of prototype (%s) ", prototypeEntity->name);
-
-	return entity;
-}
-
-
-TruthElement* Entity::clone(Allocator* a) const
-{
-	Entity* entityClone = alloc<Entity>(a);
-	entityClone->root = root;
-
-	entityClone->children = children.clone();
-	entityClone->instantiatedRoots = instantiatedRoots.clone();
-	entityClone->position = position;
-	entityClone->prototype = prototype;
-
-	memcpy(entityClone->name, name, sizeof(name));
-	return entityClone;
 }
