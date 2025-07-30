@@ -38,8 +38,6 @@ u64 next_obj_id()
 #define BREAK_ON_ERROR 1
 #define DYNAMIC_DATA_ERROR(msg) printf("error: %s. line:%d\n", msg, __LINE__); if(BREAK_ON_ERROR)__debugbreak()
 
-constexpr static u64 s_hFields = TM_STATIC_HASH("fields", 0xfeae1f7e5ced00a4ULL);
-
 Allocator* DD_ALLOCATOR;
 Allocator* STRING_REPOSITORY_ALLOCATOR;
 
@@ -588,13 +586,9 @@ void DynamicData_view_impl(DynamicData* pValue, u64 hMember, bool isInherited)
 }
 
 static HashMap<const char*> s_string_repository;
-
 static HashMap<i32> s_typeNameToTypeId;
-
 static Array<DynamicType*> s_types;
-
 static HashMap<DynamicObject*> s_objects;
-
 
 DynamicType* DynamicData_get_type_from_id(i32 typeId)
 {
@@ -624,6 +618,7 @@ void DynamicData_initialize(Allocator* a)
 
 void DynamicData_shutdown()
 {
+	s_typeNameToTypeId.reset();
 	s_string_repository.reset();
 	s_types.reset();
 	s_objects.reset();
@@ -643,7 +638,7 @@ DynamicData DynamicData_obj_new()
 	pObject->version = 1;
 	pObject->id = id;
 
-	s_objects[id] = pObject;
+	s_objects.add(id, pObject);
 
 	return value;
 }
@@ -712,7 +707,7 @@ DynamicData DynamicData_instantiate_member_impl(DynamicObject* pObject, u64 hNam
 	return created;
 }
 
-DynamicData DynamicData_instantiate_subobject(DynamicData* pValue, u64 hName)
+DynamicData DynamicData_instantiate_subobject(DynamicData* pValue, u64 hMember)
 {
 	DynamicData created = DynamicData_make_null();
 
@@ -721,7 +716,7 @@ DynamicData DynamicData_instantiate_subobject(DynamicData* pValue, u64 hName)
 		if (DynamicObject* pPrototype = pObject->prototype.asObject())
 		{
 			i32 i;
-			if (findName(pObject->members.names, pObject->numMembers, hName, &i))
+			if (findName(pObject->members.names, pObject->numMembers, hMember, &i))
 			{
 				if (pObject->members.statuses[i] == MemberStatus::Inherited)
 				{
@@ -747,13 +742,13 @@ DynamicData DynamicData_instantiate_subobject(DynamicData* pValue, u64 hName)
 	return created;
 }
 
-void DynamicData_clear_instantiated_subobject(DynamicData* pValue, u64 hName)
+void DynamicData_clear_instantiated_subobject(DynamicData* pValue, u64 hMember)
 {
 	if (pValue->type == DynamicData::Type_Object)
 	{
 		DynamicObject* pObject = pValue->asObject();
 		i32 i;
-		if (findName(pObject->members.names, pObject->numMembers, hName, &i))
+		if (findName(pObject->members.names, pObject->numMembers, hMember, &i))
 		{
 			if (pObject->members.statuses[i] == MemberStatus::Instantiated)
 			{
@@ -1296,12 +1291,12 @@ void DynamicData_clone_internal(DynamicData* srcObject, DynamicData* dstObject)
 	}
 }
 
-DynamicData DynamicData_clone(DynamicData* src)
+DynamicData DynamicData_clone(DynamicData* pValue)
 {
-	if (src->type == DynamicData::Type_Object)
+	if (pValue->type == DynamicData::Type_Object)
 	{
 		DynamicData dst = DynamicData_obj_new();
-		DynamicData_clone_internal(src, &dst);
+		DynamicData_clone_internal(pValue, &dst);
 		return dst;
 	}
 	else
@@ -1310,16 +1305,6 @@ DynamicData DynamicData_clone(DynamicData* src)
 		return DynamicData_make_null();
 	}
 }
-
-DynamicData DynamicData_get_prototype(DynamicData* pValue)
-{
-	if (DynamicObject* pObject = pValue->asObject())
-	{
-		return pObject->prototype;
-	}
-	return DynamicData_make_null();
-}
-
 
 DynamicData DynamicData_obj_get_impl(DynamicObject* pObject, u64 hName)
 {
@@ -1339,12 +1324,12 @@ DynamicData DynamicData_obj_get_impl(DynamicObject* pObject, u64 hName)
 	return DynamicData_make_null();
 }
 
-DynamicData DynamicData_obj_get(DynamicData* pValue, u64 hName)
+DynamicData DynamicData_obj_get(DynamicData* pValue, u64 hMember)
 {
 	if (pValue->type == DynamicData::Type_Object)
 	{
 		DynamicObject* pObject = pValue->asObject();
-		return DynamicData_obj_get_impl(pObject, hName);
+		return DynamicData_obj_get_impl(pObject, hMember);
 	}
 
 	return DynamicData_make_null();
@@ -1432,7 +1417,7 @@ void DynamicData_assign_root(DynamicData* newRoot, DynamicData* value)
 	}
 }
 
-void DynamicData_obj_set(DynamicData* object, u64 hName, DynamicData value)
+void DynamicData_obj_set(DynamicData* object, u64 hMember, DynamicData value)
 {
 	if (value.type == DynamicData::Type_Object || value.type == DynamicData::Type_Set)
 	{
@@ -1443,7 +1428,7 @@ void DynamicData_obj_set(DynamicData* object, u64 hName, DynamicData value)
 	if (DynamicObject* pObject = object->asObject())
 	{
 		i32 i;
-		if (findName(pObject->members.names, pObject->numMembers, hName, &i))
+		if (findName(pObject->members.names, pObject->numMembers, hMember, &i))
 		{
 			MemberStatus status = pObject->members.statuses[i];
 			if (status == MemberStatus::Inherited)
@@ -1458,7 +1443,7 @@ void DynamicData_obj_set(DynamicData* object, u64 hName, DynamicData value)
 		}
 		else
 		{
-			DYNAMIC_DATA_ERROR(Printf("Object does not contain memeber %s", string_repository_get(hName)).cstr());
+			DYNAMIC_DATA_ERROR(Printf("Object does not contain memeber %s", string_repository_get(hMember)).cstr());
 		}
 	}
 }

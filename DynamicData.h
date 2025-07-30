@@ -166,8 +166,8 @@ void DynamicData_shutdown();
 
 DynamicData DynamicData_obj_new();
 DynamicData DynamicData_new_from_prototype(DynamicData* pPrototype);
-DynamicData DynamicData_instantiate_subobject(DynamicData* pValue, u64 hName);
-void	    DynamicData_clear_instantiated_subobject(DynamicData* pValue, u64 hName);
+DynamicData DynamicData_instantiate_subobject(DynamicData* pValue, u64 hMember);
+void	    DynamicData_clear_instantiated_subobject(DynamicData* pValue, u64 hMember);
 DynamicData DynamicData_set_new();
 DynamicData DynamicData_str_new();
 DynamicData DynamicData_int_new();
@@ -188,17 +188,12 @@ void DynamicData_remove_from_subobject_set(DynamicData* pParent, u64 hSetMember,
 void DynamicData_remove_from_prototype_subobject_set(DynamicData* pParent, u64 hSetMember, DynamicData* pValue);
 void DynamicData_cancel_remove_from_prototype_subobject_set(DynamicData* pParent, u64 hSetMember, DynamicData* pValue);
 
-// todo api return temp allocated arrays
 Array<DynamicData> DynamicData_get_subobject_set(DynamicData* pValue, u64 hSetMember, Allocator* a);
 Array<DynamicData> DynamicData_get_subobject_set_locally_removed(DynamicData* pValue, u64 hSetName, Allocator* a);
 
 DynamicData DynamicData_create_from_type(i32 typeId);
-
-DynamicData DynamicData_clone(DynamicData* src);
-
-DynamicData DynamicData_get_prototype(DynamicData* pValue);
-
-DynamicData DynamicData_obj_get(DynamicData* pValue, u64 hName);
+DynamicData DynamicData_clone(DynamicData* pValue);
+DynamicData DynamicData_obj_get(DynamicData* pValue, u64 hMember);
 
 MemberStatus DynamicData_get_member_status(DynamicData* pValue, u64 hMember);
 
@@ -206,7 +201,7 @@ MemberStatus DynamicData_get_member_relation(DynamicData* pParent, u64 hMember, 
 
 void DynamicData_assign_root(DynamicData* newRoot, DynamicData* value);
 
-void DynamicData_obj_set(DynamicData* object, u64 hName, DynamicData value);
+void DynamicData_obj_set(DynamicData* object, u64 hMember, DynamicData value);
 
 void DynamicData_obj_clear_override(DynamicData* pValue, u64 hMember);
 
