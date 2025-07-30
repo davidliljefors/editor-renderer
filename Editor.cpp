@@ -637,46 +637,7 @@ void EditorApp::addRoot(DynamicData root)
 
 void EditorApp::DrawSelectedEntity()
 {
-	if (lookup_obj(m_focused.id()) == nullptr)
-	{
-		return;
-	}
 
-
-	if (ImGui::Button("Add Empty Child"))
-	{
-		//DDEntity entity = DynamicData_readEntity(&m_focused);
-		//DDEntityEditor editor = {&entity};
-
-		DynamicData emptyEntity = DynamicData_create_from_type_name(string_repository_hash("Entity Type"));
-		static int s_next_num = 0;
-		DynamicData_obj_set(&emptyEntity, string_repository_hash("name"), DynamicData_make_str(Printf("Entity num %d", s_next_num++)));
-		//DynamicData_obj_arr_push(&m_focused, string_repository_hash("children"), emptyEntity);
-
-		//editor.editChildren().push_back(emptyEntity);
-
-		//DynamicData_writeBack(&m_focused, &entity);
-	}
-	
-	if (s_clipboard.id() != 0)
-	{
-		if (ImGui::Button("Paste Entity"))
-		{
-			DynamicData instantiated = DynamicData_new_from_prototype(&s_clipboard);
-
-			u64 hNameField = string_repository_hash("name");
-
-			const char* name = DynamicData_obj_get(&s_clipboard, hNameField).asString();
-			DynamicData_obj_set(&instantiated, string_repository_hash("name"), DynamicData_make_str(Printf("Instance of [%s]", name)));
-			m_roots.push_back(instantiated);
-		}
-	}
-
-
-	if (ImGui::Button("Copy Entity to Clipboard"))
-	{
-		s_clipboard = m_focused;
-	}
 }
 
 Truth* g_truth;

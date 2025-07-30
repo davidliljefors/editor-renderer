@@ -159,23 +159,14 @@ inline DynamicDataPropertyDef makeProperty(const char* name, DynamicData::Type t
 	return def;
 }
 
-bool DDObject_is_up_to_date(DynamicObject* pObject, DynamicObject* pPrototype);
-
 void DynamicData_initialize(Allocator* a);
 void DynamicData_shutdown();
 
-DynamicData DynamicData_obj_new();
-DynamicData DynamicData_new_from_prototype(DynamicData* pPrototype);
 DynamicData DynamicData_instantiate_subobject(DynamicData* pValue, u64 hMember);
 void	    DynamicData_clear_instantiated_subobject(DynamicData* pValue, u64 hMember);
-DynamicData DynamicData_set_new();
-DynamicData DynamicData_str_new();
-DynamicData DynamicData_int_new();
-DynamicData DynamicData_num_new();
 
 DynamicData DynamicData_make_int(i64 integer);
 DynamicData DynamicData_make_str(const char* str);
-DynamicData DynamicData_make_null();
 DynamicData DynamicData_make_num(f64 number);
 
 // set operations
