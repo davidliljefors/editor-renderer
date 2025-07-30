@@ -1,7 +1,6 @@
 #include "TempAllocator.h"
 
-#include <cstdlib>
-#include <string.h>
+#include <cassert>
 
 #include "Types.h"
 
@@ -48,8 +47,8 @@ void block_memory_init()
 {
     for(i32 i = 0; i < 8; i++)
     {
-        Block* block = (Block*)::malloc(sizeof(Block));
-        memset(block, 0, sizeof(Block));
+        void* pMem = ::malloc(sizeof Block);
+        Block* block = new(pMem) Block{};
         block->header.prev = s_freeBlocks;
         s_freeBlocks = block;
     }
@@ -77,12 +76,13 @@ TempAllocator::~TempAllocator()
     return_block(m_current);
 }
 
-void* TempAllocator::alloc(i32 size)
+void* TempAllocator::alloc(size_t size)
 {
-   i32 size_with_alignment = size + 16 - (size & 15);
+   size_t size_with_alignment = size + 16 - (size & 15);
 
     if(size_with_alignment > Block::BLOCK_SIZE)
     {
+        assert(false);
         return nullptr;
     }
 
@@ -96,7 +96,7 @@ void* TempAllocator::alloc(i32 size)
     }
     else
     {
-        i32 pos = m_pos;
+        size_t pos = m_pos;
         m_pos += size_with_alignment;
         return (void*)&m_current->data[pos];
     }

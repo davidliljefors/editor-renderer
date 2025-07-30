@@ -41,4 +41,11 @@
 			<Item Name="value" Condition="type == Type_String">string,s</Item>
 		</Expand>
 	</Type>
+
+	<Type Name="DynamicObject">
+		<DisplayString>{DynamicData_DebugExpressionObject(this)}</DisplayString>
+		<Expand>
+			<Item Name="Object">DynamicData_DebugExpressionObject(this)</Item>
+		</Expand>
+	</Type>
 </AutoVisualizer>

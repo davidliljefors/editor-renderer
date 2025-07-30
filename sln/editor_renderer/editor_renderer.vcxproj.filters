@@ -87,7 +87,7 @@
     <ClInclude Include="..\..\Core\Types.h">
       <Filter>Header Files\Core</Filter>
     </ClInclude>
-    <ClInclude Include="..\..\Entity.h">
+    <ClInclude Include="..\..\DynamicData.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="..\..\DynamicTypes.h">
@@ -134,7 +134,7 @@
     <ClCompile Include="..\..\Core\TempAllocator.cpp">
       <Filter>Source Files\Core</Filter>
     </ClCompile>
-    <ClCompile Include="..\..\Entity.cpp">
+    <ClCompile Include="..\..\DynamicData.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>

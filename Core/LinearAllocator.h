@@ -15,7 +15,7 @@ public:
 
 	~LinearAllocator() override = default;
 	
-	void* alloc(i32 size) override
+	void* alloc(size_t size) override
 	{
 		size = (size + 7) & ~7;
 		m_cur -= size;

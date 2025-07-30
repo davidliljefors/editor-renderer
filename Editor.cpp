@@ -10,7 +10,7 @@
 
 
 #include "DynamicTypes.h"
-#include "Entity.h"
+#include "DynamicData.h"
 #include "Core/TempAllocator.h"
 
 #define WIN32_LEAN_AND_MEAN
@@ -177,8 +177,8 @@ void EditorViewport::update()
 
 		textureCoords.x = mousePos.x - imagePos.x;
 		textureCoords.y = mousePos.y - imagePos.y;
-		u64 id = readId(renderer, this, (u32)textureCoords.x, (u32)textureCoords.y);
-		lastHover = id;
+		u64 hovered_id = readId(renderer, this, (u32)textureCoords.x, (u32)textureCoords.y);
+		lastHover = hovered_id;
 	}
 
 	ImGuiIO& io = ImGui::GetIO();
@@ -245,7 +245,7 @@ EditorTab* EditorTab::openEmpty(Allocator* a, EditorRenderer* renderer, i32 id)
     return tab;
 }
 
-EditorTab* EditorTab::openExisting(Allocator* a, const char* name, truth::Key root, EditorRenderer* renderer)
+EditorTab* EditorTab::openExisting(Allocator* a, const char* name, truth::Key, EditorRenderer*)
 {
     EditorTab* tab = alloc<EditorTab>(a);
 
@@ -451,11 +451,6 @@ void EditorApp::run()
 	}
 }
 
-void DrawDynamicEntity(DynamicData& entity)
-{
-	
-}
-
 void Debug_register_root_object(DynamicData root)
 {
 	s_app->addRoot(root);
@@ -479,20 +474,18 @@ void EditorApp::update()
     ImGui::Begin("MainWindow", nullptr, window_flags);
 	ImGui::Begin("Dynamic Data Templates");
 
-	for (auto x : DynamicData_get_all_types())
+	/*for (DynamicData typeDef : DynamicData_get_all_types())
 	{
-		if (ImGui::CollapsingHeader(string_repository_get(x)))
+		DynamicData name = DynamicData_obj_get(&typeDef, TM_STATIC_HASH("type_name", 0x2a0906651c3dac34ULL));
+		if (ImGui::CollapsingHeader(name.asString()))
 		{
-			auto temp = DynamicData_get_template(x);
-			ImGui::PushID((int)x);
-			DynamicData_view(temp);
-			ImGui::PopID();
+			DynamicData_view(&typeDef);
 		}
-	}
+	}*/
 
 	if (ImGui::Button("Add new root entity"))
 	{
-		DynamicData entity = DynamicData_create_from_template(ENTITY_NAME_HASH);
+		DynamicData entity = DynamicData_create_from_type_name(ENTITY_NAME_HASH);
 		DynamicData_obj_set(&entity, TM_STATIC_HASH("name", 0xd4c943cba60c270bULL), DynamicData_make_str("Root Entity"));
 		m_roots.push_back(entity);
 	}
@@ -512,17 +505,17 @@ void EditorApp::update()
 
 			if (ImGui::Button("Add Child"))
 			{
-				DynamicData childEntity = DynamicData_create_from_template(ENTITY_NAME_HASH);
+				DynamicData childEntity = DynamicData_create_from_type_name(ENTITY_NAME_HASH);
 
 				static int child_counter = 0;
 				child_counter++;
-				DynamicData_obj_add(&childEntity, TM_STATIC_HASH("name", 0xd4c943cba60c270bULL), DynamicData_make_str(Printf("Child %d", child_counter)));
+				DynamicData_obj_set(&childEntity, TM_STATIC_HASH("name", 0xd4c943cba60c270bULL), DynamicData_make_str(Printf("Child %d", child_counter)));
 
 				DynamicData_add_to_subobject_set(&m_root, string_repository_hash("children"), &childEntity);
 			}
 			if (ImGui::Button("Add Transform Component"))
 			{
-				DynamicData transformComp = DynamicData_create_from_template(TRANSFORM_NAME_HASH);
+				DynamicData transformComp = DynamicData_create_from_type_name(TRANSFORM_NAME_HASH);
 				if (transformComp.type != DynamicData::Type_Null)
 				{
 					DynamicData_add_to_subobject_set(&m_root, string_repository_hash("components"), &transformComp);
@@ -530,7 +523,7 @@ void EditorApp::update()
 			}
 			if (ImGui::Button("Add Color Component"))
 			{
-				DynamicData colorComp = DynamicData_create_from_template(COLOR_NAME_HASH);
+				DynamicData colorComp = DynamicData_create_from_type_name(COLOR_NAME_HASH);
 				if (colorComp.type != DynamicData::Type_Null)
 				{
 					DynamicData_add_to_subobject_set(&m_root, string_repository_hash("components"), &colorComp);
@@ -642,38 +635,6 @@ void EditorApp::addRoot(DynamicData root)
 	m_roots.push_back(root);
 }
 
-void EditorApp::DrawDynamicEntity(DynamicData& entityData)
-{
-	/*DDEntity entity = DynamicData_readEntity(&entityData);
-	bool selected = m_focused.id() == entityData.id();
-	ImGui::PushID((int)entityData.id());
-	bool r = ImGui::TreeNodeEx(entity.name, selected ? ImGuiTreeNodeFlags_Selected : 0);
-	ImGui::PopID();
-
-	if (ImGui::IsItemClicked())
-	{
-		m_focused = entityData;
-		if (ImGui::IsKeyDown(ImGuiKey_LeftShift))
-		{
-			__debugbreak();
-		}
-
-		if (ImGui::IsKeyDown(ImGuiKey_LeftCtrl))
-		{
-			
-		}
-	}
-
-	if (r)
-	{
-		for (auto& child : entity.children)
-		{
-			DrawDynamicEntity(child);
-		}
-		ImGui::TreePop();
-	}*/
-}
-
 void EditorApp::DrawSelectedEntity()
 {
 	if (lookup_obj(m_focused.id()) == nullptr)
@@ -687,7 +648,7 @@ void EditorApp::DrawSelectedEntity()
 		//DDEntity entity = DynamicData_readEntity(&m_focused);
 		//DDEntityEditor editor = {&entity};
 
-		DynamicData emptyEntity = DynamicData_create_from_template(string_repository_hash("Entity Type"));
+		DynamicData emptyEntity = DynamicData_create_from_type_name(string_repository_hash("Entity Type"));
 		static int s_next_num = 0;
 		DynamicData_obj_set(&emptyEntity, string_repository_hash("name"), DynamicData_make_str(Printf("Entity num %d", s_next_num++)));
 		//DynamicData_obj_arr_push(&m_focused, string_repository_hash("children"), emptyEntity);
@@ -699,9 +660,6 @@ void EditorApp::DrawSelectedEntity()
 	
 	if (s_clipboard.id() != 0)
 	{
-		DynamicObject* selected = lookup_obj(m_focused.hObject);
-		DynamicObject* clipboard = lookup_obj(s_clipboard.hObject);
-
 		if (ImGui::Button("Paste Entity"))
 		{
 			DynamicData instantiated = DynamicData_new_from_prototype(&s_clipboard);

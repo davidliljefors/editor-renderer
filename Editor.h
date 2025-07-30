@@ -6,7 +6,7 @@
 #include "TruthMap.h"
 #include "TruthView.h"
 #include "Core/HashMap.h"
-#include "Entity.h"
+#include "DynamicData.h"
 
 class AssetBrowserWindow;
 struct EditorTab;

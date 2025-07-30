@@ -5,7 +5,7 @@
 
 #include "Core/TempAllocator.h"
 #include "EditorRenderer.h"
-#include "Entity.h"
+#include "DynamicData.h"
 #include "imgui.h"
 #include "TruthView.h"
 //
@@ -377,7 +377,7 @@ AssetBrowserWindow::AssetBrowserWindow()
 	s_instance = this;
 }
 
-void AssetBrowserWindow::update(truth::Key* outClicked)
+void AssetBrowserWindow::update(truth::Key*)
 {
 }
 

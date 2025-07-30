@@ -15,7 +15,7 @@ public:
 
 	static constexpr bool has_clone = sizeof(test_clone((T*)0)) == 1;
 
-	explicit Array();
+	Array();
 	explicit Array(Allocator* allocator);
 	~Array();
 
@@ -58,7 +58,8 @@ public:
 
 	Array clone() const;
 
-	void push_back(T val);
+	T& push_back();
+	T& push_back(T val);
 	T& back();
 
 	void* push_back_uninit();
@@ -70,6 +71,8 @@ public:
 
 	void clear();
 	void reset();
+
+	void erase(i32 index);
 
 	bool empty() const;
 
@@ -143,13 +146,27 @@ Array<T> Array<T>::clone() const
 }
 
 template <typename T>
-void Array<T>::push_back(T val)
+T& Array<T>::push_back()
+{
+	if (m_size == m_capacity)
+		grow();
+
+	new (&m_data[m_size]) T();
+	++m_size;
+
+	return m_data[m_size - 1];
+}
+
+template <typename T>
+T& Array<T>::push_back(T val)
 {
 	if (m_size == m_capacity)
 		grow();
 
 	new (&m_data[m_size]) T(val);
 	++m_size;
+
+	return m_data[m_size-1];
 }
 
 template <typename T>
@@ -258,6 +275,24 @@ void Array<T>::reset()
 
 	m_capacity = 0;
 	m_size = 0;
+}
+
+template <typename T>
+void Array<T>::erase(i32 index)
+{
+	if (index < 0 || index >= m_size) 
+	{
+		return;
+	}
+
+	m_data[index].~T();
+
+	if (index < m_size - 1) 
+	{
+		memmove(&m_data[index], &m_data[index + 1], (m_size - index - 1) * sizeof(T));
+	}
+
+	--m_size;
 }
 
 template <typename T>

@@ -1,16 +1,7 @@
 #pragma once
 
-#include <cstdarg>
-
-#include "Math.h"
-#include "TruthMap.h"
-#include "TruthView.h"
 #include "Core/Array.h"
-#include "Core/HashMap.h"
-#include <vector>
-
-
-#define _CRT_SECURE_NO_WARNINGS 1
+#include "Core/Types.h"
 
 #define DD_ARRAY_COUNT(a) (sizeof(a) / sizeof(a[0]))
 
@@ -20,21 +11,9 @@ struct Printf
 {
 	Printf() = default;
 
-	Printf(const char* fmt, ...)
-	{
-		va_list args;
-		va_start(args, fmt);
-		int result = vsnprintf(buf, 256, fmt, args);
-		va_end(args);
-	}
+	Printf(const char* fmt, ...);
 
-	void write(const char* fmt, ...)
-	{
-		va_list args;
-		va_start(args, fmt);
-		int result = vsnprintf(buf, 256, fmt, args);
-		va_end(args);
-	}
+	void write(const char* fmt, ...);
 
 	operator const char* ()
 	{
@@ -51,36 +30,7 @@ struct Printf
 
 u64 next_obj_id();
 
-namespace eastl = std;
-
-struct DDInstance;
-struct DynamicData;
-
-void Debug_register_root_object(DynamicData root);
-
-
-struct Position
-{
-	constexpr static u64 hType = TM_STATIC_HASH("Position", 0x3c52e3a1cb90e8d5ULL);
-
-	bool inheritsX;
-	bool inheritsY;
-	bool inheritsZ;
-
-	float x;
-	float y;
-	float z;
-
-
-	float3 float3() const
-	{
-		return {x,y,z};
-	}
-};
-
-
-Position get_position(ReadOnlySnapshot snap, truth::Key objectId);
-void set_position(Transaction& tx, truth::Key objectId, Position p);
+void Debug_register_root_object(struct DynamicData root);
 
 struct DynamicObject;
 struct DynamicSet;
@@ -189,8 +139,25 @@ struct DynamicDataPropertyDef
 {
 	const char* name;
 	DynamicData::Type type;
-	u64 typeHash;
+	u64 typeNameHash;
+
+	u64 nameHash;
+	i32 typeId;
 };
+
+inline DynamicDataPropertyDef makeProperty(const char* name, DynamicData::Type type, u64 typeNameHash = 0)
+{
+	DynamicDataPropertyDef def;
+
+	def.name = name;
+	def.type = type;
+	def.typeNameHash = typeNameHash;
+
+	def.nameHash = 0;
+	def.typeId = 0;
+
+	return def;
+}
 
 bool DDObject_is_up_to_date(DynamicObject* pObject, DynamicObject* pPrototype);
 
@@ -222,14 +189,10 @@ void DynamicData_remove_from_prototype_subobject_set(DynamicData* pParent, u64 h
 void DynamicData_cancel_remove_from_prototype_subobject_set(DynamicData* pParent, u64 hSetMember, DynamicData* pValue);
 
 // todo api return temp allocated arrays
-eastl::vector<DynamicData> DynamicData_get_subobject_set(DynamicData* pValue, u64 hSetMember);
-eastl::vector<DynamicData> DynamicData_get_subobject_set_locally_removed(DynamicData* pValue, u64 hSetName);
+Array<DynamicData> DynamicData_get_subobject_set(DynamicData* pValue, u64 hSetMember, Allocator* a);
+Array<DynamicData> DynamicData_get_subobject_set_locally_removed(DynamicData* pValue, u64 hSetName, Allocator* a);
 
-bool DynamicData_obj_is_editable(DynamicData* pValue, u64 hName);
-
-void DynamicData_instantiate_path(DynamicEditorPath* pPath, DynamicData value);
-
-const char* to_string(MemberStatus status);
+DynamicData DynamicData_create_from_type(i32 typeId);
 
 DynamicData DynamicData_clone(DynamicData* src);
 
@@ -243,26 +206,18 @@ MemberStatus DynamicData_get_member_relation(DynamicData* pParent, u64 hMember, 
 
 void DynamicData_assign_root(DynamicData* newRoot, DynamicData* value);
 
-void DynamicData_obj_add(DynamicData* target, u64 hName, DynamicData add);
-
 void DynamicData_obj_set(DynamicData* object, u64 hName, DynamicData value);
 
 void DynamicData_obj_clear_override(DynamicData* pValue, u64 hMember);
 
 u64 string_repository_hash(const char* str);
 
+const char* string_repository_own(const char* str);
+
 const char* string_repository_get(u64 hName);
 
-bool float_almost_equal(float a, float b);
+i32 DynamicData_register_type(const char* typeName, const DynamicDataPropertyDef* properties, i32 numProperties);
 
-
-
-u64 DynamicData_register_type(const char* name, const DynamicDataPropertyDef* properties, u32 num_properties);
-
-DynamicData* DynamicData_get_template(u64 id);
-
-eastl::vector<u64> DynamicData_get_all_types();
-
-DynamicData DynamicData_create_from_template(u64 hName);
+DynamicData DynamicData_create_from_type_name(u64 hTypeNameHash);
 
 void DynamicData_view(DynamicData* pData);

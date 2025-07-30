@@ -31,10 +31,10 @@ struct TempAllocator : public Allocator
 	TempAllocator& operator=(const TempAllocator&) = delete;
 	TempAllocator& operator=(TempAllocator&&) = delete;
 
-	void* alloc(i32 size) override;
+	void* alloc(size_t size) override;
 	void free(void* block) override;
 	void freeSizeKnown(void* block, i32 size) override;
 private:
 	Block* m_current;
-	i32 m_pos;
+	size_t m_pos;
 };

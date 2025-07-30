@@ -10,10 +10,32 @@ struct Allocator
 {
 	virtual ~Allocator() = default;
 
-	virtual void* alloc(i32 size) = 0;
+	virtual void* alloc(size_t size) = 0;
 	virtual void free(void* block) = 0;
 	virtual void freeSizeKnown(void* block, i32 size) = 0;
 };
+
+inline void* operator new(size_t size, Allocator* allocator)
+{
+	void* ptr = allocator->alloc((i32)size);
+	return ptr;
+}
+
+inline void operator delete(void* ptr, Allocator* allocator) noexcept
+{
+	allocator->free(ptr);
+}
+
+inline void* operator new(size_t size, Allocator& allocator)
+{
+	void* ptr = allocator.alloc((i32)size);
+	return ptr;
+}
+
+inline void operator delete(void* ptr, Allocator& allocator) noexcept
+{
+	allocator.free(ptr);
+}
 
 template <typename T, typename... Args>
 T* alloc(Allocator* allocator)
@@ -45,7 +67,7 @@ public:
 	HeapAllocator() = default;
 	~HeapAllocator() override = default;
 
-	void* alloc(i32 size) override
+	void* alloc(size_t size) override
 	{
 		return ::malloc(size);
 	}
