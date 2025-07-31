@@ -50,6 +50,8 @@ void load_dynamicdata_directory(const char* directory)
 
 	} while (FindNextFileA(hFind, &findData));
 
+	DynamicData_resolve_unresolved(&unresolveds);
+
 	printf("Loaded %d items into DynamicData", count);
 
 	FindClose(hFind);
@@ -95,6 +97,7 @@ i32 main()
 	EditorApp* app = create<EditorApp>(GLOBAL_HEAP, GLOBAL_HEAP);
 
 	load_dynamicdata_directory("entities");
+
 
 	app->run();
 

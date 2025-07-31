@@ -220,3 +220,5 @@ struct Unresolved
 };
 
 bool DynamicData_deserialize_json_file(const char* path, DynamicData* outData, Array<Unresolved>* inoutUnresolved);
+
+void DynamicData_resolve_unresolved(Array<Unresolved>* unresolveds);

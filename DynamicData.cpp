@@ -1629,10 +1629,14 @@ void DynamicData_view(DynamicData* pData)
 yyjson_mut_val* yyjson_mut_guid(yyjson_mut_doc* jDoc, Guid guid)
 {
 	u8 bytes[16];
-	for (int i = 7; i >= 0; i--) 
+
+	for (int i = 0; i < 8; i++) 
 	{
-		bytes[i] = (guid.a >> (i * 8)) & 0xFF;
-		bytes[i + 8] = (guid.b >> (i * 8)) & 0xFF;
+		bytes[i] = (guid.a >> ((7 - i) * 8)) & 0xFF;
+	}
+	for (int i = 0; i < 8; i++) 
+	{
+		bytes[i + 8] = (guid.b >> ((7 - i) * 8)) & 0xFF;
 	}
 
 	char buffer[37];
@@ -1642,9 +1646,7 @@ yyjson_mut_val* yyjson_mut_guid(yyjson_mut_doc* jDoc, Guid guid)
 		bytes[4], bytes[5],
 		bytes[6], bytes[7],
 		bytes[8], bytes[9],
-		bytes[10], bytes[11], bytes[12], bytes[13],
-		bytes[14], bytes[15]
-	);
+		bytes[10], bytes[11], bytes[12], bytes[13], bytes[14], bytes[15]);
 
 	return yyjson_mut_strcpy(jDoc, buffer);
 }
@@ -1662,23 +1664,18 @@ Guid yyjson_get_guid(yyjson_val* jVal)
 		return guid;
 	}
 
-	for (int i = 0; i < 36; i++) 
-	{
+	for (int i = 0; i < 36; i++) {
 		if (i == 8 || i == 13 || i == 18 || i == 23) continue;
-		if (!isxdigit(static_cast<unsigned char>(str[i]))) 
-		{
+		if (!isxdigit(static_cast<unsigned char>(str[i]))) {
 			return guid;
 		}
 	}
 
 	unsigned char bytes[16];
 	int byte_index = 0;
-	for (int i = 0; i < 36 && byte_index < 16; i++) 
-	{
+	for (int i = 0; i < 36 && byte_index < 16; i++) {
 		if (str[i] == '-') continue;
-
 		char hex[3] = { str[i], str[i + 1], '\0' };
-
 		bytes[byte_index++] = static_cast<unsigned char>(strtol(hex, nullptr, 16));
 		i++;
 	}
@@ -1687,20 +1684,24 @@ Guid yyjson_get_guid(yyjson_val* jVal)
 	guid.b = 0;
 	for (int i = 0; i < 8; i++) 
 	{
-		guid.a |= static_cast<u64>(bytes[i]) << ((7 - i) * 8);
-		guid.b |= static_cast<u64>(bytes[i + 8]) << ((7 - i) * 8);
+		guid.a |= static_cast<u64>(bytes[i]) << ((7 - i) * 8); // Big-endian to little-endian
+	}
+	for (int i = 0; i < 8; i++) 
+	{
+		guid.b |= static_cast<u64>(bytes[i + 8]) << ((7 - i) * 8); // Big-endian to little-endian
 	}
 
 	return guid;
 }
 
-void DynamicData_deserialize_json_value(yyjson_val* jValue, DynamicObject* pObject, i32 memberIndex, Array<Unresolved>* inoutUnresolved);
-void DynamicData_deserialize_json_subobject(yyjson_val* jObject, DynamicObject* pObject, Array<Unresolved>* inoutUnresolved);
+void DynamicData_deserialize_json_value(yyjson_val* jValue, DynamicObject* pObject, i32 memberIndex, Array<Unresolved>* inoutUnresolved, bool isInstance);
+void DynamicData_deserialize_json_subobject(yyjson_val* jObject, DynamicObject* pObject, Array<Unresolved>* inoutUnresolved, bool isInstance);
 void DynamicData_deserialize_json_set(yyjson_val* jObject, Array<Unresolved>* inoutUnresolved);
 
-void DynamicData_deserialize_json_value(yyjson_val* jValue, DynamicObject* pObject, i32 memberIndex, Array<Unresolved>* inoutUnresolved)
+void DynamicData_deserialize_json_value(yyjson_val* jValue, DynamicObject* pObject, i32 memberIndex, Array<Unresolved>* inoutUnresolved, bool isInstance)
 {
 	DynamicData* pValue = &pObject->members.values[memberIndex];
+	MemberStatus* pStatus = &pObject->members.statuses[memberIndex];
 
 	switch (pValue->type)
 	{
@@ -1723,11 +1724,18 @@ void DynamicData_deserialize_json_value(yyjson_val* jValue, DynamicObject* pObje
 			Guid guid = yyjson_get_guid(yyjson_obj_get(jValue, "#guid"));
 			yyjson_val* jPrototypeGuid = yyjson_obj_get(jValue, "#prototype_guid");
 
-			// todo handle prototypes
-			Guid prototypeGuid = yyjson_get_guid(jPrototypeGuid);
-
 			*pValue = DynamicData_create_from_type_with_guid(typeId, guid, false);
-			DynamicData_deserialize_json_subobject(jValue, pValue->asObject(), inoutUnresolved);
+
+			if (jPrototypeGuid)
+			{
+				Guid prototypeGuid = yyjson_get_guid(jPrototypeGuid);
+				Unresolved& r = inoutUnresolved->push_back();
+				r.hObject = pValue->id();
+				r.prototype = prototypeGuid;
+			}
+			*pStatus = isInstance ? MemberStatus::Instantiated : MemberStatus::Owned;
+
+			DynamicData_deserialize_json_subobject(jValue, pValue->asObject(), inoutUnresolved, jPrototypeGuid != nullptr);
 		}
 		else
 		{
@@ -1737,6 +1745,7 @@ void DynamicData_deserialize_json_value(yyjson_val* jValue, DynamicObject* pObje
 	}
 	case DynamicData::Type_Set:
 	{
+		*pStatus = isInstance ? MemberStatus::Set : MemberStatus::Owned;
 		break;
 	}
 	case DynamicData::Type_Integer:
@@ -1744,6 +1753,11 @@ void DynamicData_deserialize_json_value(yyjson_val* jValue, DynamicObject* pObje
 		if (yyjson_is_int(jValue))
 		{
 			pValue->integer = unsafe_yyjson_get_int(jValue);
+			*pStatus = isInstance ? MemberStatus::Overridden : MemberStatus::Owned;
+		}
+		else
+		{
+			*pStatus = isInstance ? MemberStatus::Inherited : MemberStatus::Owned;
 		}
 		break;
 	}
@@ -1752,6 +1766,11 @@ void DynamicData_deserialize_json_value(yyjson_val* jValue, DynamicObject* pObje
 		if (yyjson_is_real(jValue))
 		{
 			pValue->number = unsafe_yyjson_get_real(jValue);
+			*pStatus = isInstance ? MemberStatus::Overridden : MemberStatus::Owned;
+		}
+		else
+		{
+			*pStatus = isInstance ? MemberStatus::Inherited : MemberStatus::Owned;
 		}
 		break;
 	}
@@ -1761,33 +1780,43 @@ void DynamicData_deserialize_json_value(yyjson_val* jValue, DynamicObject* pObje
 		{
 			const char* str = yyjson_get_str(jValue);
 			*pValue = DynamicData_make_str(str);
+			*pStatus = isInstance ? MemberStatus::Overridden : MemberStatus::Owned;
+		}
+		else
+		{
+			*pStatus = isInstance ? MemberStatus::Inherited : MemberStatus::Owned;
 		}
 		break;
 	}
 	}
 }
 
-void DynamicData_deserialize_json_subobject(yyjson_val* jObject, DynamicObject* pObject, Array<Unresolved>* inoutUnresolved)
+void DynamicData_deserialize_json_subobject(yyjson_val* jObject, DynamicObject* pObject, Array<Unresolved>* inoutUnresolved, bool isInstance)
 {
-	if (false /*has prototype*/)
+	for (i32 i = 0; i<pObject->numMembers; ++i)
 	{
-		
+		pObject->members.statuses[i] = isInstance ? MemberStatus::Inherited : MemberStatus::Owned;
 	}
-	else
-	{
-		yyjson_obj_iter jIter;
-		yyjson_obj_iter_init(jObject, &jIter);
-		yyjson_val* jKey;
-		while ((jKey = yyjson_obj_iter_next(&jIter)))
-		{
-			yyjson_val* jValue = yyjson_obj_iter_get_val(jKey);
-			u64 hName = string_repository_hash(yyjson_get_str(jKey));
 
-			i32 i;
-			if (findName(pObject->members.names, pObject->numMembers, hName, &i))
-			{
-				DynamicData_deserialize_json_value(jValue, pObject, i, inoutUnresolved);
-			}
+	yyjson_obj_iter jIter;
+	yyjson_obj_iter_init(jObject, &jIter);
+	yyjson_val* jKey;
+	while ((jKey = yyjson_obj_iter_next(&jIter)))
+	{
+		if (yyjson_get_str(jKey)[0] == '#')
+		{
+			continue;
+		}
+
+		yyjson_val* jValue = yyjson_obj_iter_get_val(jKey);
+
+
+		u64 hName = string_repository_hash(yyjson_get_str(jKey));
+
+		i32 i;
+		if (findName(pObject->members.names, pObject->numMembers, hName, &i))
+		{
+			DynamicData_deserialize_json_value(jValue, pObject, i, inoutUnresolved, isInstance);
 		}
 	}
 }
@@ -1848,7 +1877,6 @@ void DynamicData_serialize_json_set(yyjson_mut_doc* jDoc, yyjson_mut_val* into, 
 
 		yyjson_mut_obj_add(into, jKey, jArrRemoved);
 	}
-
 }
 
 void DynamicData_serialize_json_subobject(yyjson_mut_doc* jDoc, yyjson_mut_val* jObject, DynamicObject* pObject)
@@ -2000,7 +2028,6 @@ bool DynamicData_deserialize_json_file(const char* path, DynamicData* outData, A
 		const char* typeName = yyjson_get_str(yyjson_obj_get(jRoot, "#type"));
 		Guid guid = yyjson_get_guid(yyjson_obj_get(jRoot, "#guid"));
 		yyjson_val* jPrototypeGuid = yyjson_obj_get(jRoot, "#prototype_guid");
-		Guid prototypeGuid = yyjson_get_guid(jPrototypeGuid);
 
 		u64 typeNameHash = murmur_hash_string(typeName);
 		i32 typeId = DynamicData_get_type_id_from_name(typeNameHash);
@@ -2014,12 +2041,37 @@ bool DynamicData_deserialize_json_file(const char* path, DynamicData* outData, A
 		else
 		{
 			*outData = DynamicData_create_from_type_with_guid(typeId, guid, false);
-			DynamicData_deserialize_json_subobject(jRoot, outData->asObject(), inoutUnresolved);
+			if (jPrototypeGuid)
+			{
+				Guid prototypeGuid = yyjson_get_guid(jPrototypeGuid);
+				Unresolved& r = inoutUnresolved->push_back();
+				r.hObject = outData->id();
+				r.prototype = prototypeGuid;
+			}
+			DynamicData_deserialize_json_subobject(jRoot, outData->asObject(), inoutUnresolved, jPrototypeGuid != nullptr);
 		}
 	}
 
 	yyjson_doc_free(jDoc);
 
 	return true;
+}
+
+void DynamicData_resolve_unresolved(Array<Unresolved>* unresolveds)
+{
+	for (Unresolved& r : *unresolveds)
+	{
+		DynamicObject* pObject = lookup_obj(r.hObject);
+		DynamicData* pPrototype = DynamicData_get_from_guid(r.prototype);
+
+		if (pPrototype)
+		{
+			pObject->prototype = *pPrototype;
+		}
+		else
+		{
+			DYNAMIC_DATA_ERROR("Cannot resolve object");
+		}
+	}
 }
 
