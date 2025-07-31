@@ -14,3 +14,9 @@ using f64 = double;
 
 #define TM_STATIC_HASH(s, v) (sizeof("" s "") ? v : v)
 
+struct Guid
+{
+	u64 a;
+	u64 b;
+};
+

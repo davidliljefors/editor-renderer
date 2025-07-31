@@ -1,8 +1,13 @@
+#include <cstdio>
+
 #include "Editor.h"
 #include "DynamicData.h"
 #include "murmurhash.inl"
+#include "Random.h"
 
 #include "Core/TempAllocator.h"
+
+#include <windows.h>
 
 #pragma comment(lib, "user32.lib")
 
@@ -10,10 +15,52 @@ Allocator* GLOBAL_HEAP;
 
 #include "DynamicTypes.h"
 
+void load_dynamicdata_directory(const char* directory)
+{
+	char searchPath[MAX_PATH];
+	snprintf(searchPath, MAX_PATH, "%s\\*.*", directory);
+
+	WIN32_FIND_DATAA findData;
+	HANDLE hFind = FindFirstFileA(searchPath, &findData);
+
+	if (hFind == INVALID_HANDLE_VALUE) {
+		printf("Error opening directory: %s\n", directory);
+		return;
+	}
+
+	int count = 0;
+
+	TempAllocator ta;
+	Array<Unresolved> unresolveds;
+	unresolveds.set_allocator(&ta);
+
+	do
+	{
+		if (!(findData.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY))
+		{
+			DynamicData created;
+			char subpath[MAX_PATH];
+			snprintf(subpath, MAX_PATH, "%s/%s", directory, findData.cFileName);
+			if (DynamicData_deserialize_json_file(subpath, &created, &unresolveds))
+			{
+				++count;
+				Debug_register_root_object(created);
+			}
+		}
+
+	} while (FindNextFileA(hFind, &findData));
+
+	printf("Loaded %d items into DynamicData", count);
+
+	FindClose(hFind);
+}
+
 i32 main()
 {
 	HeapAllocator gHeap;
 	GLOBAL_HEAP = &gHeap;
+
+	Random_initialize_context();
 
 	DynamicData_initialize(GLOBAL_HEAP);
 
@@ -46,6 +93,9 @@ i32 main()
 	block_memory_init();
 
 	EditorApp* app = create<EditorApp>(GLOBAL_HEAP, GLOBAL_HEAP);
+
+	load_dynamicdata_directory("entities");
+
 	app->run();
 
 	DynamicData_shutdown();

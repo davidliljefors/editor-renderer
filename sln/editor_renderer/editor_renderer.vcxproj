@@ -173,6 +173,7 @@
     <ClInclude Include="..\..\Core\LinearAllocator.h" />
     <ClInclude Include="..\..\Core\TempAllocator.h" />
     <ClInclude Include="..\..\Core\Types.h" />
+    <ClInclude Include="..\..\DynamicDataSerialize.h" />
     <ClInclude Include="..\..\DynamicTypes.h" />
     <ClInclude Include="..\..\Editor.h" />
     <ClInclude Include="..\..\EditorRenderer.h" />
@@ -187,10 +188,12 @@
     <ClInclude Include="..\..\imstb_truetype.h" />
     <ClInclude Include="..\..\Math.h" />
     <ClInclude Include="..\..\pch.h" />
+    <ClInclude Include="..\..\Random.h" />
     <ClInclude Include="..\..\Scene.h" />
     <ClInclude Include="..\..\TempAllocator.h" />
     <ClInclude Include="..\..\TruthMap.h" />
     <ClInclude Include="..\..\TruthView.h" />
+    <ClInclude Include="..\..\yyjson.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="..\..\Core\TempAllocator.cpp">
@@ -203,6 +206,7 @@
       <PrecompiledHeaderFile Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
       </PrecompiledHeaderFile>
     </ClCompile>
+    <ClCompile Include="..\..\DynamicDataSerialize.cpp" />
     <ClCompile Include="..\..\Editor.cpp">
       <PrecompiledHeaderFile Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
       </PrecompiledHeaderFile>
@@ -354,6 +358,7 @@
       <PrecompiledHeaderFile Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
       </PrecompiledHeaderFile>
     </ClCompile>
+    <ClCompile Include="..\..\Random.cpp" />
     <ClCompile Include="..\..\Scene.cpp">
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">NotUsing</PrecompiledHeader>
       <PrecompiledHeaderFile Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
@@ -368,6 +373,7 @@
       <PrecompiledHeaderFile Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
       </PrecompiledHeaderFile>
     </ClCompile>
+    <ClCompile Include="..\..\yyjson.c" />
   </ItemGroup>
   <ItemGroup>
     <Natvis Include="Types.natvis" />

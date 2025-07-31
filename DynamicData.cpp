@@ -1,5 +1,6 @@
 #include "DynamicData.h"
 
+#include <cctype>
 #include <cstdarg>
 #include <cstdio>
 
@@ -9,6 +10,9 @@
 
 #include "imgui.h"
 #include "murmurhash.inl"
+#include "Random.h"
+
+#include "yyjson.h"
 
 static u64 s_object_id = 0;
 
@@ -81,26 +85,14 @@ bool findValue(const Array<DynamicData>& values, DynamicData* pValue, i32* outIn
 	return false;
 }
 
-struct DynamicType
-{
-	i32 typeId;
-	u64 typeNameHash;
-	const char* typeName;
-
-	i32 numProperties;
-	u64* nameHashToProperty;
-	DynamicDataPropertyDef* properties;
-};
-
-DynamicType* DynamicData_get_type_from_id(i32 typeId);
 
 struct DynamicObject
 {
 	u64 id;
 	u64 hRoot;
 
+	Guid guid;
 	DynamicData prototype;
-	bool tombstone;
 
 	struct Members
 	{
@@ -139,15 +131,32 @@ struct DynamicSet
 	Instantiated instantiated;
 };
 
+struct DynamicType
+{
+	i32 typeId;
+	u64 typeNameHash;
+	const char* typeName;
+
+	i32 numProperties;
+	u64* nameHashToProperty;
+	DynamicDataPropertyDef* properties;
+};
 
 static HashMap<const char*> s_string_repository;
 static HashMap<i32> s_typeNameToTypeId;
 static Array<DynamicType*> s_types;
 static HashMap<DynamicObject*> s_objects;
+static HashMap<DynamicData> s_guidToObject;
 
 DynamicType* DynamicData_get_type_from_id(i32 typeId)
 {
 	return s_types[typeId];
+}
+
+DynamicData* DynamicData_get_from_guid(Guid guid)
+{
+	u64 hGuid = murmur_hash(&guid, 16, 0);
+	return s_guidToObject.find(hGuid);
 }
 
 DynamicObject* lookup_obj(u64 hObject)
@@ -165,6 +174,7 @@ void DynamicData_initialize(Allocator* a)
 	s_string_repository.set_allocator(a);
 	s_types.set_allocator(a);
 	s_objects.set_allocator(a);
+	s_guidToObject.set_allocator(a);
 
 	s_object_id = 1;
 
@@ -179,7 +189,7 @@ void DynamicData_shutdown()
 	s_objects.reset();
 }
 
-DynamicData DynamicData_obj_new()
+DynamicData Dynamice_data_obj_new_with_guid(Guid guid)
 {
 	DynamicData value;
 
@@ -192,10 +202,19 @@ DynamicData DynamicData_obj_new()
 
 	pObject->version = 1;
 	pObject->id = id;
+	pObject->guid = guid;
 
 	s_objects.add(id, pObject);
 
+	u64 hGuid = murmur_hash(&guid, 16, 0);
+	s_guidToObject[hGuid] = value;
+
 	return value;
+}
+
+DynamicData DynamicData_obj_new()
+{
+	return Dynamice_data_obj_new_with_guid(Random_guid());
 }
 
 DynamicData DynamicData_set_new()
@@ -257,7 +276,7 @@ DynamicData DynamicData_make_str(const char* str)
 	DynamicData value = DynamicData_str_new();
 
 	u64 capacity = strlen(str) + 1;
-	value.string = (char*)malloc(capacity);
+	value.string = (char*)DD_ALLOCATOR->alloc(capacity);
 	strcpy_s(value.string, capacity, str);
 
 	return value;
@@ -703,8 +722,7 @@ Array<DynamicData> DynamicData_get_subobject_set_locally_removed(DynamicData* pV
 	return setMembers;
 }
 
-
-DynamicData DynamicData_create_from_type(i32 typeId)
+DynamicData DynamicData_create_from_type_with_guid(i32 typeId, Guid guid, bool createSubobjects)
 {
 	DynamicType* pType = DynamicData_get_type_from_id(typeId);
 
@@ -714,7 +732,7 @@ DynamicData DynamicData_create_from_type(i32 typeId)
 		return DynamicData_make_null();
 	}
 
-	DynamicData value = DynamicData_obj_new();
+	DynamicData value = Dynamice_data_obj_new_with_guid(guid);
 	DynamicObject* pObject = value.asObject();
 
 	pObject->numMembers = pType->numProperties;
@@ -738,7 +756,15 @@ DynamicData DynamicData_create_from_type(i32 typeId)
 			break;
 		case DynamicData::Type_Object:
 		{
-			*pMember = DynamicData_create_from_type(pDef->typeId);
+			if (createSubobjects)
+			{
+				*pMember = DynamicData_create_from_type(pDef->typeId);
+			}
+			else
+			{
+				*pMember = DynamicData_make_null();
+				pMember->type = DynamicData::Type_Object;
+			}
 			break;
 		}
 		case DynamicData::Type_Set:
@@ -766,6 +792,11 @@ DynamicData DynamicData_create_from_type(i32 typeId)
 	}
 
 	return value;
+}
+
+DynamicData DynamicData_create_from_type(i32 typeId)
+{
+	return DynamicData_create_from_type_with_guid(typeId, Random_guid(), true);
 }
 
 void DynamicData_clone_internal(DynamicData* srcObject, DynamicData* dstObject)
@@ -1127,9 +1158,6 @@ DynamicData DynamicData_create_from_type_name(u64 hTypeNameHash)
 	return DynamicData_create_from_type(id);
 }
 
-
-
-
 struct DebugValuePair
 {
 	char name[64];
@@ -1334,6 +1362,16 @@ void DynamicData_view_object_context_menu(DynamicData* pValue, u64 hMember, bool
 			}
 		}
 
+		if (!parentInherited && member.type == DynamicData::Type_Object)
+		{
+			if (ImGui::MenuItem("Serialize JSON"))
+			{
+				constexpr u64 hNameField = TM_STATIC_HASH("name", 0xd4c943cba60c270bULL);
+				DynamicData name = DynamicData_obj_get(&member, hNameField);
+				DynamicData_serialize_json_file(name.asString(), &member);
+			}
+		}
+
 		ImGui::EndPopup();
 	}
 }
@@ -1529,6 +1567,11 @@ void DynamicData_view_draw_root_object(DynamicData* pRoot)
 			Debug_register_root_object(instance);
 		}
 
+		if (ImGui::MenuItem("Serialize JSON"))
+		{
+			DynamicData_serialize_json_file(displayName, pRoot);
+		}
+
 		ImGui::EndPopup();
 	}
 
@@ -1582,3 +1625,401 @@ void DynamicData_view(DynamicData* pData)
 {
 	DynamicData_view_draw_root_object(pData);
 }
+
+yyjson_mut_val* yyjson_mut_guid(yyjson_mut_doc* jDoc, Guid guid)
+{
+	u8 bytes[16];
+	for (int i = 7; i >= 0; i--) 
+	{
+		bytes[i] = (guid.a >> (i * 8)) & 0xFF;
+		bytes[i + 8] = (guid.b >> (i * 8)) & 0xFF;
+	}
+
+	char buffer[37];
+	snprintf(buffer, 37,
+		"%02x%02x%02x%02x-%02x%02x-%02x%02x-%02x%02x-%02x%02x%02x%02x%02x%02x",
+		bytes[0], bytes[1], bytes[2], bytes[3],
+		bytes[4], bytes[5],
+		bytes[6], bytes[7],
+		bytes[8], bytes[9],
+		bytes[10], bytes[11], bytes[12], bytes[13],
+		bytes[14], bytes[15]
+	);
+
+	return yyjson_mut_strcpy(jDoc, buffer);
+}
+
+Guid yyjson_get_guid(yyjson_val* jVal)
+{
+	Guid guid{};
+	const char* str = yyjson_get_str(jVal);
+
+	if (!str || strlen(str) != 36) {
+		return guid;
+	}
+
+	if (str[8] != '-' || str[13] != '-' || str[18] != '-' || str[23] != '-') {
+		return guid;
+	}
+
+	for (int i = 0; i < 36; i++) 
+	{
+		if (i == 8 || i == 13 || i == 18 || i == 23) continue;
+		if (!isxdigit(static_cast<unsigned char>(str[i]))) 
+		{
+			return guid;
+		}
+	}
+
+	unsigned char bytes[16];
+	int byte_index = 0;
+	for (int i = 0; i < 36 && byte_index < 16; i++) 
+	{
+		if (str[i] == '-') continue;
+
+		char hex[3] = { str[i], str[i + 1], '\0' };
+
+		bytes[byte_index++] = static_cast<unsigned char>(strtol(hex, nullptr, 16));
+		i++;
+	}
+
+	guid.a = 0;
+	guid.b = 0;
+	for (int i = 0; i < 8; i++) 
+	{
+		guid.a |= static_cast<u64>(bytes[i]) << ((7 - i) * 8);
+		guid.b |= static_cast<u64>(bytes[i + 8]) << ((7 - i) * 8);
+	}
+
+	return guid;
+}
+
+void DynamicData_deserialize_json_value(yyjson_val* jValue, DynamicObject* pObject, i32 memberIndex, Array<Unresolved>* inoutUnresolved);
+void DynamicData_deserialize_json_subobject(yyjson_val* jObject, DynamicObject* pObject, Array<Unresolved>* inoutUnresolved);
+void DynamicData_deserialize_json_set(yyjson_val* jObject, Array<Unresolved>* inoutUnresolved);
+
+void DynamicData_deserialize_json_value(yyjson_val* jValue, DynamicObject* pObject, i32 memberIndex, Array<Unresolved>* inoutUnresolved)
+{
+	DynamicData* pValue = &pObject->members.values[memberIndex];
+
+	switch (pValue->type)
+	{
+	case DynamicData::Type_Null:
+	{
+		DYNAMIC_DATA_ERROR("Null type def");
+		break;
+	}
+	case DynamicData::Type_Object:
+	{
+		DynamicType* pParentType = DynamicData_get_type_from_id(pObject->typeId);
+		i32 subobjectTypeId = pParentType->properties[memberIndex].typeId;
+
+		const char* typeName = yyjson_get_str(yyjson_obj_get(jValue, "#type"));
+		u64 typeNameHash = murmur_hash_string(typeName);
+		i32 typeId = DynamicData_get_type_id_from_name(typeNameHash);
+
+		if (typeId == subobjectTypeId)
+		{
+			Guid guid = yyjson_get_guid(yyjson_obj_get(jValue, "#guid"));
+			yyjson_val* jPrototypeGuid = yyjson_obj_get(jValue, "#prototype_guid");
+
+			// todo handle prototypes
+			Guid prototypeGuid = yyjson_get_guid(jPrototypeGuid);
+
+			*pValue = DynamicData_create_from_type_with_guid(typeId, guid, false);
+			DynamicData_deserialize_json_subobject(jValue, pValue->asObject(), inoutUnresolved);
+		}
+		else
+		{
+			DYNAMIC_DATA_ERROR("Deserialize subobject type mismatch from disk to TypeRegistry");
+		}
+		break;
+	}
+	case DynamicData::Type_Set:
+	{
+		break;
+	}
+	case DynamicData::Type_Integer:
+	{
+		if (yyjson_is_int(jValue))
+		{
+			pValue->integer = unsafe_yyjson_get_int(jValue);
+		}
+		break;
+	}
+	case DynamicData::Type_Number:
+	{
+		if (yyjson_is_real(jValue))
+		{
+			pValue->number = unsafe_yyjson_get_real(jValue);
+		}
+		break;
+	}
+	case DynamicData::Type_String:
+	{
+		if (yyjson_is_str(jValue))
+		{
+			const char* str = yyjson_get_str(jValue);
+			*pValue = DynamicData_make_str(str);
+		}
+		break;
+	}
+	}
+}
+
+void DynamicData_deserialize_json_subobject(yyjson_val* jObject, DynamicObject* pObject, Array<Unresolved>* inoutUnresolved)
+{
+	if (false /*has prototype*/)
+	{
+		
+	}
+	else
+	{
+		yyjson_obj_iter jIter;
+		yyjson_obj_iter_init(jObject, &jIter);
+		yyjson_val* jKey;
+		while ((jKey = yyjson_obj_iter_next(&jIter)))
+		{
+			yyjson_val* jValue = yyjson_obj_iter_get_val(jKey);
+			u64 hName = string_repository_hash(yyjson_get_str(jKey));
+
+			i32 i;
+			if (findName(pObject->members.names, pObject->numMembers, hName, &i))
+			{
+				DynamicData_deserialize_json_value(jValue, pObject, i, inoutUnresolved);
+			}
+		}
+	}
+}
+
+void DynamicData_deserialize_json_set(yyjson_val* jObject, Array<Unresolved>* inoutUnresolved)
+{
+	
+}
+
+void DynamicData_serialize_json_value(yyjson_mut_doc* jDoc, yyjson_mut_val* into, DynamicObject* pObject, u64 hMember);
+
+void DynamicData_serialize_json_subobject(yyjson_mut_doc* jDoc, yyjson_mut_val* jObject, DynamicObject* pObject);
+
+void DynamicData_serialize_json_set(yyjson_mut_doc* jDoc, yyjson_mut_val* into, DynamicObject* pObject, i32 setIndex)
+{
+	u64 hSetName = pObject->members.names[setIndex];
+	DynamicSet* pSet = pObject->members.values[setIndex].asSet();
+	const char* setName = string_repository_get(hSetName);
+
+	{
+		yyjson_mut_val* jArr = yyjson_mut_obj_add_arr(jDoc, into, setName);
+		for (DynamicData value : pSet->added.values)
+		{
+			yyjson_mut_val* jElement = yyjson_mut_arr_add_obj(jDoc, jArr);
+			DynamicData_serialize_json_subobject(jDoc, jElement, value.asObject());
+		}
+	}
+
+	if (!pSet->instantiated.values.empty())
+	{
+		char buf[128];
+		sprintf_s(buf, "%s_instantiated", setName);
+		
+		yyjson_mut_val* jKey = yyjson_mut_strcpy(jDoc, buf);
+		yyjson_mut_val* jArrInstantiated = yyjson_mut_arr(jDoc);
+
+		for (DynamicData value : pSet->instantiated.values)
+		{
+			yyjson_mut_val* jElement = yyjson_mut_arr_add_obj(jDoc, jArrInstantiated);
+			DynamicData_serialize_json_subobject(jDoc, jElement, value.asObject());
+		}
+
+		yyjson_mut_obj_add(into, jKey, jArrInstantiated);
+	}
+
+	if (!pSet->removed.values.empty())
+	{
+		char buf[128];
+		sprintf_s(buf, "%s_removed", setName);
+
+		yyjson_mut_val* jKey = yyjson_mut_strcpy(jDoc, buf);
+		yyjson_mut_val* jArrRemoved = yyjson_mut_arr(jDoc);
+
+		for (DynamicData value : pSet->removed.values)
+		{
+			yyjson_mut_arr_add_val(jArrRemoved, yyjson_mut_guid(jDoc, value.asObject()->guid));
+		}
+
+		yyjson_mut_obj_add(into, jKey, jArrRemoved);
+	}
+
+}
+
+void DynamicData_serialize_json_subobject(yyjson_mut_doc* jDoc, yyjson_mut_val* jObject, DynamicObject* pObject)
+{
+	DynamicType* pType = DynamicData_get_type_from_id(pObject->typeId);
+
+	yyjson_mut_obj_add(jObject, yyjson_mut_str(jDoc, "#type"), yyjson_mut_str(jDoc, pType->typeName));
+	yyjson_mut_obj_add(jObject, yyjson_mut_str(jDoc, "#guid"), yyjson_mut_guid(jDoc, pObject->guid));
+
+	if (DynamicObject* pPrototype = pObject->prototype.asObject())
+	{
+		yyjson_mut_obj_add(jObject, yyjson_mut_str(jDoc, "#prototype_guid"), yyjson_mut_guid(jDoc, pPrototype->guid));
+	}
+
+	for (i32 i = 0; i < pType->numProperties; ++i)
+	{
+		const DynamicDataPropertyDef* pDef = &pType->properties[i];
+		DynamicData_serialize_json_value(jDoc, jObject, pObject, pDef->nameHash);
+	}
+}
+
+void DynamicData_serialize_json_value(yyjson_mut_doc* jDoc, yyjson_mut_val* into, DynamicObject* pObject, u64 hMember)
+{
+	i32 i;
+	if (findName(pObject->members.names, pObject->numMembers, hMember, &i))
+	{
+		DynamicData value = pObject->members.values[i];
+		MemberStatus status = pObject->members.statuses[i];
+
+		if (status == MemberStatus::Inherited)
+		{
+			return;
+		}
+
+		switch (value.type)
+		{
+		case DynamicData::Type_Null:
+		{
+			DYNAMIC_DATA_ERROR("Type Error: cant serialize Null");
+			yyjson_mut_val* jKey = yyjson_mut_str(jDoc, string_repository_get(hMember));
+			yyjson_mut_val* jValue = yyjson_mut_null(jDoc);
+			yyjson_mut_obj_add(into, jKey, jValue);
+			break;
+		}
+		case DynamicData::Type_Object:
+		{
+			yyjson_mut_val* jKey = yyjson_mut_str(jDoc, string_repository_get(hMember));
+			yyjson_mut_val* jValue = yyjson_mut_obj(jDoc);
+			DynamicData_serialize_json_subobject(jDoc, jValue, value.asObject());
+			yyjson_mut_obj_add(into, jKey, jValue);
+			break;
+		}
+		case DynamicData::Type_Set:
+		{	
+			DynamicData_serialize_json_set(jDoc, into, pObject, i);
+			break;
+		}
+		case DynamicData::Type_Integer:
+		{
+			bool writeDataValue = status == MemberStatus::Overridden;
+			if (status == MemberStatus::Owned)
+			{
+				writeDataValue = value.integer != 0;
+			}
+
+			if (writeDataValue)
+			{
+				yyjson_mut_val* jKey = yyjson_mut_str(jDoc, string_repository_get(hMember));
+				yyjson_mut_val* jValue = yyjson_mut_int(jDoc, value.integer);
+				yyjson_mut_obj_add(into, jKey, jValue);
+			}
+			break;
+		}
+		case DynamicData::Type_Number:
+		{
+			bool writeDataValue = status == MemberStatus::Overridden;
+			if (status == MemberStatus::Owned)
+			{
+				writeDataValue = value.number != 0.0;
+			}
+
+			if (writeDataValue)
+			{
+				yyjson_mut_val* jKey = yyjson_mut_str(jDoc, string_repository_get(hMember));
+				yyjson_mut_val* jValue = yyjson_mut_real(jDoc, value.number);
+				yyjson_mut_obj_add(into, jKey, jValue);
+			}
+			break;
+		}
+		case DynamicData::Type_String:
+		{
+			bool writeDataValue = status == MemberStatus::Overridden;
+			if (status == MemberStatus::Owned)
+			{
+				writeDataValue = value.string != nullptr;
+			}
+
+			if (writeDataValue)
+			{
+				yyjson_mut_val* jKey = yyjson_mut_str(jDoc, string_repository_get(hMember));
+				yyjson_mut_val* jValue = yyjson_mut_str(jDoc, value.string);
+				yyjson_mut_obj_add(into, jKey, jValue);
+			}
+			break;
+		}
+		}
+	}
+}
+
+void DynamicData_serialize_json_file(const char* name, DynamicData* pValue)
+{
+	yyjson_mut_doc* jDoc = yyjson_mut_doc_new(nullptr);
+
+	yyjson_mut_val* jRoot = yyjson_mut_obj(jDoc);
+	yyjson_mut_doc_set_root(jDoc, jRoot);
+
+	DynamicData_serialize_json_subobject(jDoc, jRoot, pValue->asObject());
+
+	char buf[128];
+	sprintf_s(buf, "entities/%s.json", name);
+
+	yyjson_write_flag flg = YYJSON_WRITE_PRETTY | YYJSON_WRITE_ESCAPE_UNICODE;
+	yyjson_write_err err;
+	yyjson_mut_write_file(buf, jDoc, flg, nullptr, &err);
+
+	if (err.code) 
+	{
+		printf("write error (%u): %s\n", err.code, err.msg);
+		DYNAMIC_DATA_ERROR("Could not write file");
+	}
+
+	yyjson_mut_doc_free(jDoc);
+}
+
+bool DynamicData_deserialize_json_file(const char* path, DynamicData* outData, Array<Unresolved>* inoutUnresolved)
+{
+	yyjson_read_err err;
+	yyjson_doc* jDoc = yyjson_read_file(path, 0, nullptr, &err);
+	yyjson_val* jRoot = yyjson_doc_get_root(jDoc);
+
+	if (err.code)
+	{
+		printf("read error (%u): %s\n", err.code, err.msg);
+		DYNAMIC_DATA_ERROR("Could not read file");
+		return false;
+	}
+	else
+	{
+		const char* typeName = yyjson_get_str(yyjson_obj_get(jRoot, "#type"));
+		Guid guid = yyjson_get_guid(yyjson_obj_get(jRoot, "#guid"));
+		yyjson_val* jPrototypeGuid = yyjson_obj_get(jRoot, "#prototype_guid");
+		Guid prototypeGuid = yyjson_get_guid(jPrototypeGuid);
+
+		u64 typeNameHash = murmur_hash_string(typeName);
+		i32 typeId = DynamicData_get_type_id_from_name(typeNameHash);
+
+		if (guid.a == 0 && guid.b == 0)
+		{
+			DYNAMIC_DATA_ERROR("Deserialize Error");
+			yyjson_doc_free(jDoc);
+			return false;
+		}
+		else
+		{
+			*outData = DynamicData_create_from_type_with_guid(typeId, guid, false);
+			DynamicData_deserialize_json_subobject(jRoot, outData->asObject(), inoutUnresolved);
+		}
+	}
+
+	yyjson_doc_free(jDoc);
+
+	return true;
+}
+

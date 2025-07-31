@@ -59,7 +59,7 @@ struct DynamicData
 		Type_Set,
 		Type_Integer,
 		Type_Number,
-		Type_String
+		Type_String,
 	};
 
 	u64 asUint()
@@ -207,3 +207,16 @@ i32 DynamicData_register_type(const char* typeName, const DynamicDataPropertyDef
 DynamicData DynamicData_create_from_type_name(u64 hTypeNameHash);
 
 void DynamicData_view(DynamicData* pData);
+
+
+// Serialization
+
+void DynamicData_serialize_json_file(const char* name, DynamicData* pValue);
+
+struct Unresolved
+{
+	u64 hObject;
+	Guid prototype;
+};
+
+bool DynamicData_deserialize_json_file(const char* path, DynamicData* outData, Array<Unresolved>* inoutUnresolved);

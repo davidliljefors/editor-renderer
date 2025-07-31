@@ -13,78 +13,21 @@
 #include "DynamicData.h"
 #include "Core/TempAllocator.h"
 
-#define WIN32_LEAN_AND_MEAN
-#include <windows.h>
-#include <wincrypt.h>
+#include "Random.h"
 
-#pragma comment(lib, "advapi32.lib")
+#include <windows.h>
+
 
 static EditorApp* s_app;
 
 DynamicData s_clipboard;
 
-struct Xoshiro256
-{
-	static uint64_t rotl(const uint64_t x, int k) 
-	{
-		return (x << k) | (x >> (64 - k));
-	}
-
-	uint64_t next()
-	{
-		const uint64_t result = rotl(s[0] + s[3], 23) + s[0];
-		const uint64_t t = s[1] << 17;
-
-		s[2] ^= s[0];
-		s[3] ^= s[1];
-		s[1] ^= s[2];
-		s[0] ^= s[3];
-
-		s[2] ^= t;
-
-		s[3] = rotl(s[3], 45);
-
-		return result;
-	}
-
-	uint64_t s[4]{ 0x180ec6d33cfd0aba, 0xd5a61266f0c9392c, 0xa9582618e03fc9aa, 0x39abdc4529b1661c };
-};
-
-Xoshiro256 g_rand;
 
 truth::Key nextKey()
 {
 	truth::Key key;
-	key.asU64 = g_rand.next();
+	key.asU64 = Random_u64();
 	return key;
-}
-
-int InitializeRandomContext(Xoshiro256* rand)
-{
-	HCRYPTPROV hCryptProv = 0;
-
-	if (!CryptAcquireContext(
-		&hCryptProv,
-		NULL,
-		NULL,
-		PROV_RSA_FULL,
-		CRYPT_VERIFYCONTEXT))
-	{
-		return 1;
-	}
-
-	if (!CryptGenRandom(hCryptProv, sizeof(Xoshiro256), reinterpret_cast<u8*>(rand)))
-	{
-		CryptReleaseContext(hCryptProv, 0);
-		return 1;
-	}
-
-	if (!CryptReleaseContext(hCryptProv, 0))
-	{
-		return 1;
-	}
-
-	return 0;
 }
 
 extern LRESULT ImGui_ImplWin32_WndProcHandler(HWND hwnd, UINT msg, WPARAM uint, LPARAM long_);
@@ -141,11 +84,6 @@ HWND createWindow(int w, int h)
 	);
 
     return hwnd;
-}
-
-u64 random_u64()
-{
-	return g_rand.next();
 }
 
 DrawList EditorViewport::getDrawList()
@@ -483,11 +421,29 @@ void EditorApp::update()
 		}
 	}*/
 
-	if (ImGui::Button("Add new root entity"))
+	static char entity_name_buf[64];
+	static bool entering_name = false;
+
+	if (!entering_name && ImGui::Button("Add new root entity"))
 	{
-		DynamicData entity = DynamicData_create_from_type_name(ENTITY_NAME_HASH);
-		DynamicData_obj_set(&entity, TM_STATIC_HASH("name", 0xd4c943cba60c270bULL), DynamicData_make_str("Root Entity"));
-		m_roots.push_back(entity);
+		entering_name = true;
+	}
+
+	if (entering_name)
+	{
+		if (ImGui::InputText("Entity name", entity_name_buf, 64, ImGuiInputTextFlags_EnterReturnsTrue))
+		{
+			DynamicData entity = DynamicData_create_from_type_name(ENTITY_NAME_HASH);
+			DynamicData_obj_set(&entity, TM_STATIC_HASH("name", 0xd4c943cba60c270bULL), DynamicData_make_str(entity_name_buf));
+			m_roots.push_back(entity);
+			entering_name = false;
+			ZeroMemory(entity_name_buf, 64);
+		}
+		if (ImGui::Button("Cancel"))
+		{
+			entering_name = false;
+			ZeroMemory(entity_name_buf, 64);
+		}
 	}
 
 	ImGui::End();
@@ -644,7 +600,6 @@ Truth* g_truth;
 
 EditorApp::EditorApp(Allocator* a)
 {
-	InitializeRandomContext(&g_rand);
 	m_openTabs.set_allocator(a);
 	m_assetWindow = create<AssetBrowserWindow>(a);
     m_renderer = nullptr;
