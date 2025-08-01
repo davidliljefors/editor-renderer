@@ -85,7 +85,6 @@ i32 main()
 		makeProperty("name", DynamicData::Type_String),
 		makeProperty("children", DynamicData::Type_Set, ENTITY_NAME_HASH),
 		makeProperty("components", DynamicData::Type_Set),
-		makeProperty("dummy_subobject", DynamicData::Type_Object, TM_STATIC_HASH("test_subobject", 0x5dfe10daeb51c234ULL)),
 	};
 
 	DynamicData_register_type(ENTITY_TYPE_NAME, entity_props, DD_ARRAY_COUNT(entity_props));

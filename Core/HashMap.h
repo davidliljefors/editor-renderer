@@ -129,6 +129,8 @@ public:
 
 	void reset();
 
+	void reserve(i32 size);
+
 private:
 	HashFind find_impl(u64 key);
 
@@ -309,6 +311,15 @@ void HashMap<T>::reset()
 {
 	m_hash.reset();
 	m_data.reset();
+}
+
+template <typename T>
+void HashMap<T>::reserve(i32 size)
+{
+	if (size > m_hash.capacity())
+	{
+		rehash(size);
+	}
 }
 
 template <typename T>

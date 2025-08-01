@@ -19,6 +19,8 @@
 #pragma comment(lib, "d3d11.lib")
 #pragma comment(lib, "d3dcompiler.lib")
 
+#define DEBUG_DEVICE 0
+
 struct Mesh
 {
 	ID3D11Buffer* vertexBuffer;
@@ -523,7 +525,7 @@ void createDevice(EditorRenderer* rend)
 {
     UINT creationFlags = 0;
 
-#ifdef _DEBUG
+#if DEBUG_DEVICE
     creationFlags |= D3D11_CREATE_DEVICE_DEBUG;
 #endif
 
@@ -559,7 +561,7 @@ void createDevice(EditorRenderer* rend)
 
     HRESULT hr;
 
-#ifndef NDEBUG
+#if DEBUG_DEVICE
     ID3D11Debug* d3dDebug;
     hr = device->QueryInterface(__uuidof(ID3D11Debug), (void**)&d3dDebug);
     if (SUCCEEDED(hr))
@@ -568,10 +570,8 @@ void createDevice(EditorRenderer* rend)
         hr = d3dDebug->QueryInterface(__uuidof(ID3D11InfoQueue), (void**)&d3dInfoQueue);
         if (SUCCEEDED(hr))
         {
-#ifdef _DEBUG
             d3dInfoQueue->SetBreakOnSeverity(D3D11_MESSAGE_SEVERITY_CORRUPTION, true);
             d3dInfoQueue->SetBreakOnSeverity(D3D11_MESSAGE_SEVERITY_ERROR, true);
-#endif
             D3D11_MESSAGE_ID hide [] =
             {
                 D3D11_MESSAGE_ID_SETPRIVATEDATA_CHANGINGPARAMS,

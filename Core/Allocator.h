@@ -69,7 +69,7 @@ public:
 
 	void* alloc(size_t size) override
 	{
-		return ::malloc(size);
+		return ::calloc(size, 1);
 	}
 
 	void free(void* block) override

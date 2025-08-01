@@ -142,11 +142,75 @@ struct DynamicType
 	DynamicDataPropertyDef* properties;
 };
 
+struct ObjectBlock
+{
+	constexpr static u32 NUM_ENTRIES = 65536;
+	DynamicObject objects[NUM_ENTRIES];
+	ObjectBlock* prev;
+};
+
+struct ObjectAllocator
+{
+	ObjectBlock* pCurrentBlock;
+	u32 cursor;
+};
+
+DynamicObject* ObjectAllocator_allocate(ObjectAllocator* a)
+{
+	if (a->cursor == ObjectBlock::NUM_ENTRIES)
+	{
+		a->cursor = 0;
+		ObjectBlock* pNext = new(DD_ALLOCATOR) ObjectBlock();
+		memset(pNext, 0, sizeof ObjectBlock);
+		pNext->prev = a->pCurrentBlock;
+		a->pCurrentBlock = pNext;
+	}
+
+	u32 index = a->cursor++;
+	return &a->pCurrentBlock->objects[index];
+}
+
+struct SetBlock
+{
+	constexpr static u32 NUM_ENTRIES = 65536;
+	DynamicSet objects[NUM_ENTRIES];
+	SetBlock* prev;
+};
+
+struct SetAllocator
+{
+	SetBlock* pCurrentBlock;
+	u32 cursor;
+};
+
+DynamicSet* SetAllocator_allocate(SetAllocator* a)
+{
+	if (a->cursor == SetBlock::NUM_ENTRIES)
+	{
+		a->cursor = 0;
+		SetBlock* pNext = new(DD_ALLOCATOR) SetBlock();
+		memset(pNext, 0, sizeof SetBlock);
+		pNext->prev = a->pCurrentBlock;
+		a->pCurrentBlock = pNext;
+	}
+
+	u32 index = a->cursor++;
+	DynamicSet* pset = &a->pCurrentBlock->objects[index];
+	pset->instantiated.ids.set_allocator(DD_ALLOCATOR);
+	pset->instantiated.values.set_allocator(DD_ALLOCATOR);
+	pset->added.values.set_allocator(DD_ALLOCATOR);
+	pset->removed.values.set_allocator(DD_ALLOCATOR);
+
+	return &a->pCurrentBlock->objects[index];
+}
+
 static HashMap<const char*> s_string_repository;
 static HashMap<i32> s_typeNameToTypeId;
 static Array<DynamicType*> s_types;
 static HashMap<DynamicObject*> s_objects;
 static HashMap<DynamicData> s_guidToObject;
+static ObjectAllocator* s_objectAllocator;
+static SetAllocator* s_setAllocator;
 
 DynamicType* DynamicData_get_type_from_id(i32 typeId)
 {
@@ -176,6 +240,22 @@ void DynamicData_initialize(Allocator* a)
 	s_objects.set_allocator(a);
 	s_guidToObject.set_allocator(a);
 
+	s_guidToObject.reserve(1 << 23);
+	s_objects.reserve(1 << 23);
+
+	s_objectAllocator = new(DD_ALLOCATOR) ObjectAllocator();
+	s_setAllocator = new(DD_ALLOCATOR) SetAllocator();
+
+	ObjectBlock* pBlock = new(DD_ALLOCATOR) ObjectBlock();
+	pBlock->prev = nullptr;
+	s_objectAllocator->pCurrentBlock = pBlock;
+	s_objectAllocator->cursor = 0;
+
+	SetBlock* pSetBlock = new(DD_ALLOCATOR) SetBlock();
+	pSetBlock->prev = nullptr;
+	s_setAllocator->pCurrentBlock = pSetBlock;
+	s_setAllocator->cursor = 0;
+
 	s_object_id = 1;
 
 	DynamicData_register_type("Null Object Type", nullptr, 0);
@@ -187,13 +267,14 @@ void DynamicData_shutdown()
 	s_string_repository.reset();
 	s_types.reset();
 	s_objects.reset();
+	s_guidToObject.reset();
 }
 
-DynamicData Dynamice_data_obj_new_with_guid(Guid guid)
+DynamicData DynamicData_obj_new_with_guid(Guid guid)
 {
 	DynamicData value;
 
-	DynamicObject* pObject = new (DD_ALLOCATOR) DynamicObject();
+	DynamicObject* pObject = ObjectAllocator_allocate(s_objectAllocator);
 
 	u64 id = next_obj_id();
 
@@ -207,14 +288,14 @@ DynamicData Dynamice_data_obj_new_with_guid(Guid guid)
 	s_objects.add(id, pObject);
 
 	u64 hGuid = murmur_hash(&guid, 16, 0);
-	s_guidToObject[hGuid] = value;
+	s_guidToObject.add(hGuid, value);
 
 	return value;
 }
 
 DynamicData DynamicData_obj_new()
 {
-	return Dynamice_data_obj_new_with_guid(Random_guid());
+	return DynamicData_obj_new_with_guid(Random_guid());
 }
 
 DynamicData DynamicData_set_new()
@@ -222,16 +303,9 @@ DynamicData DynamicData_set_new()
 	DynamicData value;
 
 	value.type = DynamicData::Type_Set;
-	value.pSet = new (DD_ALLOCATOR) DynamicSet();
-
-	value.pSet->removed.values.set_allocator(DD_ALLOCATOR);
-	value.pSet->added.values.set_allocator(DD_ALLOCATOR);
-
-	value.pSet->instantiated.values.set_allocator(DD_ALLOCATOR);
-	value.pSet->instantiated.ids.set_allocator(DD_ALLOCATOR);
+	value.pSet = SetAllocator_allocate(s_setAllocator);
 
 	return value;
-
 }
 
 DynamicData DynamicData_str_new()
@@ -732,14 +806,24 @@ DynamicData DynamicData_create_from_type_with_guid(i32 typeId, Guid guid, bool c
 		return DynamicData_make_null();
 	}
 
-	DynamicData value = Dynamice_data_obj_new_with_guid(guid);
+	DynamicData value = DynamicData_obj_new_with_guid(guid);
 	DynamicObject* pObject = value.asObject();
 
 	pObject->numMembers = pType->numProperties;
 	pObject->typeId = typeId;
-	pObject->members.names = (u64*)DD_ALLOCATOR->alloc(sizeof u64 * pType->numProperties);
-	pObject->members.values = (DynamicData*)DD_ALLOCATOR->alloc(sizeof DynamicData * pType->numProperties);
-	pObject->members.statuses = (MemberStatus*)DD_ALLOCATOR->alloc(sizeof MemberStatus * pType->numProperties);
+
+	u64 membersTotalSize = 
+		sizeof u64 * pType->numProperties +
+		sizeof DynamicData * pType->numProperties +
+		sizeof MemberStatus * pType->numProperties;
+
+	uintptr_t pMembers = (uintptr_t)DD_ALLOCATOR->alloc(membersTotalSize);
+
+	pObject->members.names = (u64*)pMembers;
+	pMembers += sizeof u64 * pType->numProperties;
+	pObject->members.values = (DynamicData*)pMembers;
+	pMembers += sizeof DynamicData * pType->numProperties;
+	pObject->members.statuses = (MemberStatus*)pMembers;
 
 	for (i32 i = 0; i < pType->numProperties; ++i)
 	{
@@ -1334,6 +1418,32 @@ void DynamicData_view_object_context_menu(DynamicData* pValue, u64 hMember, bool
 					DynamicData_obj_set(&added, TM_STATIC_HASH("name", 0xd4c943cba60c270bULL), DynamicData_make_str(Printf("%s %d", type_name, addcount)));
 					DynamicData_add_to_subobject_set(pValue, hMember, &added);
 				}
+
+				if (ImGui::MenuItem(Printf("Add new %s * 100k", type_name)))
+				{
+					static int addcount = 0;
+
+					for (i32 i = 0; i < 100'000; ++i)
+					{
+						DynamicData added = DynamicData_create_from_type(typeId);
+						++addcount;
+						DynamicData_obj_set(&added, TM_STATIC_HASH("name", 0xd4c943cba60c270bULL), DynamicData_make_str(Printf("%s %d", type_name, addcount)));
+						DynamicData_add_to_subobject_set(pValue, hMember, &added);
+					}
+				}
+				 
+				if (ImGui::MenuItem(Printf("Add new %s * 1M", type_name)))
+				{
+					static int addcount = 0;
+
+					for (i32 i = 0; i < 1'000'000; ++i)
+					{
+						DynamicData added = DynamicData_create_from_type(typeId);
+						++addcount;
+						DynamicData_obj_set(&added, TM_STATIC_HASH("name", 0xd4c943cba60c270bULL), DynamicData_make_str(Printf("%s %d", type_name, addcount)));
+						DynamicData_add_to_subobject_set(pValue, hMember, &added);
+					}
+				}
 			}
 		}
 
@@ -1628,55 +1738,84 @@ void DynamicData_view(DynamicData* pData)
 
 yyjson_mut_val* yyjson_mut_guid(yyjson_mut_doc* jDoc, Guid guid)
 {
+	static constexpr char hex_lookup[] = "0123456789abcdef";
+
 	u8 bytes[16];
+	char buffer[37];
 
 	for (int i = 0; i < 8; i++) 
 	{
 		bytes[i] = (guid.a >> ((7 - i) * 8)) & 0xFF;
 	}
+
 	for (int i = 0; i < 8; i++) 
 	{
 		bytes[i + 8] = (guid.b >> ((7 - i) * 8)) & 0xFF;
 	}
 
-	char buffer[37];
-	snprintf(buffer, 37,
-		"%02x%02x%02x%02x-%02x%02x-%02x%02x-%02x%02x-%02x%02x%02x%02x%02x%02x",
-		bytes[0], bytes[1], bytes[2], bytes[3],
-		bytes[4], bytes[5],
-		bytes[6], bytes[7],
-		bytes[8], bytes[9],
-		bytes[10], bytes[11], bytes[12], bytes[13], bytes[14], bytes[15]);
+	int buf_idx = 0;
+	for (int i = 0; i < 16; i++) 
+	{
+		if (i == 4 || i == 6 || i == 8 || i == 10) 
+		{
+			buffer[buf_idx++] = '-';
+		}
+		buffer[buf_idx++] = hex_lookup[bytes[i] >> 4];
+		buffer[buf_idx++] = hex_lookup[bytes[i] & 0xF];
+	}
+	buffer[36] = '\0';  // Null terminate
 
-	return yyjson_mut_strcpy(jDoc, buffer);
+	return yyjson_mut_strncpy(jDoc, buffer, 36);
 }
 
-Guid yyjson_get_guid(yyjson_val* jVal)
-{
+Guid yyjson_get_guid(yyjson_val* jVal) {
 	Guid guid{};
 	const char* str = yyjson_get_str(jVal);
+	u64 len = yyjson_get_len(jVal);
 
-	if (!str || strlen(str) != 36) {
+	if (len < 36)
+	{
 		return guid;
 	}
 
-	if (str[8] != '-' || str[13] != '-' || str[18] != '-' || str[23] != '-') {
+	if (!str || str[36] != '\0' || str[8] != '-' || str[13] != '-' || str[18] != '-' || str[23] != '-') 
+	{
 		return guid;
 	}
 
-	for (int i = 0; i < 36; i++) {
-		if (i == 8 || i == 13 || i == 18 || i == 23) continue;
-		if (!isxdigit(static_cast<unsigned char>(str[i]))) {
-			return guid;
-		}
-	}
+	static const u8 hex_to_val[256] = 
+	{
+		0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,
+		0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,
+		0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,
+		0x00,0x01,0x02,0x03,0x04,0x05,0x06,0x07,0x08,0x09,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,
+		0xFF,0x0A,0x0B,0x0C,0x0D,0x0E,0x0F,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,
+		0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,
+		0xFF,0x0A,0x0B,0x0C,0x0D,0x0E,0x0F,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,
+		0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,
+		0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,
+		0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,
+		0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,
+		0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,
+		0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,
+		0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,
+		0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,
+		0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF
+	};
 
-	unsigned char bytes[16];
-	int byte_index = 0;
-	for (int i = 0; i < 36 && byte_index < 16; i++) {
+	u8 bytes[16];
+	int byte_idx = 0;
+
+	for (int i = 0; i < 36 && byte_idx < 16; i++) 
+	{
 		if (str[i] == '-') continue;
-		char hex[3] = { str[i], str[i + 1], '\0' };
-		bytes[byte_index++] = static_cast<unsigned char>(strtol(hex, nullptr, 16));
+
+		u8 high = hex_to_val[(u8)str[i]];
+		u8 low = hex_to_val[(u8)str[i + 1]];
+
+		if (high == 0xFF || low == 0xFF) return guid;
+
+		bytes[byte_idx++] = (unsigned char)((high << 4) | low);
 		i++;
 	}
 
@@ -1684,19 +1823,49 @@ Guid yyjson_get_guid(yyjson_val* jVal)
 	guid.b = 0;
 	for (int i = 0; i < 8; i++) 
 	{
-		guid.a |= static_cast<u64>(bytes[i]) << ((7 - i) * 8); // Big-endian to little-endian
+		guid.a |= (u64)bytes[i] << ((7 - i) * 8);
 	}
 	for (int i = 0; i < 8; i++) 
 	{
-		guid.b |= static_cast<u64>(bytes[i + 8]) << ((7 - i) * 8); // Big-endian to little-endian
+		guid.b |= (u64)bytes[i + 8] << ((7 - i) * 8);
 	}
 
 	return guid;
 }
 
+struct StringPiece
+{
+	const char* data;
+	u64 len;
+};
+
+bool MatchStringSuffix(const char* input, const char* suffix, StringPiece* outResult)
+{
+	u64 suffix_len = strlen(suffix);
+	u64 input_len = strlen(input);
+
+	outResult->data = input;
+	outResult->len = input_len;
+
+	if (input_len >= suffix_len && strcmp(input + input_len - suffix_len, suffix) == 0) 
+	{
+		outResult->len = input_len - suffix_len;
+		return true;
+	}
+
+	return false;
+}
+
 void DynamicData_deserialize_json_value(yyjson_val* jValue, DynamicObject* pObject, i32 memberIndex, Array<Unresolved>* inoutUnresolved, bool isInstance);
 void DynamicData_deserialize_json_subobject(yyjson_val* jObject, DynamicObject* pObject, Array<Unresolved>* inoutUnresolved, bool isInstance);
-void DynamicData_deserialize_json_set(yyjson_val* jObject, Array<Unresolved>* inoutUnresolved);
+
+void DynamicData_deserialize_json_set(yyjson_val* jArray, DynamicSet* pSet, Array<Unresolved>* inoutUnresolved);
+void DynamicData_deserialize_json_set_removed(yyjson_val* jArray, DynamicSet* pSet, Array<Unresolved>* inoutUnresolved);
+void DynamicData_deserialize_json_set_instantiated(yyjson_val* jArray, DynamicSet* pSet, Array<Unresolved>* inoutUnresolved);
+
+void DynamicData_serialize_json_value(yyjson_mut_doc* jDoc, yyjson_mut_val* into, DynamicObject* pObject, u64 hMember);
+void DynamicData_serialize_json_subobject(yyjson_mut_doc* jDoc, yyjson_mut_val* jObject, DynamicObject* pObject);
+void DynamicData_serialize_json_set(yyjson_mut_doc* jDoc, yyjson_mut_val* into, DynamicObject* pObject, i32 setIndex);
 
 void DynamicData_deserialize_json_value(yyjson_val* jValue, DynamicObject* pObject, i32 memberIndex, Array<Unresolved>* inoutUnresolved, bool isInstance)
 {
@@ -1712,40 +1881,47 @@ void DynamicData_deserialize_json_value(yyjson_val* jValue, DynamicObject* pObje
 	}
 	case DynamicData::Type_Object:
 	{
-		DynamicType* pParentType = DynamicData_get_type_from_id(pObject->typeId);
-		i32 subobjectTypeId = pParentType->properties[memberIndex].typeId;
-
-		const char* typeName = yyjson_get_str(yyjson_obj_get(jValue, "#type"));
-		u64 typeNameHash = murmur_hash_string(typeName);
-		i32 typeId = DynamicData_get_type_id_from_name(typeNameHash);
-
-		if (typeId == subobjectTypeId)
+		if (yyjson_is_obj(jValue))
 		{
-			Guid guid = yyjson_get_guid(yyjson_obj_get(jValue, "#guid"));
-			yyjson_val* jPrototypeGuid = yyjson_obj_get(jValue, "#prototype_guid");
+			DynamicType* pParentType = DynamicData_get_type_from_id(pObject->typeId);
+			i32 subobjectTypeId = pParentType->properties[memberIndex].typeId;
 
-			*pValue = DynamicData_create_from_type_with_guid(typeId, guid, false);
+			const char* typeName = yyjson_get_str(yyjson_obj_get(jValue, "#type"));
+			u64 typeNameHash = murmur_hash_string(typeName);
+			i32 typeId = DynamicData_get_type_id_from_name(typeNameHash);
 
-			if (jPrototypeGuid)
+			if (typeId == subobjectTypeId)
 			{
-				Guid prototypeGuid = yyjson_get_guid(jPrototypeGuid);
-				Unresolved& r = inoutUnresolved->push_back();
-				r.hObject = pValue->id();
-				r.prototype = prototypeGuid;
-			}
-			*pStatus = isInstance ? MemberStatus::Instantiated : MemberStatus::Owned;
+				Guid guid = yyjson_get_guid(yyjson_obj_get(jValue, "#guid"));
+				yyjson_val* jPrototypeGuid = yyjson_obj_get(jValue, "#prototype_guid");
 
-			DynamicData_deserialize_json_subobject(jValue, pValue->asObject(), inoutUnresolved, jPrototypeGuid != nullptr);
+				*pValue = DynamicData_create_from_type_with_guid(typeId, guid, false);
+
+				if (jPrototypeGuid)
+				{
+					Guid prototypeGuid = yyjson_get_guid(jPrototypeGuid);
+					Unresolved& r = inoutUnresolved->push_back();
+					r.object.hObject = pValue->id();
+					r.object.prototype = prototypeGuid;
+					r.isSet = false;
+				}
+				*pStatus = isInstance ? MemberStatus::Instantiated : MemberStatus::Owned;
+
+				DynamicData_deserialize_json_subobject(jValue, pValue->asObject(), inoutUnresolved, jPrototypeGuid != nullptr);
+			}
+			else
+			{
+				DYNAMIC_DATA_ERROR("Deserialize subobject type mismatch from disk to TypeRegistry");
+			}
 		}
 		else
 		{
-			DYNAMIC_DATA_ERROR("Deserialize subobject type mismatch from disk to TypeRegistry");
+			DYNAMIC_DATA_ERROR("Deserialize object on disk is not subobject in type.");
 		}
 		break;
 	}
 	case DynamicData::Type_Set:
 	{
-		*pStatus = isInstance ? MemberStatus::Set : MemberStatus::Owned;
 		break;
 	}
 	case DynamicData::Type_Integer:
@@ -1793,9 +1969,19 @@ void DynamicData_deserialize_json_value(yyjson_val* jValue, DynamicObject* pObje
 
 void DynamicData_deserialize_json_subobject(yyjson_val* jObject, DynamicObject* pObject, Array<Unresolved>* inoutUnresolved, bool isInstance)
 {
-	for (i32 i = 0; i<pObject->numMembers; ++i)
+	constexpr const char* kInstantiated = "#instantiated";
+	constexpr const char* kRemoved = "#removed";
+
+	for (i32 i = 0; i < pObject->numMembers; ++i)
 	{
-		pObject->members.statuses[i] = isInstance ? MemberStatus::Inherited : MemberStatus::Owned;
+		if (pObject->members.values[i].type == DynamicData::Type_Set)
+		{
+			pObject->members.statuses[i] = isInstance ? MemberStatus::Set : MemberStatus::Owned;
+		}
+		else
+		{
+			pObject->members.statuses[i] = isInstance ? MemberStatus::Inherited : MemberStatus::Owned;
+		}
 	}
 
 	yyjson_obj_iter jIter;
@@ -1810,9 +1996,40 @@ void DynamicData_deserialize_json_subobject(yyjson_val* jObject, DynamicObject* 
 
 		yyjson_val* jValue = yyjson_obj_iter_get_val(jKey);
 
+		// arrays are special separated into 3 fiels, "added" named normamml, removed and instantiated suffixed by _removed, _instantiated
+		if (yyjson_is_arr(jValue))
+		{
+			StringPiece sp;
+			if (MatchStringSuffix(yyjson_get_str(jKey), kInstantiated, &sp))
+			{
+				u64 hName = murmur_hash(sp.data, (u32)sp.len, 0);
+				i32 i;
+				if (findName(pObject->members.names, pObject->numMembers, hName, &i))
+				{
+					DynamicData_deserialize_json_set_instantiated(jValue, pObject->members.values[i].asSet(), inoutUnresolved);
+				}
+			}
+			if (MatchStringSuffix(yyjson_get_str(jKey), kRemoved, &sp))
+			{
+				u64 hName = murmur_hash(sp.data, (u32)sp.len, 0);
+				i32 i;
+				if (findName(pObject->members.names, pObject->numMembers, hName, &i))
+				{
+					DynamicData_deserialize_json_set_removed(jValue, pObject->members.values[i].asSet(), inoutUnresolved);
+				}
+			}
+			else
+			{
+				u64 hName = string_repository_hash(yyjson_get_str(jKey));
+				i32 i;
+				if (findName(pObject->members.names, pObject->numMembers, hName, &i))
+				{
+					DynamicData_deserialize_json_set(jValue, pObject->members.values[i].asSet(), inoutUnresolved);
+				}
+			}
+		}
 
 		u64 hName = string_repository_hash(yyjson_get_str(jKey));
-
 		i32 i;
 		if (findName(pObject->members.names, pObject->numMembers, hName, &i))
 		{
@@ -1821,14 +2038,121 @@ void DynamicData_deserialize_json_subobject(yyjson_val* jObject, DynamicObject* 
 	}
 }
 
-void DynamicData_deserialize_json_set(yyjson_val* jObject, Array<Unresolved>* inoutUnresolved)
+void DynamicData_deserialize_json_set(yyjson_val* jArray, DynamicSet* pSet, Array<Unresolved>* inoutUnresolved)
 {
-	
+	yyjson_arr_iter jIter;
+	yyjson_arr_iter_init(jArray, &jIter);
+	yyjson_val* jValue;
+
+	while ((jValue = yyjson_arr_iter_next(&jIter)))
+	{
+		const char* typeName = yyjson_get_str(yyjson_obj_get(jValue, "#type"));
+		Guid guid = yyjson_get_guid(yyjson_obj_get(jValue, "#guid"));
+
+		u64 typeNameHash = murmur_hash_string(typeName);
+		i32 typeId = DynamicData_get_type_id_from_name(typeNameHash);
+
+		if (guid.a == 0 && guid.b == 0)
+		{
+			DYNAMIC_DATA_ERROR("Deserialize Error");
+		}
+		else
+		{
+			if (pSet->typeId != 0 && typeId != pSet->typeId)
+			{
+				DYNAMIC_DATA_ERROR("Type mismatch");
+			}
+			else
+			{
+				DynamicData setValue = DynamicData_create_from_type_with_guid(typeId, guid, false);
+				DynamicData_deserialize_json_subobject(jValue, setValue.asObject(), inoutUnresolved, false);
+				pSet->added.values.push_back(setValue);
+			}
+		}
+	}
 }
 
-void DynamicData_serialize_json_value(yyjson_mut_doc* jDoc, yyjson_mut_val* into, DynamicObject* pObject, u64 hMember);
+void DynamicData_deserialize_json_set_removed(yyjson_val* jArray, DynamicSet* pSet, Array<Unresolved>* inoutUnresolved)
+{
+	yyjson_arr_iter jIter;
+	yyjson_arr_iter_init(jArray, &jIter);
+	yyjson_val* jValue;
 
-void DynamicData_serialize_json_subobject(yyjson_mut_doc* jDoc, yyjson_mut_val* jObject, DynamicObject* pObject);
+	while ((jValue = yyjson_arr_iter_next(&jIter)))
+	{
+		Guid guid = yyjson_get_guid(jValue);
+
+		if (guid.a == 0 && guid.b == 0)
+		{
+			DYNAMIC_DATA_ERROR("Deserialize Error");
+		}
+		else
+		{
+			Unresolved& r = inoutUnresolved->push_back();
+			r.isSet = true;
+
+			r.set.pSet = pSet;
+			r.set.guid = guid;
+			r.set.index = pSet->removed.values.size();
+			r.set.isRemove = true;
+			pSet->removed.values.push_back(DynamicData_make_null());
+		}
+	}
+}
+
+void DynamicData_deserialize_json_set_instantiated(yyjson_val* jArray, DynamicSet* pSet, Array<Unresolved>* inoutUnresolved)
+{
+	yyjson_arr_iter jIter;
+	yyjson_arr_iter_init(jArray, &jIter);
+	yyjson_val* jValue;
+
+	while ((jValue = yyjson_arr_iter_next(&jIter)))
+	{
+		const char* typeName = yyjson_get_str(yyjson_obj_get(jValue, "#type"));
+		Guid guid = yyjson_get_guid(yyjson_obj_get(jValue, "#guid"));
+		Guid prototypeGuid = yyjson_get_guid(yyjson_obj_get(jValue, "#prototype_guid"));
+
+		u64 typeNameHash = murmur_hash_string(typeName);
+		i32 typeId = DynamicData_get_type_id_from_name(typeNameHash);
+
+		if ((guid.a == 0 && guid.b == 0) || (prototypeGuid.a == 0 && prototypeGuid.b == 0))
+		{
+			DYNAMIC_DATA_ERROR("Deserialize Error");
+		}
+		else
+		{
+			if (pSet->typeId != 0 && typeId != pSet->typeId)
+			{
+				DYNAMIC_DATA_ERROR("Type mismatch");
+			}
+			else
+			{
+				DynamicData setValue = DynamicData_create_from_type_with_guid(typeId, guid, false);
+				DynamicData_deserialize_json_subobject(jValue, setValue.asObject(), inoutUnresolved, true);
+
+				{
+					Unresolved& r = inoutUnresolved->push_back();
+					r.object.hObject = setValue.id();
+					r.object.prototype = prototypeGuid;
+					r.isSet = false;
+				}
+
+				{
+					Unresolved& r = inoutUnresolved->push_back();
+					r.isSet = true;
+
+					r.set.guid = prototypeGuid;
+					r.set.index = pSet->instantiated.values.size();
+					r.set.isRemove = false;
+					r.set.pSet = pSet;
+
+					pSet->instantiated.ids.push_back();
+					pSet->instantiated.values.push_back(setValue);
+				}
+			}
+		}
+	}
+}
 
 void DynamicData_serialize_json_set(yyjson_mut_doc* jDoc, yyjson_mut_val* into, DynamicObject* pObject, i32 setIndex)
 {
@@ -1848,7 +2172,7 @@ void DynamicData_serialize_json_set(yyjson_mut_doc* jDoc, yyjson_mut_val* into, 
 	if (!pSet->instantiated.values.empty())
 	{
 		char buf[128];
-		sprintf_s(buf, "%s_instantiated", setName);
+		snprintf(buf, 128, "%s#instantiated", setName);
 		
 		yyjson_mut_val* jKey = yyjson_mut_strcpy(jDoc, buf);
 		yyjson_mut_val* jArrInstantiated = yyjson_mut_arr(jDoc);
@@ -1865,7 +2189,7 @@ void DynamicData_serialize_json_set(yyjson_mut_doc* jDoc, yyjson_mut_val* into, 
 	if (!pSet->removed.values.empty())
 	{
 		char buf[128];
-		sprintf_s(buf, "%s_removed", setName);
+		snprintf(buf, 128, "%s#removed", setName);
 
 		yyjson_mut_val* jKey = yyjson_mut_strcpy(jDoc, buf);
 		yyjson_mut_val* jArrRemoved = yyjson_mut_arr(jDoc);
@@ -2045,8 +2369,9 @@ bool DynamicData_deserialize_json_file(const char* path, DynamicData* outData, A
 			{
 				Guid prototypeGuid = yyjson_get_guid(jPrototypeGuid);
 				Unresolved& r = inoutUnresolved->push_back();
-				r.hObject = outData->id();
-				r.prototype = prototypeGuid;
+				r.object.hObject = outData->id();
+				r.object.prototype = prototypeGuid;
+				r.isSet = false;
 			}
 			DynamicData_deserialize_json_subobject(jRoot, outData->asObject(), inoutUnresolved, jPrototypeGuid != nullptr);
 		}
@@ -2061,16 +2386,46 @@ void DynamicData_resolve_unresolved(Array<Unresolved>* unresolveds)
 {
 	for (Unresolved& r : *unresolveds)
 	{
-		DynamicObject* pObject = lookup_obj(r.hObject);
-		DynamicData* pPrototype = DynamicData_get_from_guid(r.prototype);
-
-		if (pPrototype)
+		if (r.isSet)
 		{
-			pObject->prototype = *pPrototype;
+			if (r.set.isRemove)
+			{
+				DynamicData* pRemovedObject = DynamicData_get_from_guid(r.set.guid);
+				if (pRemovedObject)
+				{
+					r.set.pSet->removed.values[r.set.index] = *pRemovedObject;
+				}
+				else
+				{
+					DYNAMIC_DATA_ERROR("Cannot resolve object");
+				}
+			}
+			else
+			{
+				DynamicData* pPrototype = DynamicData_get_from_guid(r.set.guid);
+				if (pPrototype)
+				{
+					r.set.pSet->instantiated.ids[r.set.index] = pPrototype->id();
+				}
+				else
+				{
+					DYNAMIC_DATA_ERROR("Cannot resolve object");
+				}
+			}
 		}
 		else
 		{
-			DYNAMIC_DATA_ERROR("Cannot resolve object");
+			DynamicObject* pObject = lookup_obj(r.object.hObject);
+			DynamicData* pPrototype = DynamicData_get_from_guid(r.object.prototype);
+
+			if (pPrototype)
+			{
+				pObject->prototype = *pPrototype;
+			}
+			else
+			{
+				DYNAMIC_DATA_ERROR("Cannot resolve object");
+			}
 		}
 	}
 }

@@ -458,33 +458,6 @@ void EditorApp::update()
 		{
 			DynamicData value = m_root;
 			DynamicData_view(&value);
-
-			if (ImGui::Button("Add Child"))
-			{
-				DynamicData childEntity = DynamicData_create_from_type_name(ENTITY_NAME_HASH);
-
-				static int child_counter = 0;
-				child_counter++;
-				DynamicData_obj_set(&childEntity, TM_STATIC_HASH("name", 0xd4c943cba60c270bULL), DynamicData_make_str(Printf("Child %d", child_counter)));
-
-				DynamicData_add_to_subobject_set(&m_root, string_repository_hash("children"), &childEntity);
-			}
-			if (ImGui::Button("Add Transform Component"))
-			{
-				DynamicData transformComp = DynamicData_create_from_type_name(TRANSFORM_NAME_HASH);
-				if (transformComp.type != DynamicData::Type_Null)
-				{
-					DynamicData_add_to_subobject_set(&m_root, string_repository_hash("components"), &transformComp);
-				}
-			}
-			if (ImGui::Button("Add Color Component"))
-			{
-				DynamicData colorComp = DynamicData_create_from_type_name(COLOR_NAME_HASH);
-				if (colorComp.type != DynamicData::Type_Null)
-				{
-					DynamicData_add_to_subobject_set(&m_root, string_repository_hash("components"), &colorComp);
-				}
-			}
 		}
 		ImGui::PopID();
 	}

@@ -38,7 +38,7 @@ struct DynamicSet;
 DynamicObject* lookup_obj(u64 hObject);
 DynamicSet* lookup_set(u64 hSet);
 
-enum class MemberStatus
+enum class MemberStatus : u8
 {
 	Owned,
 	Inherited,
@@ -215,8 +215,22 @@ void DynamicData_serialize_json_file(const char* name, DynamicData* pValue);
 
 struct Unresolved
 {
-	u64 hObject;
-	Guid prototype;
+	struct
+	{
+		DynamicSet* pSet;
+		Guid guid;
+
+		i32 index;
+		bool isRemove;
+	} set;
+
+	struct
+	{
+		Guid prototype;
+		u64 hObject;
+	} object;
+
+	bool isSet;
 };
 
 bool DynamicData_deserialize_json_file(const char* path, DynamicData* outData, Array<Unresolved>* inoutUnresolved);
