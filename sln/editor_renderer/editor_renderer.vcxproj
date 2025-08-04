@@ -173,7 +173,6 @@
     <ClInclude Include="..\..\Core\LinearAllocator.h" />
     <ClInclude Include="..\..\Core\TempAllocator.h" />
     <ClInclude Include="..\..\Core\Types.h" />
-    <ClInclude Include="..\..\DynamicDataSerialize.h" />
     <ClInclude Include="..\..\DynamicTypes.h" />
     <ClInclude Include="..\..\Editor.h" />
     <ClInclude Include="..\..\EditorRenderer.h" />
@@ -206,7 +205,6 @@
       <PrecompiledHeaderFile Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
       </PrecompiledHeaderFile>
     </ClCompile>
-    <ClCompile Include="..\..\DynamicDataSerialize.cpp" />
     <ClCompile Include="..\..\Editor.cpp">
       <PrecompiledHeaderFile Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
       </PrecompiledHeaderFile>
