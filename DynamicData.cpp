@@ -908,6 +908,8 @@ MemberStatus DynamicData_get_member_status(const dd_obj* obj, u64 hMember)
 	{
 		return obj->members.statuses[i];
 	}
+
+	return MemberStatus::None;
 }
 
 MemberStatus DynamicData_get_member_relation(dd_id_t parent, u64 hMember, dd_id_t obj)
