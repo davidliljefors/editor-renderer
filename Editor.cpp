@@ -10,17 +10,18 @@
 
 
 #include "DynamicTypes.h"
-#include "DynamicData.h"
 #include "Core/TempAllocator.h"
 
 #include "Random.h"
 
 #include <windows.h>
 
+#include "DynamicData.h"
+
 
 static EditorApp* s_app;
 
-DynamicData s_clipboard;
+DynamicValue s_clipboard;
 
 
 truth::Key nextKey()
@@ -389,7 +390,7 @@ void EditorApp::run()
 	}
 }
 
-void Debug_register_root_object(DynamicData root)
+void Debug_register_root_object(dd_id_t root)
 {
 	s_app->addRoot(root);
 }
@@ -433,8 +434,9 @@ void EditorApp::update()
 	{
 		if (ImGui::InputText("Entity name", entity_name_buf, 64, ImGuiInputTextFlags_EnterReturnsTrue))
 		{
-			DynamicData entity = DynamicData_create_from_type_name(ENTITY_NAME_HASH);
-			DynamicData_obj_set(&entity, TM_STATIC_HASH("name", 0xd4c943cba60c270bULL), DynamicData_make_str(entity_name_buf));
+			dd_id_t entity = DynamicData_create_from_type_name(ENTITY_NAME_HASH);
+			dd_obj* entity_w = edit_object(entity);
+			DynamicData_obj_assign(entity_w, TM_STATIC_HASH("name", 0xd4c943cba60c270bULL), DynamicData_make_str(entity_name_buf));
 			m_roots.push_back(entity);
 			entering_name = false;
 			ZeroMemory(entity_name_buf, 64);
@@ -451,30 +453,16 @@ void EditorApp::update()
 	ImGui::Begin("Object Roots");
 
 	int num = 0;
-	for (DynamicData& m_root : m_roots)
+	for (dd_id_t root : m_roots)
 	{
-		ImGui::PushID((int)m_root.id());
+		ImGui::PushID((int)root.as_u64);
 		if (ImGui::CollapsingHeader(Printf("Object Root %d", num++)))
 		{
-			DynamicData value = m_root;
-			DynamicData_view(&value);
+			DynamicData_view(root);
 		}
 		ImGui::PopID();
 	}
 
-	ImGui::End();
-
-	ImGui::Begin("Entity Throguh Api");
-
-	/*for (DynamicData& value : m_roots)
-	{
-		DrawDynamicEntity(value);
-	}*/
-
-	ImGui::End();
-
-	ImGui::Begin("Inspector");
-	DrawSelectedEntity();
 	ImGui::End();
 
     EditorTab** focusedTabFind = m_openTabs.find(m_hFocusedTab);
@@ -559,14 +547,10 @@ void EditorApp::onResize(u32 w, u32 h)
     present(m_renderer);
 }
 
-void EditorApp::addRoot(DynamicData root)
+
+void EditorApp::addRoot(dd_id_t root)
 {
 	m_roots.push_back(root);
-}
-
-void EditorApp::DrawSelectedEntity()
-{
-
 }
 
 Truth* g_truth;
@@ -580,13 +564,19 @@ EditorApp::EditorApp(Allocator* a)
 	m_roots.set_allocator(a);
 
 	g_truth = create<Truth>(GLOBAL_HEAP, GLOBAL_HEAP);
-    
-	i32 x = GetSystemMetrics(SM_CXSCREEN) - 60;
-	i32 y = GetSystemMetrics(SM_CYSCREEN) - 60;
 
-	m_hwnd = createWindow(x, y);
+	i32 screen_x = GetSystemMetrics(SM_CXSCREEN);
+	i32 screen_y = GetSystemMetrics(SM_CYSCREEN);
 
-    initRenderer(m_hwnd, x, y, m_renderer);
+	i32 main_window_x = screen_x / 2;
+	i32 main_window_y = screen_y-600;
+
+	m_hwnd = createWindow(main_window_x, main_window_y);
+
+	HWND consoleWindow = GetConsoleWindow();
+	bool s = SetWindowPos(consoleWindow, HWND_TOP, 0, main_window_y, main_window_x, screen_y-main_window_y-20, SWP_SHOWWINDOW);
+
+    initRenderer(m_hwnd, main_window_x, main_window_y, m_renderer);
 
     s_app = this;
     ShowWindow(m_hwnd, SW_SHOW);

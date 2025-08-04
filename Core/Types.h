@@ -18,5 +18,10 @@ struct Guid
 {
 	u64 a;
 	u64 b;
+
+	friend bool operator==(Guid lhs, Guid rhs)
+	{
+		return lhs.a == rhs.a && lhs.b == rhs.b;
+	}
 };
 

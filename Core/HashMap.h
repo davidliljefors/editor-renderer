@@ -111,7 +111,7 @@ public:
 
 	void insert_or_assign(u64 key, T&& value);
 
-	void erase(u64 key);
+	bool erase(u64 key);
 
 	T& operator[](u64 key);
 
@@ -130,6 +130,8 @@ public:
 	void reset();
 
 	void reserve(i32 size);
+
+	bool empty();
 
 private:
 	HashFind find_impl(u64 key);
@@ -241,11 +243,15 @@ void HashMap<T>::insert_or_assign(u64 key, T&& value)
 }
 
 template <typename T>
-void HashMap<T>::erase(u64 key)
+bool HashMap<T>::erase(u64 key)
 {
 	const HashFind find = find_impl(key);
 	if (find.dataIndex != END_OF_CHAIN)
+	{
 		erase_impl(find);
+		return true;
+	}
+	return false;
 }
 
 template <typename T>
@@ -323,6 +329,12 @@ void HashMap<T>::reserve(i32 size)
 }
 
 template <typename T>
+bool HashMap<T>::empty()
+{
+	return m_data.size() == 0;
+}
+
+template <typename T>
 typename HashMap<T>::HashFind HashMap<T>::find_impl(u64 key)
 {
 	HashFind find;
@@ -380,9 +392,9 @@ void HashMap<T>::erase_impl(HashFind find)
 template <typename T>
 i32 HashMap<T>::add_entry(u64 key)
 {
-	u32 ei = m_data.size();
+	i32 ei = m_data.size();
 
-	HashMap<T>::Entry* e = new (m_data.push_back_uninit()) HashMap<T>::Entry();
+	HashMap<T>::Entry* e = (HashMap<T>::Entry*)m_data.push_back_uninit();
 	e->key = key;
 	e->next = END_OF_CHAIN;
 
@@ -419,7 +431,7 @@ bool HashMap<T>::is_full()
 template <typename T>
 void HashMap<T>::grow()
 {
-	if (m_hash.size() == 0)
+	if (m_hash.empty())
 	{
 		rehash(16);
 	}
@@ -436,17 +448,16 @@ void HashMap<T>::rehash(i32 new_size)
 	HashMap<T> nh(m_data.get_allocator());
 
 	nh.m_hash.resize(new_size);
-	nh.m_hash.reserve(m_data.size());
+	nh.m_data.reserve(new_size);
 
-	for (i32 i = 0; i < new_size; ++i)
-	{
-		nh.m_hash[i] = END_OF_CHAIN;
-	}
+	memset(nh.m_hash.data(), END_OF_CHAIN, new_size * sizeof(END_OF_CHAIN));
 
 	for (i32 i = 0; i < m_data.size(); ++i)
 	{
 		auto& e = m_data[i];
-		nh.insert_or_assign(e.key, static_cast<T&&>(e.value));
+		const i32 newSlot = nh.find_or_make(e.key);
+		memcpy(&nh.m_data[newSlot].value, &e.value, sizeof(T));
+		memset(&e.value, 0, sizeof(T));
 	}
 
 	if (m_hash.empty())

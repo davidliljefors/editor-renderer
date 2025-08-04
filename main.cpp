@@ -38,7 +38,7 @@ void load_dynamicdata_directory(const char* directory)
 	{
 		if (!(findData.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY))
 		{
-			DynamicData created;
+			dd_id_t created;
 			char subpath[MAX_PATH];
 			snprintf(subpath, MAX_PATH, "%s/%s", directory, findData.cFileName);
 			if (DynamicData_deserialize_json_file(subpath, &created, &unresolveds))
@@ -52,7 +52,7 @@ void load_dynamicdata_directory(const char* directory)
 
 	DynamicData_resolve_unresolved(&unresolveds);
 
-	printf("Loaded %d items into DynamicData", count);
+	printf("Loaded %d items into DynamicData\n", count);
 
 	FindClose(hFind);
 }
@@ -67,24 +67,24 @@ i32 main()
 	DynamicData_initialize(GLOBAL_HEAP);
 
 	const DynamicDataPropertyDef test_nested_props[] = {
-		makeProperty("nested_float", DynamicData::Type_Number),
-		makeProperty("nested_integer", DynamicData::Type_Integer),
+		makeProperty("nested_float", DynamicValue::Type_Number),
+		makeProperty("nested_integer", DynamicValue::Type_Integer),
 	};
 
 	DynamicData_register_type("test_nested", test_nested_props, DD_ARRAY_COUNT(test_nested_props));
 
 	const DynamicDataPropertyDef test_subobject_props[] = {
-		makeProperty("example_float", DynamicData::Type_Number),
-		makeProperty("example_integer", DynamicData::Type_Integer),
-		makeProperty("example_subobject", DynamicData::Type_Object, TM_STATIC_HASH("test_nested", 0x44186028604f43d3ULL)),
+		makeProperty("example_float", DynamicValue::Type_Number),
+		makeProperty("example_integer", DynamicValue::Type_Integer),
+		makeProperty("example_subobject", DynamicValue::Type_Object, TM_STATIC_HASH("test_nested", 0x44186028604f43d3ULL)),
 	};
 
 	DynamicData_register_type("test_subobject", test_subobject_props, DD_ARRAY_COUNT(test_subobject_props));
 
 	const DynamicDataPropertyDef entity_props[] = {
-		makeProperty("name", DynamicData::Type_String),
-		makeProperty("children", DynamicData::Type_Set, ENTITY_NAME_HASH),
-		makeProperty("components", DynamicData::Type_Set),
+		makeProperty("name", DynamicValue::Type_String),
+		makeProperty("children", DynamicValue::Type_Set, ENTITY_NAME_HASH),
+		makeProperty("components", DynamicValue::Type_Set),
 	};
 
 	DynamicData_register_type(ENTITY_TYPE_NAME, entity_props, DD_ARRAY_COUNT(entity_props));

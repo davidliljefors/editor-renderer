@@ -30,13 +30,22 @@ struct Printf
 
 u64 next_obj_id();
 
-void Debug_register_root_object(struct DynamicData root);
+void Debug_register_root_object(struct dd_id_t root);
 
 struct DynamicObject;
 struct DynamicSet;
 
-DynamicObject* lookup_obj(u64 hObject);
-DynamicSet* lookup_set(u64 hSet);
+struct dd_id_t
+{
+	u64 as_u64;
+
+	friend bool operator==(const dd_id_t& lhs, const dd_id_t& rhs) { return lhs.as_u64 == rhs.as_u64; }
+};
+
+struct dd_obj;
+
+const dd_obj* read_object(dd_id_t obj_id);
+dd_obj* edit_object(dd_id_t obj_id);
 
 enum class MemberStatus : u8
 {
@@ -50,7 +59,9 @@ enum class MemberStatus : u8
 	None
 };
 
-struct DynamicData
+
+
+struct DynamicValue
 {
 	enum Type : u8
 	{
@@ -82,39 +93,19 @@ struct DynamicData
 		return type == Type_String ? string : "";
 	}
 
-	DynamicObject* asObject()
-	{
-		return type == Type_Object ? lookup_obj(hObject) : nullptr;
-	}
-
-	const DynamicObject* asObject() const
-	{
-		return type == Type_Object ? lookup_obj(hObject) : nullptr;
-	}
-
 	DynamicSet* asSet()
 	{
 		return type == Type_Set ? pSet : nullptr;
 	}
 
-	u64 id() const
+	dd_id_t id() const
 	{
 		if (type == Type_Object)
 		{
-			return hObject;
+			return obj_id;
 		}
 
-		return 0ull;
-	}
-
-	bool isContainer()
-	{
-		return type == Type_Set || type == Type_Object;
-	}
-
-	bool isPod()
-	{
-		return type == Type_Integer || type == Type_Number || type == Type_String;
+		return {0ull};
 	}
 
 	bool isString()
@@ -124,28 +115,35 @@ struct DynamicData
 
 	union
 	{
-		u64 hObject;
+		dd_id_t obj_id;
 		DynamicSet* pSet;
 		i64 integer;
 		f64 number;
 		char* string;
 	};
 
+	i32 obj_type;
 	Type type;
-	u8 _pad[7];
+
+	friend bool operator==(const DynamicValue& lhs, const DynamicValue& rhs) { return lhs.obj_id.as_u64 == rhs.obj_id.as_u64 && lhs.type == rhs.type; }
+	friend bool operator< (const DynamicValue& lhs, const DynamicValue& rhs)
+	{
+		return lhs.type == rhs.type ? lhs.obj_id.as_u64 < rhs.obj_id.as_u64 : lhs.type < rhs.type;
+	}
 };
+
 
 struct DynamicDataPropertyDef
 {
 	const char* name;
-	DynamicData::Type type;
+	DynamicValue::Type type;
 	u64 typeNameHash;
 
 	u64 nameHash;
 	i32 typeId;
 };
 
-inline DynamicDataPropertyDef makeProperty(const char* name, DynamicData::Type type, u64 typeNameHash = 0)
+inline DynamicDataPropertyDef makeProperty(const char* name, DynamicValue::Type type, u64 typeNameHash = 0)
 {
 	DynamicDataPropertyDef def;
 
@@ -162,39 +160,37 @@ inline DynamicDataPropertyDef makeProperty(const char* name, DynamicData::Type t
 void DynamicData_initialize(Allocator* a);
 void DynamicData_shutdown();
 
-DynamicData DynamicData_instantiate_subobject(DynamicData* pValue, u64 hMember);
-void	    DynamicData_clear_instantiated_subobject(DynamicData* pValue, u64 hMember);
+dd_id_t		 DynamicData_instantiate_subobject(dd_obj* obj, u64 hMember);
+void	     DynamicData_clear_instantiated_subobject(dd_obj* obj, u64 hMember);
 
-DynamicData DynamicData_make_int(i64 integer);
-DynamicData DynamicData_make_str(const char* str);
-DynamicData DynamicData_make_num(f64 number);
+DynamicValue DynamicData_make_int(i64 integer);
+DynamicValue DynamicData_make_str(const char* str);
+DynamicValue DynamicData_make_num(f64 number);
 
 // set operations
-DynamicData DynamicData_instantiate_subobject_from_set(DynamicData* pParent, u64 hSetMember, DynamicData* pValue);
-void DynamicData_remove_instantiated_subobject_from_set(DynamicData* pParent, u64 hSetMember, DynamicData* pValue);
+dd_id_t DynamicData_instantiate_subobject_from_set(dd_obj* obj, u64 hMember, dd_id_t subobject);
+void DynamicData_remove_instantiated_subobject_from_set(dd_obj* obj, u64 hMember, dd_id_t subobject);
 
-void DynamicData_add_to_subobject_set(DynamicData* pParent, u64 hSetMember, DynamicData* pValue);
-void DynamicData_remove_from_subobject_set(DynamicData* pParent, u64 hSetMember, DynamicData* pValue);
+void DynamicData_add_to_subobject_set(dd_obj* obj, u64 hMember, dd_id_t subobject);
+void DynamicData_remove_from_subobject_set(dd_obj* obj, u64 hMember, dd_id_t subobject);
 
-void DynamicData_remove_from_prototype_subobject_set(DynamicData* pParent, u64 hSetMember, DynamicData* pValue);
-void DynamicData_cancel_remove_from_prototype_subobject_set(DynamicData* pParent, u64 hSetMember, DynamicData* pValue);
+void DynamicData_remove_from_prototype_subobject_set(dd_obj* obj, u64 hMember, dd_id_t subobject);
+void DynamicData_cancel_remove_from_prototype_subobject_set(dd_obj* obj, u64 hMember, dd_id_t subobject);
 
-Array<DynamicData> DynamicData_get_subobject_set(DynamicData* pValue, u64 hSetMember, Allocator* a);
-Array<DynamicData> DynamicData_get_subobject_set_locally_removed(DynamicData* pValue, u64 hSetName, Allocator* a);
+Array<dd_id_t> DynamicData_get_subobject_set(const dd_obj* obj, u64 hMember, Allocator* a);
+Array<dd_id_t> DynamicData_get_subobject_set_locally_removed(const dd_obj* obj, u64 hMember, Allocator* a);
 
-DynamicData DynamicData_create_from_type(i32 typeId);
-DynamicData DynamicData_clone(DynamicData* pValue);
-DynamicData DynamicData_obj_get(DynamicData* pValue, u64 hMember);
+dd_id_t DynamicData_create_from_type(i32 typeId);
+dd_id_t DynamicData_clone(dd_id_t obj);
+DynamicValue DynamicData_obj_get(const dd_obj* obj, u64 hMember);
 
-MemberStatus DynamicData_get_member_status(DynamicData* pValue, u64 hMember);
+MemberStatus DynamicData_get_member_status(const dd_obj* obj, u64 hMember);
 
-MemberStatus DynamicData_get_member_relation(DynamicData* pParent, u64 hMember, DynamicData* pValue);
+MemberStatus DynamicData_get_member_relation(dd_id_t parent, u64 hMember, dd_id_t obj);
 
-void DynamicData_assign_root(DynamicData* newRoot, DynamicData* value);
+void DynamicData_obj_assign(dd_obj* object, u64 hMember, DynamicValue value);
 
-void DynamicData_obj_set(DynamicData* object, u64 hMember, DynamicData value);
-
-void DynamicData_obj_clear_override(DynamicData* pValue, u64 hMember);
+void DynamicData_obj_clear_override(dd_obj* object, u64 hMember);
 
 u64 string_repository_hash(const char* str);
 
@@ -204,14 +200,14 @@ const char* string_repository_get(u64 hName);
 
 i32 DynamicData_register_type(const char* typeName, const DynamicDataPropertyDef* properties, i32 numProperties);
 
-DynamicData DynamicData_create_from_type_name(u64 hTypeNameHash);
+dd_id_t DynamicData_create_from_type_name(u64 hTypeNameHash);
 
-void DynamicData_view(DynamicData* pData);
+void DynamicData_view(dd_id_t object);
 
 
 // Serialization
 
-void DynamicData_serialize_json_file(const char* name, DynamicData* pValue);
+void DynamicData_serialize_json_file(const char* name, const dd_obj* object);
 
 struct Unresolved
 {
@@ -220,19 +216,19 @@ struct Unresolved
 		DynamicSet* pSet;
 		Guid guid;
 
-		i32 index;
+		dd_id_t instantiated;
 		bool isRemove;
 	} set;
 
 	struct
 	{
 		Guid prototype;
-		u64 hObject;
+		dd_id_t object_id;
 	} object;
 
 	bool isSet;
 };
 
-bool DynamicData_deserialize_json_file(const char* path, DynamicData* outData, Array<Unresolved>* inoutUnresolved);
+bool DynamicData_deserialize_json_file(const char* path, dd_id_t* outCreated, Array<Unresolved>* inoutUnresolved);
 
 void DynamicData_resolve_unresolved(Array<Unresolved>* unresolveds);

@@ -6,8 +6,8 @@
 #include "TruthMap.h"
 #include "TruthView.h"
 #include "Core/HashMap.h"
-#include "DynamicData.h"
 
+struct dd_id_t;
 class AssetBrowserWindow;
 struct EditorTab;
 
@@ -74,19 +74,15 @@ public:
 
 	void onResize(u32 w, u32 h);
 
-	void addRoot(DynamicData root);
+	void addRoot(dd_id_t root);
 
 private:
-	void DrawDynamicEntity(DynamicData& entityData);
-	void DrawSelectedEntity();
 
 	EditorRenderer* m_renderer;
 	AssetBrowserWindow* m_assetWindow;
 	HashMap<EditorTab*> m_openTabs;
 	u64 m_hFocusedTab;
-	Array<DynamicData> m_roots;
-
-	DynamicData m_focused;
+	Array<dd_id_t> m_roots;
 
 	HWND m_hwnd;
 };
