@@ -1,10 +1,10 @@
 #pragma once
 
 #include <assert.h>
-#include <new>
 #include <string.h>
 
 #include "Allocator.h"
+
 template<typename T>
 class Array
 {

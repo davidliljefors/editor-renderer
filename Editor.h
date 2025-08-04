@@ -1,11 +1,11 @@
 #pragma once
 
-
 #include "Core/Array.h"
+#include "Core/HashMap.h"
+
 #include "EditorRenderer.h"
 #include "TruthMap.h"
 #include "TruthView.h"
-#include "Core/HashMap.h"
 
 struct dd_id_t;
 class AssetBrowserWindow;

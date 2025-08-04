@@ -160,7 +160,7 @@ void EditorViewport::update()
 
 EditorTab* EditorTab::openEmpty(Allocator* a, EditorRenderer* renderer, i32 id)
 {
-    EditorTab* tab = alloc<EditorTab>(a);
+    EditorTab* tab = new (a) EditorTab();
 
 	tab->m_instances.set_allocator(a);
 	tab->m_viewports.set_allocator(a);
@@ -178,7 +178,7 @@ EditorTab* EditorTab::openEmpty(Allocator* a, EditorRenderer* renderer, i32 id)
 	AssetBrowserWindow::registerRoot(root);
 
 	tab->m_root = root;
-	OutlinerWindow* window = create<OutlinerWindow>(GLOBAL_HEAP, g_truth, root);
+	OutlinerWindow* window = new (GLOBAL_HEAP) OutlinerWindow(g_truth, root);
 	tab->m_windows.push_back(window);
 
     return tab;
@@ -186,7 +186,7 @@ EditorTab* EditorTab::openEmpty(Allocator* a, EditorRenderer* renderer, i32 id)
 
 EditorTab* EditorTab::openExisting(Allocator* a, const char* name, truth::Key, EditorRenderer*)
 {
-    EditorTab* tab = alloc<EditorTab>(a);
+    EditorTab* tab = new (a) EditorTab();
 
 	tab->m_instances.set_allocator(a);
 	tab->m_viewports.set_allocator(a);
@@ -304,7 +304,7 @@ void EditorTab::addViewport()
 {
 	static u64 s_nextViewportId = 0;
 
-    EditorViewport* vp = create<EditorViewport>(GLOBAL_HEAP);
+    EditorViewport* vp = new (GLOBAL_HEAP) EditorViewport();
 	vp->tab = this;
 	vp->renderer = m_renderer;
 	vp->id = s_nextViewportId++;
@@ -558,12 +558,12 @@ Truth* g_truth;
 EditorApp::EditorApp(Allocator* a)
 {
 	m_openTabs.set_allocator(a);
-	m_assetWindow = create<AssetBrowserWindow>(a);
+	m_assetWindow = new (a) AssetBrowserWindow();
     m_renderer = nullptr;
     m_hFocusedTab = 0;
 	m_roots.set_allocator(a);
 
-	g_truth = create<Truth>(GLOBAL_HEAP, GLOBAL_HEAP);
+	g_truth = new (GLOBAL_HEAP) Truth(GLOBAL_HEAP);
 
 	i32 screen_x = GetSystemMetrics(SM_CXSCREEN);
 	i32 screen_y = GetSystemMetrics(SM_CYSCREEN);
@@ -574,13 +574,11 @@ EditorApp::EditorApp(Allocator* a)
 	m_hwnd = createWindow(main_window_x, main_window_y);
 
 	HWND consoleWindow = GetConsoleWindow();
-	bool s = SetWindowPos(consoleWindow, HWND_TOP, 0, main_window_y, main_window_x, screen_y-main_window_y-20, SWP_SHOWWINDOW);
+	SetWindowPos(consoleWindow, HWND_TOP, 0, main_window_y, main_window_x, screen_y-main_window_y-20, SWP_SHOWWINDOW);
 
     initRenderer(m_hwnd, main_window_x, main_window_y, m_renderer);
 
     s_app = this;
     ShowWindow(m_hwnd, SW_SHOW);
 	UpdateWindow(m_hwnd);
-
-
 }

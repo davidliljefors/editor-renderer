@@ -1,5 +1,7 @@
 #include "EditorRenderer.h"
 
+
+
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #include <d3d11.h>
@@ -7,6 +9,7 @@
 #include <dxgi.h>
 #include <dxgi1_6.h>
 
+#include "Core/Types.h"
 #include "Core/Array.h"
 #include "Math.h"
 
@@ -842,7 +845,7 @@ u64 readId(EditorRenderer* rend, IViewport* vp, u32 x, u32 y)
     uint2* pixels = (uint2*)mapped.pData;
     UINT rowPitch = mapped.RowPitch / sizeof(uint2);
     uint2 idParts = pixels[y * rowPitch + x];
-    uint64_t fullId = ((uint64_t)idParts.x << 32) | idParts.y;
+    u64 fullId = ((u64)idParts.x << 32) | idParts.y;
 
     rend->context->Unmap(vpd->idStagingTexture, 0);
 

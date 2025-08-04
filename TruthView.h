@@ -1,7 +1,6 @@
 #pragma once
 
 #include "Core/Array.h"
-#include "Math.h"
 #include "TruthMap.h"
 
 struct Transaction

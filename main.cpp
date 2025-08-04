@@ -93,7 +93,7 @@ i32 main()
 
 	block_memory_init();
 
-	EditorApp* app = create<EditorApp>(GLOBAL_HEAP, GLOBAL_HEAP);
+	EditorApp* app = new (GLOBAL_HEAP) EditorApp(GLOBAL_HEAP);
 
 	load_dynamicdata_directory("entities");
 

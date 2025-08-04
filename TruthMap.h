@@ -166,13 +166,13 @@ public:
 
 	static TruthMap* makeRoot(Allocator* allocator)
 	{
-		TruthMap* instance = create<TruthMap>(allocator, allocator);
+		TruthMap* instance = new (allocator) TruthMap(allocator);
 
-		instance->m_root = create<BigBlock>(allocator);
+		instance->m_root = new (allocator) BigBlock();
 
 		for (Block*& block : instance->m_root->blocks)
 		{
-			block = create<Block>(allocator);
+			block = new (allocator) Block();
 		}
 
 		return instance;
@@ -268,7 +268,7 @@ private:
 
 		if (updated == base)
 		{
-			updated = create<TruthMap>(allocator, allocator);
+			updated = new (allocator) TruthMap(allocator);
 			updated->m_size = head->size();
 			updated->m_root = head->m_root;
 		}
@@ -277,7 +277,7 @@ private:
 		const BigBlock* baseBigBlock = base->m_root;
 		if (bigBlockUpdate == baseBigBlock)
 		{
-			bigBlockUpdate = create<BigBlock>(allocator);
+			bigBlockUpdate = new (allocator) BigBlock();
 			memcpy(bigBlockUpdate, baseBigBlock, sizeof(BigBlock));
 			updated->m_root = bigBlockUpdate;
 		}
@@ -286,7 +286,7 @@ private:
 		const Block* baseBlock = baseBigBlock->blocks[key.Block];
 		if (blockUpdate == baseBlock)
 		{
-			blockUpdate = create<Block>(allocator);
+			blockUpdate = new (allocator) Block();
 			memcpy(blockUpdate, baseBlock, sizeof(Block));
 			bigBlockUpdate->blocks[key.Block] = blockUpdate;
 		}
