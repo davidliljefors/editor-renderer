@@ -75,7 +75,9 @@ public:
 	void onResize(u32 w, u32 h);
 
 	void addRoot(dd_id_t root);
+	void registerComponent(i32 id);
 
+	Array<i32> m_componentTypes;
 private:
 
 	EditorRenderer* m_renderer;

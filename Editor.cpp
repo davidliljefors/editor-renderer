@@ -76,7 +76,7 @@ HWND createWindow(int w, int h)
 		"EditorRendererClass",
 		"Editor Renderer",
 		windowStyle,
-		0, 0,
+		0, 5,
 		w, h,
 		nullptr,
 		nullptr,
@@ -373,6 +373,7 @@ void EditorApp::run()
 			if (msg.message == WM_QUIT)
 			{
 				running = false;
+				
 			}
 			if (msg.message == WM_KEYDOWN && msg.wParam == VK_ESCAPE)
 			{
@@ -388,6 +389,7 @@ void EditorApp::run()
 		renderFrame(m_renderer);
         present(m_renderer);
 	}
+	PostMessage(GetConsoleWindow(), WM_CLOSE, 0, 0);
 }
 
 void Debug_register_root_object(dd_id_t root)
@@ -395,6 +397,15 @@ void Debug_register_root_object(dd_id_t root)
 	s_app->addRoot(root);
 }
 
+void Debug_register_component_type(i32 typeId)
+{
+	s_app->registerComponent(typeId);
+}
+
+Array<i32>* Debug_get_component_ids()
+{
+	return &s_app->m_componentTypes;
+}
 
 void EditorApp::update()
 {
@@ -411,16 +422,12 @@ void EditorApp::update()
         ImGuiWindowFlags_MenuBar;
 
     ImGui::Begin("MainWindow", nullptr, window_flags);
-	ImGui::Begin("Dynamic Data Templates");
 
-	/*for (DynamicData typeDef : DynamicData_get_all_types())
-	{
-		DynamicData name = DynamicData_obj_get(&typeDef, TM_STATIC_HASH("type_name", 0x2a0906651c3dac34ULL));
-		if (ImGui::CollapsingHeader(name.asString()))
-		{
-			DynamicData_view(&typeDef);
-		}
-	}*/
+	DynamicData_view_draw_type_registry();
+
+
+
+	ImGui::Begin("Object Roots");
 
 	static char entity_name_buf[64];
 	static bool entering_name = false;
@@ -434,8 +441,8 @@ void EditorApp::update()
 	{
 		if (ImGui::InputText("Entity name", entity_name_buf, 64, ImGuiInputTextFlags_EnterReturnsTrue))
 		{
-			dd_id_t entity = DynamicData_create_from_type_name(ENTITY_NAME_HASH);
-			dd_obj* entity_w = edit_object(entity);
+			dd_id_t entity = DynamicData_create_from_type_name(TM_STATIC_HASH("entity", 0x9831ca893b0d087dULL));
+			dd_obj* entity_w = DynamicData_edit_object(entity);
 			DynamicData_obj_assign(entity_w, TM_STATIC_HASH("name", 0xd4c943cba60c270bULL), DynamicData_make_str(entity_name_buf));
 			m_roots.push_back(entity);
 			entering_name = false;
@@ -447,10 +454,6 @@ void EditorApp::update()
 			ZeroMemory(entity_name_buf, 64);
 		}
 	}
-
-	ImGui::End();
-
-	ImGui::Begin("Object Roots");
 
 	int num = 0;
 	for (dd_id_t root : m_roots)
@@ -553,6 +556,11 @@ void EditorApp::addRoot(dd_id_t root)
 	m_roots.push_back(root);
 }
 
+void EditorApp::registerComponent(i32 id)
+{
+	m_componentTypes.push_back(id);
+}
+
 Truth* g_truth;
 
 EditorApp::EditorApp(Allocator* a)
@@ -562,6 +570,7 @@ EditorApp::EditorApp(Allocator* a)
     m_renderer = nullptr;
     m_hFocusedTab = 0;
 	m_roots.set_allocator(a);
+	m_componentTypes.set_allocator(a);
 
 	g_truth = new (GLOBAL_HEAP) Truth(GLOBAL_HEAP);
 
@@ -569,12 +578,12 @@ EditorApp::EditorApp(Allocator* a)
 	i32 screen_y = GetSystemMetrics(SM_CYSCREEN);
 
 	i32 main_window_x = screen_x / 2;
-	i32 main_window_y = screen_y-600;
+	i32 main_window_y = screen_y - 600;
 
 	m_hwnd = createWindow(main_window_x, main_window_y);
 
 	HWND consoleWindow = GetConsoleWindow();
-	SetWindowPos(consoleWindow, HWND_TOP, 0, main_window_y, main_window_x, screen_y-main_window_y-20, SWP_SHOWWINDOW);
+	SetWindowPos(consoleWindow, HWND_TOP, 0, main_window_y, main_window_x, screen_y-main_window_y-45, SWP_SHOWWINDOW);
 
     initRenderer(m_hwnd, main_window_x, main_window_y, m_renderer);
 

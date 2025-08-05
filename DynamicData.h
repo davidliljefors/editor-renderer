@@ -3,7 +3,7 @@
 #include "Core/Array.h"
 #include "Core/Types.h"
 
-#define DD_ARRAY_COUNT(a) (sizeof(a) / sizeof(a[0]))
+#define DD_ARRAY_COUNT(a) (sizeof(a) / sizeof((a)[0]))
 
 struct DynamicEditorPath;
 
@@ -35,6 +35,9 @@ void Debug_register_root_object(struct dd_id_t root);
 struct DynamicObject;
 struct DynamicSet;
 
+// an id to an object,
+// use DynamicData_[read/edit]_object()
+// to aquire read/write access to the object
 struct dd_id_t
 {
 	u64 as_u64;
@@ -42,10 +45,11 @@ struct dd_id_t
 	friend bool operator==(const dd_id_t& lhs, const dd_id_t& rhs) { return lhs.as_u64 == rhs.as_u64; }
 };
 
+// opaque struct representing an object
 struct dd_obj;
 
-const dd_obj* read_object(dd_id_t obj_id);
-dd_obj* edit_object(dd_id_t obj_id);
+const dd_obj* DynamicData_read_object(dd_id_t obj_id);
+dd_obj* DynamicData_edit_object(dd_id_t obj_id);
 
 enum class MemberStatus : u8
 {
@@ -58,8 +62,6 @@ enum class MemberStatus : u8
 	Set, // todo remove
 	None
 };
-
-
 
 struct DynamicValue
 {
@@ -119,7 +121,7 @@ struct DynamicValue
 		DynamicSet* pSet;
 		i64 integer;
 		f64 number;
-		char* string;
+		const char* string;
 	};
 
 	i32 obj_type;
@@ -132,7 +134,6 @@ struct DynamicValue
 	}
 };
 
-
 struct DynamicDataPropertyDef
 {
 	const char* name;
@@ -143,29 +144,26 @@ struct DynamicDataPropertyDef
 	i32 typeId;
 };
 
-inline DynamicDataPropertyDef makeProperty(const char* name, DynamicValue::Type type, u64 typeNameHash = 0)
-{
-	DynamicDataPropertyDef def;
-
-	def.name = name;
-	def.type = type;
-	def.typeNameHash = typeNameHash;
-
-	def.nameHash = 0;
-	def.typeId = 0;
-
-	return def;
-}
+DynamicDataPropertyDef makeProperty(const char* name, DynamicValue::Type type, u64 typeNameHash = 0);
 
 void DynamicData_initialize(Allocator* a);
 void DynamicData_shutdown();
 
-dd_id_t		 DynamicData_instantiate_subobject(dd_obj* obj, u64 hMember);
-void	     DynamicData_clear_instantiated_subobject(dd_obj* obj, u64 hMember);
+dd_id_t DynamicData_instantiate_subobject(dd_obj* obj, u64 hMember);
+void DynamicData_clear_instantiated_subobject(dd_obj* obj, u64 hMember);
 
 DynamicValue DynamicData_make_int(i64 integer);
 DynamicValue DynamicData_make_str(const char* str);
 DynamicValue DynamicData_make_num(f64 number);
+
+f64 DynamicData_get_float(const dd_obj* object, u64 hMember);
+i64 DynamicData_get_int(const dd_obj* object, u64 hMember);
+const char* DynamicData_get_string(const dd_obj* object, u64 hMember);
+dd_id_t DynamicData_get_subobject(const dd_obj* object, u64 hMember);
+
+void DynamicData_set_float(dd_obj* object, u64 hMember, f64 value);
+void DynamicData_set_int(dd_obj* object, u64 hMember, i64 value);
+void DynamicData_set_string(dd_obj* object, u64 hMember, const char* value);
 
 // set operations
 dd_id_t DynamicData_instantiate_subobject_from_set(dd_obj* obj, u64 hMember, dd_id_t subobject);
@@ -182,7 +180,6 @@ Array<dd_id_t> DynamicData_get_subobject_set_locally_removed(const dd_obj* obj, 
 
 dd_id_t DynamicData_create_from_type(i32 typeId);
 dd_id_t DynamicData_clone(dd_id_t obj);
-DynamicValue DynamicData_obj_get(const dd_obj* obj, u64 hMember);
 
 MemberStatus DynamicData_get_member_status(const dd_obj* obj, u64 hMember);
 
@@ -198,37 +195,41 @@ const char* string_repository_own(const char* str);
 
 const char* string_repository_get(u64 hName);
 
-i32 DynamicData_register_type(const char* typeName, const DynamicDataPropertyDef* properties, i32 numProperties);
+i32 DynamicData_register_type(const char* typeName, const char* uiName, const DynamicDataPropertyDef* properties, i32 numProperties);
 
 dd_id_t DynamicData_create_from_type_name(u64 hTypeNameHash);
 
 void DynamicData_view(dd_id_t object);
 
+void DynamicData_view_draw_type_registry();
 
 // Serialization
 
 void DynamicData_serialize_json_file(const char* name, const dd_obj* object);
 
-struct Unresolved
+struct DynamicData_UnresolvedObject
 {
-	struct
+	union
 	{
-		DynamicSet* pSet;
-		Guid guid;
+		struct
+		{
+			DynamicSet* pSet;
+			Guid guid;
 
-		dd_id_t instantiated;
-		bool isRemove;
-	} set;
+			dd_id_t instantiated;
+			bool isRemove;
+		} set;
 
-	struct
-	{
-		Guid prototype;
-		dd_id_t object_id;
-	} object;
+		struct
+		{
+			Guid prototype;
+			dd_id_t object_id;
+		} object;
+	};
 
 	bool isSet;
 };
 
-bool DynamicData_deserialize_json_file(const char* path, dd_id_t* outCreated, Array<Unresolved>* inoutUnresolved);
+bool DynamicData_deserialize_json_file(const char* path, dd_id_t* outCreated, Array<DynamicData_UnresolvedObject>* inoutUnresolved);
 
-void DynamicData_resolve_unresolved(Array<Unresolved>* unresolveds);
+void DynamicData_resolve_unresolved(Array<DynamicData_UnresolvedObject>* unresolveds);

@@ -4,15 +4,15 @@
 
 void* HeapAllocator::alloc(size_t size)
 {
-	return malloc(size);
+	return ::malloc(size);
 }
 
 void HeapAllocator::free(void* block)
 {
-	free(block);
+	::free(block);
 }
 
 void HeapAllocator::freeSizeKnown(void* block, i32)
 {
-	free(block);
+	::free(block);
 }
