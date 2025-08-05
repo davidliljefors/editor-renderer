@@ -1,6 +1,5 @@
 #include "DynamicData.h"
 
-#include <cctype>
 #include <cstdarg>
 #include <cstdio>
 
@@ -10,6 +9,7 @@
 #include "Core/HashMap.h"
 #include "Core/Array.h"
 #include "Core/TempAllocator.h"
+
 
 #include "murmurhash.inl"
 #include "Random.h"
@@ -828,14 +828,14 @@ dd_obj* DynamicData_create_from_type_with_guid(i32 typeId, Guid guid, bool creat
 
 	obj->typeId = typeId;
 
-	u64 membersTotalSize = 
-		sizeof DynamicValue * pType->numProperties +
-		sizeof MemberStatus * pType->numProperties;
+	u64 membersTotalSize =
+		sizeof (DynamicValue) * pType->numProperties +
+		sizeof (MemberStatus) * pType->numProperties;
 
 	uintptr_t pMembers = (uintptr_t)DD_ALLOCATOR->alloc(membersTotalSize);
 
 	obj->members.values = (DynamicValue*)pMembers;
-	pMembers += sizeof DynamicValue * pType->numProperties;
+	pMembers += sizeof (DynamicValue) * pType->numProperties;
 	obj->members.statuses = (MemberStatus*)pMembers;
 
 	for (i32 i = 0; i < pType->numProperties; ++i)
@@ -903,8 +903,8 @@ void DynamicData_clone_internal(const dd_obj* srcObject, dd_obj* dstObject)
 	DynamicType* pType = s_types[srcObject->typeId];
 	u64 size = pType->numProperties;
 
-	dstObject->members.values = (DynamicValue*)DD_ALLOCATOR->alloc(sizeof DynamicValue * size);
-	dstObject->members.statuses = (MemberStatus*)DD_ALLOCATOR->alloc(sizeof MemberStatus * size);
+	dstObject->members.values = (DynamicValue*)DD_ALLOCATOR->alloc(sizeof (DynamicValue) * size);
+	dstObject->members.statuses = (MemberStatus*)DD_ALLOCATOR->alloc(sizeof (MemberStatus) * size);
 	dstObject->typeId = srcObject->typeId;
 
 	for (u64 i = 0; i < size; ++i)
@@ -928,7 +928,7 @@ void DynamicData_clone_internal(const dd_obj* srcObject, dd_obj* dstObject)
 		}
 		case DynamicValue::Type_Set:
 		{
-			TempAllocator ta;	
+			TempAllocator ta;
 			Array<dd_id_t> setMembers = DynamicData_get_subobject_set(srcObject, pType->properties[i].nameHash, &ta);
 			*pClone = DynamicData_set_new();
 			DynamicSet* pSet = pClone->asSet();
@@ -1174,15 +1174,15 @@ i32 DynamicData_register_type(const char* typeName, const char* uiName, const Dy
 	s_types.push_back(type);
 	s_typeNameToTypeId.add(typeNameHash, typeId);
 
-	type->nameHashToProperty = (u64*)DD_ALLOCATOR->alloc(sizeof u64 * numProperties);
-	type->properties = (DynamicDataPropertyDef*)DD_ALLOCATOR->alloc(sizeof DynamicDataPropertyDef * numProperties);
+	type->nameHashToProperty = (u64*)DD_ALLOCATOR->alloc(sizeof (u64) * numProperties);
+	type->properties = (DynamicDataPropertyDef*)DD_ALLOCATOR->alloc(sizeof (DynamicDataPropertyDef) * numProperties);
 	type->typeNameHash = typeNameHash;
 	type->typeName = string_repository_own(typeName);
 	type->typeId = typeId;
 	type->numProperties = numProperties;
 	type->uiName = uiName;
 
-	memcpy(type->properties, properties, numProperties * sizeof DynamicDataPropertyDef);
+	memcpy(type->properties, properties, numProperties * sizeof (DynamicDataPropertyDef));
 
 	for (i32 i = 0; i < numProperties; ++i)
 	{
@@ -1301,7 +1301,7 @@ void DynamicData_format_value(Printf& buf, DynamicValue value)
 		buf.write("%s", value.string);
 		break;
 	}
-} 
+}
 
 void DynamicData_view_draw_object_id(const dd_obj* pObject)
 {
@@ -1328,10 +1328,10 @@ void DynamicData_rename_modal(const dd_obj* object, u64 hMember)
 	ImVec2 center = ImGui::GetMainViewport()->GetCenter();
 	ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
 
-	if (ImGui::BeginPopupModal("Rename Item", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) 
+	if (ImGui::BeginPopupModal("Rename Item", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
 	{
 		static char input_buffer[128] = "";
-		if (ImGui::IsWindowAppearing()) 
+		if (ImGui::IsWindowAppearing())
 		{
 			const char* name = DynamicData_get_string(object, hMember);
 			strncpy_s(input_buffer, name, sizeof(input_buffer) - 1);
@@ -1339,20 +1339,20 @@ void DynamicData_rename_modal(const dd_obj* object, u64 hMember)
 		}
 
 		ImGui::Text("Enter new name:");
-		if (ImGui::InputText("##rename_input", input_buffer, sizeof(input_buffer), ImGuiInputTextFlags_EnterReturnsTrue)) 
+		if (ImGui::InputText("##rename_input", input_buffer, sizeof(input_buffer), ImGuiInputTextFlags_EnterReturnsTrue))
 		{
 			DynamicData_set_string(DynamicData_edit_object(object->id), hMember, input_buffer);
 			ImGui::CloseCurrentPopup();
 		}
 
-		if (ImGui::Button("OK", ImVec2(120, 0))) 
+		if (ImGui::Button("OK", ImVec2(120, 0)))
 		{
 			DynamicData_set_string(DynamicData_edit_object(object->id), hMember, input_buffer);
 			ImGui::CloseCurrentPopup();
 		}
 
 		ImGui::SameLine();
-		if (ImGui::Button("Cancel", ImVec2(120, 0))) 
+		if (ImGui::Button("Cancel", ImVec2(120, 0)))
 		{
 			ImGui::CloseCurrentPopup();
 		}
@@ -1773,7 +1773,7 @@ void DynamicData_view_draw_type_registry()
 {
 	if (ImGui::Begin("Dynamic Data Type Registry"))
 	{
-		
+
 
 	for (DynamicType* pType : s_types)
 	{
@@ -1847,12 +1847,12 @@ Guid yyjson_get_guid(yyjson_val* jVal) {
 		return guid;
 	}
 
-	if (!str || str[36] != '\0' || str[8] != '-' || str[13] != '-' || str[18] != '-' || str[23] != '-') 
+	if (!str || str[36] != '\0' || str[8] != '-' || str[13] != '-' || str[18] != '-' || str[23] != '-')
 	{
 		return guid;
 	}
 
-	static const u8 hex_to_val[256] = 
+	static const u8 hex_to_val[256] =
 	{
 		0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,
 		0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,
@@ -1875,7 +1875,7 @@ Guid yyjson_get_guid(yyjson_val* jVal) {
 	u8 bytes[16];
 	int byte_idx = 0;
 
-	for (int i = 0; i < 36 && byte_idx < 16; i++) 
+	for (int i = 0; i < 36 && byte_idx < 16; i++)
 	{
 		if (str[i] == '-') continue;
 
@@ -1890,11 +1890,11 @@ Guid yyjson_get_guid(yyjson_val* jVal) {
 
 	guid.a = 0;
 	guid.b = 0;
-	for (int i = 0; i < 8; i++) 
+	for (int i = 0; i < 8; i++)
 	{
 		guid.a |= (u64)bytes[i] << ((7 - i) * 8);
 	}
-	for (int i = 0; i < 8; i++) 
+	for (int i = 0; i < 8; i++)
 	{
 		guid.b |= (u64)bytes[i + 8] << ((7 - i) * 8);
 	}
@@ -1916,7 +1916,7 @@ bool MatchStringSuffix(const char* input, const char* suffix, StringPiece* outRe
 	outResult->data = input;
 	outResult->len = input_len;
 
-	if (input_len >= suffix_len && strcmp(input + input_len - suffix_len, suffix) == 0) 
+	if (input_len >= suffix_len && strcmp(input + input_len - suffix_len, suffix) == 0)
 	{
 		outResult->len = input_len - suffix_len;
 		return true;
@@ -2243,7 +2243,7 @@ void DynamicData_serialize_json_set(yyjson_mut_doc* jDoc, yyjson_mut_val* into, 
 	{
 		char buf[128];
 		snprintf(buf, 128, "%s#instantiated", setName);
-		
+
 		yyjson_mut_val* jKey = yyjson_mut_strcpy(jDoc, buf);
 		yyjson_mut_val* jArrInstantiated = yyjson_mut_arr(jDoc);
 
@@ -2326,7 +2326,7 @@ void DynamicData_serialize_json_value(yyjson_mut_doc* jDoc, yyjson_mut_val* into
 			break;
 		}
 		case DynamicValue::Type_Set:
-		{	
+		{
 			DynamicData_serialize_json_set(jDoc, into, object, i);
 			break;
 		}
@@ -2398,7 +2398,7 @@ void DynamicData_serialize_json_file(const char* name, const dd_obj* object)
 	yyjson_write_err err;
 	yyjson_mut_write_file(buf, jDoc, flg, nullptr, &err);
 
-	if (err.code) 
+	if (err.code)
 	{
 		printf("write error (%u): %s\n", err.code, err.msg);
 		DYNAMIC_DATA_ERROR("Could not write file");
@@ -2505,5 +2505,3 @@ void DynamicData_resolve_unresolved(Array<DynamicData_UnresolvedObject>* unresol
 		}
 	}
 }
-
-	

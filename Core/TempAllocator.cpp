@@ -8,7 +8,7 @@ static Block* s_freeBlocks = nullptr;
 void return_block(Block* block)
 {
     Block* last = block;
-    
+
     for(;;)
     {
         if(last->header.prev)
@@ -46,7 +46,7 @@ void block_memory_init()
 {
     for(i32 i = 0; i < 8; i++)
     {
-        Block* block = (Block*)::malloc(sizeof Block);
+        Block* block = (Block*)::malloc(sizeof (Block));
         block->header.prev = s_freeBlocks;
         s_freeBlocks = block;
     }

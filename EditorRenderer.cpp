@@ -1,5 +1,6 @@
 #include "EditorRenderer.h"
 
+#include <cstdio>
 
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
@@ -13,7 +14,6 @@
 #include "Math.h"
 
 #include "imgui.h"
-#include "imgui_internal.h"
 #include "imgui_impl_win32.h"
 #include "imgui_impl_dx11.h"
 #include "Core/TempAllocator.h"
@@ -48,13 +48,13 @@ struct alignas(16) CBufferCpu
 {
 	matrix view;
 	matrix projection;
-	
+
 	float3 lightvector;
 	float _pad0;
-	
+
 	float3 lightColor;
 	float _pad1;
-	
+
 
 	float ambientStr;
 	float specularStr;
@@ -98,7 +98,7 @@ struct ViewportData
     ID3D11Texture2D* idRenderTargetTexture;
     ID3D11RenderTargetView* idRenderTargetView;
     ID3D11Texture2D* idStagingTexture;
-    
+
     IViewport* usr;
 };
 
@@ -186,7 +186,7 @@ void load_default_shaders(ID3D11Device* device, Model* model)
     HRESULT hr;
     ID3DBlob* p_vertex_shader_cso;
     ID3DBlob* p_error_blob = nullptr;
-    hr = D3DCompileFromFile(TEXT("../../main.hlsl"), nullptr, nullptr, "VS_Main", "vs_5_0", 0, 0, &p_vertex_shader_cso, &p_error_blob);
+    hr = D3DCompileFromFile(L"main.hlsl", nullptr, nullptr, "VS_Main", "vs_5_0", 0, 0, &p_vertex_shader_cso, &p_error_blob);
     breakIfFailed(hr, device);
 
     if (p_error_blob)
@@ -214,7 +214,7 @@ void load_default_shaders(ID3D11Device* device, Model* model)
     p_vertex_shader_cso->Release();
 
     ID3DBlob* p_pixel_shader_cso;
-    hr = D3DCompileFromFile(TEXT("../../main.hlsl"), nullptr, nullptr, "PS_Main", "ps_5_0", 0, 0, &p_pixel_shader_cso, &p_error_blob);
+    hr = D3DCompileFromFile(L"main.hlsl", nullptr, nullptr, "PS_Main", "ps_5_0", 0, 0, &p_pixel_shader_cso, &p_error_blob);
     breakIfFailed(hr, device);
 
     if (p_error_blob)
@@ -282,7 +282,7 @@ void load_picking_shaders(ID3D11Device* device, Model::Picking* picking)
     HRESULT hr;
     ID3DBlob* p_vertex_shader_cso;
     ID3DBlob* p_error_blob = nullptr;
-    hr = D3DCompileFromFile(TEXT("../../picking.hlsl"), nullptr, nullptr, "VS_Picking", "vs_5_0", 0, 0, &p_vertex_shader_cso, &p_error_blob);
+    hr = D3DCompileFromFile(L"picking.hlsl", nullptr, nullptr, "VS_Picking", "vs_5_0", 0, 0, &p_vertex_shader_cso, &p_error_blob);
     breakIfFailed(hr, device);
 
     if (p_error_blob)
@@ -297,7 +297,7 @@ void load_picking_shaders(ID3D11Device* device, Model::Picking* picking)
     ID3D11ShaderReflection* reflector;
 	hr = D3DReflect(p_vertex_shader_cso->GetBufferPointer(), p_vertex_shader_cso->GetBufferSize(), __uuidof(ID3D11ShaderReflection), (void**)&reflector);
     breakIfFailed(hr, device);
-	
+
     D3D11_SHADER_DESC desc;
 	reflector->GetDesc(&desc);
 
@@ -324,7 +324,7 @@ void load_picking_shaders(ID3D11Device* device, Model::Picking* picking)
     p_vertex_shader_cso->Release();
 
     ID3DBlob* p_pixel_shader_cso;
-    hr = D3DCompileFromFile(TEXT("../../picking.hlsl"), nullptr, nullptr, "PS_Picking", "ps_5_0", 0, 0, &p_pixel_shader_cso, &p_error_blob);
+    hr = D3DCompileFromFile(L"picking.hlsl", nullptr, nullptr, "PS_Picking", "ps_5_0", 0, 0, &p_pixel_shader_cso, &p_error_blob);
     breakIfFailed(hr, device);
 
     if (p_error_blob)
@@ -364,85 +364,85 @@ void load_picking_shaders(ID3D11Device* device, Model::Picking* picking)
 inline void generate_sphere_mesh(ID3D11Device* device, Mesh* mesh, int latitude_count = 8, int longitude_count = 8)
 {
     TempAllocator ta;
-    
+
     Array<float> vertices(&ta);
     Array<UINT> indices(&ta);
-    
+
     // Generate vertices
-    for(int lat = 0; lat <= latitude_count; lat++) 
+    for(int lat = 0; lat <= latitude_count; lat++)
     {
         float theta = lat * 3.14159f / latitude_count;
         float sin_theta = sinf(theta);
         float cos_theta = cosf(theta);
-        
-        for(int lon = 0; lon <= longitude_count; lon++) 
+
+        for(int lon = 0; lon <= longitude_count; lon++)
         {
             float phi = lon * 2.0f * 3.14159f / longitude_count;
             float sin_phi = sinf(phi);
             float cos_phi = cosf(phi);
-            
+
             float x = cos_phi * sin_theta;
             float y = cos_theta;
             float z = sin_phi * sin_theta;
-            
+
             // Position
             vertices.push_back(x);
             vertices.push_back(y);
             vertices.push_back(z);
-            
+
             // Normal (same as position for sphere)
             vertices.push_back(x);
             vertices.push_back(y);
             vertices.push_back(z);
-            
+
             // Texcoord
             vertices.push_back(lon / (float)longitude_count);
             vertices.push_back(lat / (float)latitude_count);
-            
+
             // Color (white)
             vertices.push_back(1.0f);
             vertices.push_back(1.0f);
             vertices.push_back(1.0f);
         }
     }
-    
-    for(int lat = 0; lat < latitude_count; lat++) 
+
+    for(int lat = 0; lat < latitude_count; lat++)
     {
-        for(int lon = 0; lon < longitude_count; lon++) 
+        for(int lon = 0; lon < longitude_count; lon++)
         {
             int first = lat * (longitude_count + 1) + lon;
             int second = first + longitude_count + 1;
-            
+
             // First triangle
             indices.push_back(first);
             indices.push_back(first + 1);
             indices.push_back(second);
-            
+
             // Second triangle
             indices.push_back(second);
             indices.push_back(first + 1);
             indices.push_back(second + 1);
         }
     }
-    
+
     D3D11_BUFFER_DESC vertex_buffer_desc = {};
     vertex_buffer_desc.ByteWidth = vertices.size() * sizeof(float);
     vertex_buffer_desc.Usage = D3D11_USAGE_IMMUTABLE;
     vertex_buffer_desc.BindFlags = D3D11_BIND_VERTEX_BUFFER;
     D3D11_SUBRESOURCE_DATA vertex_buffer_srd = {};
     vertex_buffer_srd.pSysMem = vertices.data();
-    
+
     device->CreateBuffer(&vertex_buffer_desc, &vertex_buffer_srd, &mesh->vertexBuffer);
-    
+
     D3D11_BUFFER_DESC index_buffer_desc = {};
     index_buffer_desc.ByteWidth = indices.size() * sizeof(UINT);
     index_buffer_desc.Usage = D3D11_USAGE_IMMUTABLE;
     index_buffer_desc.BindFlags = D3D11_BIND_INDEX_BUFFER;
     D3D11_SUBRESOURCE_DATA index_buffer_srd ={};
     index_buffer_srd.pSysMem = indices.data();
-    
+
     device->CreateBuffer(&index_buffer_desc, &index_buffer_srd, &mesh->indexBuffer);
-    
+
     mesh->indices = indices.size();
 }
 
@@ -611,7 +611,7 @@ void createAssetResources(EditorRenderer* rend)
         load_picking_shaders(rend->device, &model.picking);
         generate_sphere_mesh(rend->device, &model.mesh);
     }
-    
+
     rend->m_camera.m_position = float3{0.0f, 0.0f, -4.0f};
     rend->m_camera.m_yaw = 0.0f;
     rend->m_camera.m_pitch = 0.0f;
@@ -657,7 +657,7 @@ void createViewportResources(EditorRenderer* rend, ViewportData* vp)
     texDesc.BindFlags = D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE;
 
     HRESULT hr;
-    
+
     hr = rend->device->CreateTexture2D(&texDesc, nullptr, &vp->renderTargetTexture);
     breakIfFailed(hr, rend->device);
     hr = rend->device->CreateRenderTargetView(vp->renderTargetTexture, nullptr, &vp->renderTargetView);
@@ -724,7 +724,7 @@ void createResources(EditorRenderer* rend, u32 w, u32 h)
 
     rend->width = w;
     rend->height = h;
-    
+
 
     if (rend->swapChain)
     {
@@ -734,7 +734,7 @@ void createResources(EditorRenderer* rend, u32 w, u32 h)
         {
             // If the device was removed for any reason, a new device and swap chain will need to be created.
             onDeviceLost(rend);
-            // Everything is set up now. Do not continue execution of this method. OnDeviceLost will reenter this method 
+            // Everything is set up now. Do not continue execution of this method. OnDeviceLost will reenter this method
             // and correctly set up the new device.
             return;
         }
@@ -867,7 +867,7 @@ void preRenderSync(EditorRenderer* rend)
         createResources(rend, rend->newWidth, rend->newHeight);
     }
 
-    if (ImGui::GetIO().ConfigFlags & ImGuiConfigFlags_ViewportsEnable) 
+    if (ImGui::GetIO().ConfigFlags & ImGuiConfigFlags_ViewportsEnable)
     {
         ImGui::UpdatePlatformWindows();
         ImGui::RenderPlatformWindowsDefault();
@@ -893,23 +893,23 @@ void renderFrame(EditorRenderer* rend)
     float current_time = (float)GetTickCount64() / 1000.0f;
     float delta_time = current_time - rend->m_last_frame_time;
     rend->m_last_frame_time = current_time;
-    
+
     {
 	    bool w = GetAsyncKeyState('W') & 0x8000;
 	    bool a = GetAsyncKeyState('A') & 0x8000;
 	    bool s = GetAsyncKeyState('S') & 0x8000;
 	    bool d = GetAsyncKeyState('D') & 0x8000;
 	    bool boost = GetAsyncKeyState(VK_LSHIFT) & 0x8000;
-	    
+
 	    rend->m_camera.update_movement(w, a, s, d, boost, delta_time);
     }
-    
+
     FLOAT clearcolor[4] = { 0.015f, 0.015f, 0.315f, 1.0f };
 
     UINT stride[2] = { 11 * sizeof(float), sizeof(GpuInstance) };
     UINT idStride[2] = { 11 * sizeof(float), sizeof(PickingInstance) };
     UINT offset[2] = { 0, 0 };
-   
+
     auto& context = rend->context;
     auto& constantbuffer = rend->constantBuffer;
 
@@ -921,9 +921,9 @@ void renderFrame(EditorRenderer* rend)
         float fov_y = 3.14159f * 0.5f;
         float f = 1000.0f;
         float n = 0.1f;
-        
+
         float tan_half_fov = tanf(fov_y * 0.5f);
-        matrix proj = matrix{ 
+        matrix proj = matrix{
             float4{1.0f / (aspect_ratio * tan_half_fov), 0, 0, 0},
             float4{0, 1.0f / tan_half_fov, 0, 0},
             float4{0, 0, f / (f - n), 1},
@@ -940,7 +940,7 @@ void renderFrame(EditorRenderer* rend)
         context->OMSetBlendState(nullptr, nullptr, 0xffffffff);
 
         auto& model = rend->m_models[0];
-        
+
         context->IASetInputLayout(model.inputLayout);
         ID3D11Buffer* buffers[2] = { model.mesh.vertexBuffer, model.instanceBuffer };
         context->IASetVertexBuffers(0, 2, buffers, stride, offset);

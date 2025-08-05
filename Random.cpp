@@ -2,7 +2,6 @@
 
 #define WIN32_LEAN_AND_MEAN
 #include <cstdio>
-#include <cstdlib>
 #include <windows.h>
 #include <wincrypt.h>
 
@@ -38,7 +37,7 @@ void xoshiro_random_bytes(Xoshiro256* state, u8* buffer, u64 length)
 {
 	u64 i = 0;
 
-	while (i + 8 <= length) 
+	while (i + 8 <= length)
 	{
 		u64 val = xoshiro_next(state);
 		memcpy(buffer + i, &val, 8);
@@ -46,7 +45,7 @@ void xoshiro_random_bytes(Xoshiro256* state, u8* buffer, u64 length)
 	}
 
 	u64 bitsLet = length & 7;
-	if (bitsLet > 0) 
+	if (bitsLet > 0)
 	{
 		u64 val = xoshiro_next(state);
 		switch (bitsLet)
@@ -73,7 +72,6 @@ void Random_initialize_context()
 	if (!success)
 	{
 		fprintf(stderr, "CryptAcquireContext failed: %lu\n", GetLastError());
-		abort();
 	}
 
 	success = CryptGenRandom(hCryptProv, sizeof(seed), seed);
@@ -81,7 +79,6 @@ void Random_initialize_context()
 	{
 		fprintf(stderr, "CryptGenRandom failed: %lu\n", GetLastError());
 		CryptReleaseContext(hCryptProv, 0);
-		abort();
 	}
 
 	CryptReleaseContext(hCryptProv, 0);
@@ -102,13 +99,13 @@ void Random_bits(void* buffer, u64 length)
 Guid Random_guid()
 {
 	Guid g;
-	Random_bits(&g, sizeof Guid);
+	Random_bits(&g, sizeof (Guid));
 	return g;
 }
 
 u64 Random_u64()
 {
 	u64 u;
-	Random_bits(&u, sizeof u64);
+	Random_bits(&u, sizeof (u64));
 	return u;
 }

@@ -23,33 +23,9 @@ struct HashFind
 
 struct Entry
 {
-	template<typename U>
-	static auto test_clone(U* p) -> decltype(p->clone(), char(0)) { return 0; }
-	static char(&test_clone(...))[2] { static char arr[2] = {}; return arr; }
-
-	static constexpr bool has_clone = sizeof(test_clone((T*)0)) == 1;
-
 	u64 key;
 	u32 next;
 	T value;
-
-	Entry& operator=(const Entry& e)
-	{
-		if constexpr(has_clone)
-		{
-			key = e.key;
-			value = e.value.clone();
-			next = e.next;
-		}
-		else
-		{
-			key = e.key;
-			value = e.value;
-			next = e.next;
-		}
-
-		return *this;
-	}
 };
 
 public:
@@ -84,7 +60,7 @@ public:
 
 		Array<Entry>* ref;
 		i32 index;
-	};	
+	};
 
 	explicit HashMap(Allocator* allocator)
 		: m_hash(allocator)
