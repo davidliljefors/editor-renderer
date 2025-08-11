@@ -212,20 +212,6 @@ static HashMap<const char*> s_string_repository;
 static HashMap<i32> s_typeNameToTypeId;
 static Array<DynamicType*> s_types;
 
-struct Hasher
-{
-
-	u64 operator()(u64 val) const
-	{
-		return val;
-	}
-
-	u64 operator()(Guid guid) const
-	{
-		return guid.a ^ guid.b;
-	}
-};
-
 static HashMap<dd_obj*> s_objects;
 static HashMap<dd_id_t> s_guidToObject;
 
@@ -727,9 +713,9 @@ void DynamicData_cancel_remove_from_prototype_subobject_set(dd_obj* obj, u64 hMe
 	}
 }
 
-void DynamicData_set_compose(const dd_obj* obj, u64 hMember, Array<dd_id_t>& ids, Array<dd_id_t>& values)
+void DynamicData_set_compose(const dd_obj* obj, u64 index, Array<dd_id_t>& ids, Array<dd_id_t>& values)
 {
-	if (obj->members.values[hMember].type != DynamicValue::Type_Set)
+	if (obj->members.values[index].type != DynamicValue::Type_Set)
 	{
 		DYNAMIC_DATA_ERROR("Member is not a set");
 		return;
@@ -739,10 +725,10 @@ void DynamicData_set_compose(const dd_obj* obj, u64 hMember, Array<dd_id_t>& ids
 
 	if (prototype)
 	{
-		DynamicData_set_compose(prototype, hMember, ids, values);
+		DynamicData_set_compose(prototype, index, ids, values);
 	}
 
-	DynamicSet* pSet = obj->members.values[hMember].asSet();
+	DynamicSet* pSet = obj->members.values[index].asSet();
 
 	for (auto& add : pSet->added.values)
 	{

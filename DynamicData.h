@@ -152,10 +152,6 @@ void DynamicData_shutdown();
 dd_id_t DynamicData_instantiate_subobject(dd_obj* obj, u64 hMember);
 void DynamicData_clear_instantiated_subobject(dd_obj* obj, u64 hMember);
 
-DynamicValue DynamicData_make_int(i64 integer);
-DynamicValue DynamicData_make_str(const char* str);
-DynamicValue DynamicData_make_num(f64 number);
-
 f64 DynamicData_get_float(const dd_obj* object, u64 hMember);
 i64 DynamicData_get_int(const dd_obj* object, u64 hMember);
 const char* DynamicData_get_string(const dd_obj* object, u64 hMember);

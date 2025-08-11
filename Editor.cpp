@@ -443,7 +443,7 @@ void EditorApp::update()
 		{
 			dd_id_t entity = DynamicData_create_from_type_name(TM_STATIC_HASH("entity", 0x9831ca893b0d087dULL));
 			dd_obj* entity_w = DynamicData_edit_object(entity);
-			DynamicData_obj_assign(entity_w, TM_STATIC_HASH("name", 0xd4c943cba60c270bULL), DynamicData_make_str(entity_name_buf));
+			DynamicData_set_string(entity_w, TM_STATIC_HASH("name", 0xd4c943cba60c270bULL), entity_name_buf);
 			m_roots.push_back(entity);
 			entering_name = false;
 			ZeroMemory(entity_name_buf, 64);
